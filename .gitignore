@@ -1,0 +1,11 @@
+.DS_Store
+*.swp
+*.swo
+*~
+.env
+.env.local
+.idea/
+.vscode/
+
+# Test fixture git repo (self-contained for testing)
+test-fixture/.git/
