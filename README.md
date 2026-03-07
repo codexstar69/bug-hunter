@@ -175,20 +175,23 @@ Five real bugs beat twenty false positives. Quality over quantity.
 
 By default, the fix pipeline is **fully autonomous** — no human intervention needed. Bugs are found, fixed, tested, and verified end-to-end. Use `--approve` to opt into manual approval mode.
 
+**All fixes happen on a separate branch** — your working branch is never touched. Review the diff, then merge when you're ready.
+
 | Mode | Behavior |
 |------|----------|
-| `--fix` (default) | Fully autonomous — finds bugs, creates branch, applies fixes, runs tests, auto-reverts failures |
+| `--fix` (default) | Fully autonomous — creates branch, applies fixes, runs tests, auto-reverts failures |
 | `--fix --approve` | Pauses before each fix for manual approval |
 
 ### Safety
 
-1. **Git safety** — stashes uncommitted changes, creates a dedicated fix branch
-2. **Test baseline** — captures pre-fix test results for accurate diffing
-3. **Checkpoint commits** — each bug fix is a separate `fix(bug-hunter): BUG-N` commit
-4. **Auto-revert** — if a fix causes new test failures, it's automatically reverted via `git revert`
-5. **Post-fix re-scan** — a lightweight Hunter scans only changed lines to catch fixer-introduced bugs
-6. **Individual revertability** — any fix can be surgically reverted without affecting others
-7. **Test hooks** — auto-detects test runner, typecheck, and build commands from your project config
+1. **Dedicated fix branch** — creates `bug-hunter-fix-<timestamp>` branch from your current branch. Your code stays untouched until you merge.
+2. **Stashes uncommitted work** — any dirty working tree is stashed before fixes begin, restored after
+3. **Test baseline** — captures pre-fix test results for accurate diffing
+4. **Checkpoint commits** — each bug fix is a separate `fix(bug-hunter): BUG-N` commit
+5. **Auto-revert** — if a fix causes new test failures, it's automatically reverted via `git revert`
+6. **Post-fix re-scan** — a lightweight Hunter scans only changed lines to catch fixer-introduced bugs
+7. **Individual revertability** — any fix can be surgically reverted without affecting others
+8. **Test hooks** — auto-detects test runner, typecheck, and build commands from your project config
 
 ---
 
