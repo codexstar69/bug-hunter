@@ -62,23 +62,36 @@ Each fix is an individual commit that can be reverted independently. Failed fixe
 
 ---
 
-## Supported Editors and Terminals
+## Supported Coding Agents and Editors
 
-Bug Hunter works with any IDE or terminal that supports coding agent skills:
+### Coding Agents (CLI)
 
-| Platform | Status |
-|----------|--------|
-| **VS Code** / **Cursor** / **Windsurf** | Full support |
+| Agent | Status |
+|-------|--------|
+| **Claude Code** | Full support |
+| **OpenAI Codex CLI** | Full support |
+| **GitHub Copilot CLI** | Full support |
+| **Kiro CLI** (AWS) | Full support |
+| **Pi Coding Agent** | Full support |
+| **Opencode** | Full support |
+| **Gemini CLI** | Full support |
+| **Amp** | Full support |
+
+### Editors and IDEs
+
+| Editor | Status |
+|--------|--------|
+| **Cursor** | Full support |
+| **VS Code** / **Windsurf** | Full support |
 | **JetBrains** (IntelliJ, PyCharm, WebStorm) | Full support |
 | **Antigravity** (Google) | Full support |
-| **Kiro** (AWS) | Full support |
-| **Gemini CLI** | Full support |
-| **OpenAI Codex CLI** | Full support |
-| **Amp** | Full support |
 | **Neovim** / **Vim** | Full support via terminal |
-| **Any terminal** (iTerm2, Ghostty, Warp, Alacritty, Kitty, Hyper, Windows Terminal) | Full support |
 
-> Works everywhere. If your editor or terminal supports coding agent skills, Bug Hunter works out of the box.
+### Terminals
+
+Works in **any terminal** — iTerm2, Ghostty, Warp, Alacritty, Kitty, Hyper, Windows Terminal.
+
+> If your coding agent or editor supports skills, Bug Hunter works out of the box.
 
 ---
 
