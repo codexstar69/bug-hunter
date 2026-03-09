@@ -119,7 +119,7 @@ Then determine partitioning:
 | 11 to FILE_BUDGET | Parallel mode (hybrid) | 1 deep Hunter (+ optional 2 read-only triage Hunters) | 1-2 by directory |
 | FILE_BUDGET+1 to FILE_BUDGET*2 | Extended mode | Sequential chunked Hunters | 1-2 by directory |
 | FILE_BUDGET*2+1 to FILE_BUDGET*3 | Scaled mode | Sequential chunked Hunters with resume state | 1-2 by directory |
-| > FILE_BUDGET*3 | Loop mode required | Sequential chunk pipeline across iterations | 1-2 by directory |
+| > FILE_BUDGET*3 | Large-codebase mode + Loop | Domain-scoped pipelines + boundary audits | Per-domain 1-2 |
 
 If Recon did not produce a FILE_BUDGET (e.g., Recon was skipped), use the default of 40.
 
@@ -130,7 +130,7 @@ If Recon did not produce a FILE_BUDGET (e.g., Recon was skipped), use the defaul
 - Persist chunk progress in `.claude/bug-hunter-state.json` so restarts do not re-scan done chunks.
 - Test files (CONTEXT-ONLY) are included only when needed for intent.
 
-If the codebase exceeds FILE_BUDGET * 3 and `--loop` was not specified, warn the user: "This codebase has [N] source files (FILE_BUDGET: [B]). For thorough coverage, consider using `--loop` mode."
+If the codebase exceeds FILE_BUDGET * 3 and `--loop` was not specified, warn the user: "This codebase has [N] source files (FILE_BUDGET: [B]). For thorough coverage, use `--loop` mode. Large codebases use domain-scoped auditing — see `modes/large-codebase.md`."
 
 ## Execution Steps
 
@@ -309,7 +309,7 @@ Read the corresponding mode file:
 - 11 to FILE_BUDGET: `SKILL_DIR/modes/parallel.md`
 - FILE_BUDGET+1 to FILE_BUDGET*2: `SKILL_DIR/modes/extended.md`
 - FILE_BUDGET*2+1 to FILE_BUDGET*3: `SKILL_DIR/modes/scaled.md`
-- > FILE_BUDGET*3: force `LOOP_MODE=true` and read `SKILL_DIR/modes/loop.md`
+- > FILE_BUDGET*3: force `LOOP_MODE=true` and read `SKILL_DIR/modes/large-codebase.md` then `SKILL_DIR/modes/loop.md`
 
 **Backend override for local-sequential:** If `AGENT_BACKEND = "local-sequential"`, read `SKILL_DIR/modes/local-sequential.md` instead of the size-based mode file. The local-sequential mode handles all sizes internally with its own chunking logic.
 

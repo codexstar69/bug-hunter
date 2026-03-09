@@ -15,6 +15,17 @@
 - **`plan` command**: `run-bug-hunter.cjs` now supports `plan --files-json <path>` to generate a chunk plan as JSON without executing — LLM agents can read this plan and process chunks via their own dispatch
 - **Prompt output headers**: All 5 prompt files (recon, hunter, skeptic, referee, fixer) now have "Output Destination" and "Scope Rules" sections at the top, telling subagents where to write output and what their boundaries are
 
+### Added — Large Codebase Strategy
+- **Domain-scoped auditing**: New `modes/large-codebase.md` replaces flat chunking for huge codebases (>FILE_BUDGET×3 files) with a 3-tier strategic approach:
+  - Tier 0: Rapid recon classifies domains (not individual files) by risk using directory structure heuristics
+  - Tier 1: Full pipeline (Recon → Hunter → Skeptic → Referee) runs independently per domain, preserving domain coherence
+  - Tier 2: Cross-domain boundary audit targets service interaction points where the most dangerous bugs hide
+  - Tier 3: Merge, deduplicate, and report with per-domain breakdown
+- **Domain-aware state**: state file tracks domain completion status so interrupted runs resume at the domain level
+- **Boundary pair detection**: cross-domain imports are identified to audit trust boundary violations, contract mismatches, and auth gaps between services
+- **Skip LOW domains**: `--exhaustive` flag controls whether low-risk domains (UI components, test utils) are audited
+- **Delta-first repeat scans**: `--delta` maps changed files to their domains and re-audits only affected domains
+
 ## 2026-03-08
 
 ### Changed
