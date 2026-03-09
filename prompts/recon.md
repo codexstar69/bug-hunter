@@ -6,16 +6,94 @@ Write your complete Recon report to the file path provided in your assignment (t
 
 ## How to work
 
-1. Use Glob to discover all source files. Apply the standard skip rules (no docs, config, assets, vendor dirs).
-2. Quickly scan file names and directory structure to understand the architecture.
-3. Read key files briefly (entry points, routers, middleware, main modules) — skim, don't deep-read.
-4. Use Grep to find patterns that indicate high-risk areas.
-5. **Measure file sizes** — run this command on all discovered source files (excluding test files):
+### File discovery (use whatever tools your runtime provides)
+
+Discover all source files under the scan target. The exact commands depend on your runtime:
+
+**If you have `fd` (ripgrep companion):**
+```bash
+fd -e ts -e js -e tsx -e jsx -e py -e go -e rs -e java -e rb -e php . <target>
+```
+
+**If you have `find` (standard Unix):**
+```bash
+find <target> -type f \( -name '*.ts' -o -name '*.js' -o -name '*.py' -o -name '*.go' -o -name '*.rs' -o -name '*.java' -o -name '*.rb' -o -name '*.php' \)
+```
+
+**If you have Glob tool (Claude Code, some IDEs):**
+```
+Glob("**/*.{ts,js,py,go,rs,java,rb,php}")
+```
+
+**If you only have `ls` and Read tool:**
+```bash
+ls -R <target> | head -500
+```
+Then read directory listings to identify source files manually.
+
+**Apply skip rules regardless of tool:** Exclude these directories: `node_modules`, `vendor`, `dist`, `build`, `.git`, `__pycache__`, `.next`, `coverage`, `docs`, `assets`, `public`, `static`, `.cache`, `tmp`.
+
+### Pattern searching (use whatever search your runtime provides)
+
+To find trust boundaries and high-risk patterns, use whichever search tool is available:
+
+**If you have `rg` (ripgrep):**
+```bash
+rg -l "app\.(get|post|put|delete|patch)" <target>
+rg -l "jwt|jsonwebtoken|bcrypt|crypto" <target>
+```
+
+**If you have `grep`:**
+```bash
+grep -rl "app\.\(get\|post\|put\|delete\)" <target>
+```
+
+**If you have Grep tool (Claude Code):**
+```
+Grep("app.get|app.post|router.", <target>)
+```
+
+**If you only have the Read tool:** Read entry point files (index.ts, app.ts, main.py, etc.) and follow imports to discover the architecture manually. This is slower but works on every runtime.
+
+### Measuring file sizes
+
+**If you have `wc`:**
+```bash
+# All source files at once
+fd -e ts -e js . <target> | xargs wc -l | tail -1
+# or
+find <target> -name '*.ts' -o -name '*.js' | xargs wc -l | tail -1
+```
+
+**If you only have Read tool:** Read 5-10 representative files. Note line counts from the Read tool output (most Read tools report line counts). Extrapolate the average.
+
+The goal is to compute `average_lines_per_file` — the method doesn't matter as long as you get a reasonable estimate.
+
+### Scaling strategy (critical for large codebases)
+
+**If total source files ≤ 200:** Classify every file individually into CRITICAL/HIGH/MEDIUM/CONTEXT-ONLY. This is the standard approach.
+
+**If total source files > 200:** Do NOT classify individual files. Instead:
+
+1. **Classify directories (domains)** by risk based on directory names and a quick sample:
+   - CRITICAL: directories named `auth`, `security`, `payment`, `billing`, `api`, `middleware`, `gateway`, `session`
+   - HIGH: `models`, `services`, `controllers`, `routes`, `handlers`, `db`, `database`, `queue`, `worker`
+   - MEDIUM: `utils`, `helpers`, `lib`, `common`, `shared`, `config`
+   - LOW: `ui`, `components`, `views`, `templates`, `styles`, `docs`, `scripts`, `migrations`
+   - CONTEXT-ONLY: `test`, `tests`, `__tests__`, `spec`, `fixtures`
+
+2. **Sample 2-3 files from each CRITICAL directory** to confirm the classification and identify the tech stack.
+
+3. **Report the domain map** instead of a flat file list:
    ```
-   wc -l <file1> <file2> ... | tail -1
+   CRITICAL: packages/auth (42 files), packages/billing (38 files)
+   HIGH: packages/orders (56 files), packages/api (25 files)
+   MEDIUM: packages/utils (31 files)
    ```
-   Or for large file lists: `find <target> -name '*.ts' -o -name '*.js' -o -name '*.py' ... | xargs wc -l | tail -1`
-   Record the total line count and compute average lines per file. This drives the dynamic context budget.
+
+4. **The orchestrator will use `modes/large-codebase.md`** to process domains one at a time, running per-domain Recon to classify individual files within each domain.
+
+This avoids the impossible task of reading 2,000 files during Recon.
 
 ## What to map
 

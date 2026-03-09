@@ -14,9 +14,9 @@ All state files go in `.claude/` relative to the working directory.
 
 1. Read `SKILL_DIR/prompts/recon.md` with the Read tool — do NOT act from memory.
 2. Execute the Recon instructions yourself:
-   - Use `fd` or `find` to discover all source files under the scan target.
+   - Use file discovery tools available in your runtime (`fd`, `find`, Glob tool, or `ls -R`) to discover all source files under the scan target.
    - Apply the skip rules from SKILL.md (filter out docs, config, assets, vendor dirs).
-   - Use `rg` to find trust boundaries (route handlers, auth checks, DB queries, etc.).
+   - Use search tools (`rg`, `grep`, Grep tool, or manual Read) to find trust boundaries (route handlers, auth checks, DB queries, etc.).
    - Measure file sizes: `wc -l <files> | tail -1` to compute average lines per file.
    - Classify every file into CRITICAL / HIGH / MEDIUM / CONTEXT-ONLY.
    - Compute FILE_BUDGET: `floor(150000 / (avg_lines × 4))`, capped at 60, floored at 10.

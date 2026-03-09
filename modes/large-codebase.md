@@ -17,14 +17,16 @@ Instead of classifying every file, do a **structural scan only**:
 
 1. **Discover the domain map** using directory structure:
    ```bash
-   # Find top-level domains (packages, services, modules)
-   fd -t d --max-depth 2 . <target> | head -50
+   # Use whichever tool is available:
+   # fd:   fd -t d --max-depth 2 . <target> | head -50
+   # find: find <target> -maxdepth 2 -type d | head -50
+   # ls:   ls -d <target>/*/ <target>/*/*/ 2>/dev/null | head -50
    ```
 2. **Count files per domain**:
    ```bash
-   for dir in <domains>; do
-     echo "$dir: $(fd -e ts -e js -e py -e go -e rs . "$dir" | wc -l) files"
-   done
+   # fd:   fd -e ts -e js -e py -e go -e rs . "$dir" | wc -l
+   # find: find "$dir" -type f \( -name '*.ts' -o -name '*.js' \) | wc -l
+   # ls -R: ls -R "$dir" | wc -l  (rough estimate)
    ```
 3. **Classify domains (not files) by risk**:
    - CRITICAL domains: auth, payments, security, API gateways, middleware
@@ -82,11 +84,12 @@ For each domain (CRITICAL first, then HIGH, then MEDIUM):
 
 After all individual domains are audited, run a **boundary-focused pass** that specifically targets service interaction points:
 
-1. **Identify boundary files**: Files that import from or are imported by other domains:
+1. **Identify boundary files**: Files that import from or are imported by other domains.
+   Use whichever search tool is available:
    ```bash
-   # Find cross-domain imports
-   rg -l "from ['\"]\.\./(auth|billing|orders)" packages/api-gateway/
-   rg -l "import.*from.*@packages/(auth|billing)" packages/orders/
+   # rg:   rg -l "from ['\"]\.\./(auth|billing|orders)" packages/api-gateway/
+   # grep: grep -rl "from.*\.\./auth\|from.*\.\./billing" packages/api-gateway/
+   # Read: manually read entry files of each domain and trace cross-domain imports
    ```
 
 2. **Build boundary pairs**: Group files by the domains they connect:

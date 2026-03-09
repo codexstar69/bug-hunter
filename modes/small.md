@@ -11,7 +11,7 @@ All phases are dispatched using the `AGENT_BACKEND` selected during SKILL prefli
 
 1. Read `SKILL_DIR/prompts/recon.md` with the Read tool.
 2. Execute Recon yourself:
-   - Discover source files: `fd -e ts -e js -e py -e go -e rs . <target>`
+   - Discover source files using available tools (`fd`, `find`, `ls -R`, or Glob tool).
    - Classify into CRITICAL / HIGH / MEDIUM / CONTEXT-ONLY.
    - Compute FILE_BUDGET (should be ≥ file count for small mode).
    - Identify tech stack: framework, auth, database, key dependencies.
