@@ -162,15 +162,58 @@ Before doing anything else, verify the environment:
    If missing, stop and tell the user to update/reinstall the skill.
 
 6. **Select orchestration backend (cross-CLI portability)**:
-   - Detect available orchestration primitives in the current CLI/runtime.
-   - Set `AGENT_BACKEND` using this priority:
-     1. `spawn_agent` + `wait`
-     2. native `subagent` delegation
-     3. team-agent orchestration tools
-     4. `local-sequential` (no subagents; run all phases in the main agent)
-   - Use exactly ONE backend for the whole run (no mixing unless fallback is triggered).
-   - If launch fails once on the selected backend, fall back to the next backend and continue.
-   - If all remote backends fail, continue with `local-sequential` mode.
+
+   Detect which dispatch tools are available in your runtime. Use the FIRST that works:
+
+   **Option A — `subagent` tool (Pi agent, preferred for parallel):**
+   - Test: call `subagent({ action: "list" })`. If it returns without error, this backend works.
+   - Set `AGENT_BACKEND = "subagent"`
+   - Dispatch pattern for each phase:
+     ```
+     subagent({
+       agent: "<role>-agent",
+       task: "<filled subagent-wrapper template with prompt content + assignment>",
+       output: ".claude/bug-hunter-<phase>-output.md"
+     })
+     ```
+   - Read the output file after the subagent completes.
+
+   **Option B — `teams` tool (Pi agent teams):**
+   - Test: does the `teams` tool exist in your available tools?
+   - Set `AGENT_BACKEND = "teams"`
+   - Dispatch pattern:
+     ```
+     teams({
+       tasks: [{ text: "<filled subagent-wrapper template>" }],
+       maxTeammates: 1
+     })
+     ```
+
+   **Option C — `interactive_shell` (Claude Code, Codex, other CLI agents):**
+   - Set `AGENT_BACKEND = "interactive_shell"`
+   - Dispatch pattern:
+     ```
+     interactive_shell({
+       command: 'pi "<task prompt>"',
+       mode: "dispatch"
+     })
+     ```
+
+   **Option D — `local-sequential` (default — always works):**
+   - Set `AGENT_BACKEND = "local-sequential"`
+   - Read `SKILL_DIR/modes/local-sequential.md` for full instructions.
+   - You run all phases (Recon, Hunter, Skeptic, Referee) yourself,
+     sequentially, within your own context window.
+   - Write phase outputs to `.claude/` files between phases.
+
+   **IMPORTANT**: `local-sequential` is NOT a degraded mode. It is the expected
+   default for most environments and the skill works fully in this mode. Subagent
+   dispatch is an optimization for large codebases, not a requirement.
+
+   Rules:
+   - Use exactly ONE backend for the whole run.
+   - If a remote backend launch fails, fall back to the next option.
+   - If all remote backends fail, use `local-sequential` and continue.
 
 ### Step 1: Parse arguments and resolve target
 
@@ -183,7 +226,7 @@ Report to the user:
 
 ### Step 2: Read prompt files on demand (context efficiency)
 
-**MANDATORY**: You MUST read prompt files using the Read tool before passing them to subagents. Do NOT skip this or act from memory. Use the absolute SKILL_DIR path resolved in Step 0.
+**MANDATORY**: You MUST read prompt files using the Read tool before passing them to subagents or executing them yourself. Do NOT skip this or act from memory. Use the absolute SKILL_DIR path resolved in Step 0.
 
 **Load only what you need for each phase — do NOT read all files upfront:**
 
@@ -195,6 +238,53 @@ Report to the user:
 | Referee (Step 7) | `prompts/referee.md` |
 | Fixers (Phase 2) | `prompts/fixer.md` + `prompts/doc-lookup.md` (only if FIX_MODE=true) |
 
+**Concrete examples for each backend:**
+
+#### Example A: local-sequential (most common)
+
+```
+# Phase B — launching Hunter yourself
+# 1. Read the prompt file:
+read({ path: "$SKILL_DIR/prompts/hunter.md" })
+
+# 2. You now have the Hunter's full instructions. Execute them yourself:
+#    - Read each file in risk-map order using the Read tool
+#    - Apply the security checklist sweep
+#    - Write each finding in BUG-N format
+
+# 3. Write your findings to disk:
+write({ path: ".claude/bug-hunter-findings.md", content: "<your findings>" })
+```
+
+#### Example B: subagent dispatch
+
+```
+# Phase B — launching Hunter via subagent
+# 1. Read the prompt:
+read({ path: "$SKILL_DIR/prompts/hunter.md" })
+# 2. Read the wrapper template:
+read({ path: "$SKILL_DIR/templates/subagent-wrapper.md" })
+# 3. Fill the template with:
+#    - {ROLE_NAME} = "hunter"
+#    - {ROLE_DESCRIPTION} = "Bug Hunter — find behavioral bugs in source code"
+#    - {PROMPT_CONTENT} = <full contents of hunter.md>
+#    - {TARGET_DESCRIPTION} = "FindCoffee monorepo backend services"
+#    - {FILE_LIST} = <files from Recon risk map, CRITICAL first>
+#    - {RISK_MAP} = <risk map from .claude/bug-hunter-recon.md>
+#    - {TECH_STACK} = <framework, auth, DB from Recon>
+#    - {PHASE_SPECIFIC_CONTEXT} = <doc-lookup instructions from doc-lookup.md>
+#    - {OUTPUT_FILE_PATH} = ".claude/bug-hunter-findings.md"
+#    - {SKILL_DIR} = <absolute path>
+# 4. Dispatch:
+subagent({
+  agent: "hunter-agent",
+  task: "<the filled template>",
+  output: ".claude/bug-hunter-findings.md"
+})
+# 5. Read the output:
+read({ path: ".claude/bug-hunter-findings.md" })
+```
+
 When launching subagents, always pass `SKILL_DIR` explicitly in the task context so prompt commands like `node "$SKILL_DIR/scripts/context7-api.cjs"` resolve correctly.
 
 Before every subagent launch, validate payload shape with:
@@ -203,7 +293,7 @@ node "$SKILL_DIR/scripts/payload-guard.cjs" validate "<role>" "<payload-json-pat
 ```
 If validation fails, do NOT launch the subagent. Fix the payload first.
 
-Any mode step that says "launch subagent" means "dispatch an agent task using `AGENT_BACKEND`".
+Any mode step that says "launch subagent" means "dispatch an agent task using `AGENT_BACKEND`". For `local-sequential`, "launch" means "execute that phase's instructions yourself."
 
 After reading each prompt, extract the key instructions and pass the content to subagents via their system prompts. You do not need to keep the full text in working memory.
 
@@ -220,6 +310,8 @@ Read the corresponding mode file:
 - FILE_BUDGET+1 to FILE_BUDGET*2: `SKILL_DIR/modes/extended.md`
 - FILE_BUDGET*2+1 to FILE_BUDGET*3: `SKILL_DIR/modes/scaled.md`
 - > FILE_BUDGET*3: force `LOOP_MODE=true` and read `SKILL_DIR/modes/loop.md`
+
+**Backend override for local-sequential:** If `AGENT_BACKEND = "local-sequential"`, read `SKILL_DIR/modes/local-sequential.md` instead of the size-based mode file. The local-sequential mode handles all sizes internally with its own chunking logic.
 
 If LOOP_MODE=true, also read:
 - `SKILL_DIR/modes/fix-loop.md` when FIX_MODE=true
@@ -298,6 +390,28 @@ In a collapsed `<details>` section (for transparency).
 ### 7. Coverage assessment
 - If ALL CRITICAL/HIGH files scanned: "Full coverage achieved."
 - If any missed: list them with note about `--loop` mode.
+
+### 7b. Coverage enforcement (mandatory)
+
+If the coverage assessment shows ANY CRITICAL or HIGH files were not scanned, the pipeline is NOT complete:
+
+1. If `--loop` was specified: the ralph-loop will automatically continue to the next iteration covering missed files. Do NOT output `<promise>DONE</promise>` until all CRITICAL/HIGH files show DONE.
+
+2. If `--loop` was NOT specified AND missed files exist:
+   - If total files ≤ FILE_BUDGET × 3: Output the report with a WARNING:
+     ```
+     ⚠️ PARTIAL COVERAGE: [N] CRITICAL/HIGH files were not scanned.
+     Run `/bug-hunter --loop [path]` for complete coverage.
+     Unscanned files: [list them]
+     ```
+   - If total files > FILE_BUDGET × 3: The report MUST include:
+     ```
+     🚨 LARGE CODEBASE: [N] source files (FILE_BUDGET: [B]).
+     Single-pass audit covered [X]% of CRITICAL/HIGH files.
+     Use `/bug-hunter --loop [path]` for full coverage.
+     ```
+
+3. Do NOT claim "audit complete" or "full coverage achieved" unless ALL CRITICAL and HIGH files have status DONE. A partial audit is still valuable — report what you found honestly.
 
 If zero bugs were confirmed, say so clearly — a clean report is a good result.
 

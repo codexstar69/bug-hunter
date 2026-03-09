@@ -18,6 +18,7 @@ function usage() {
   console.error('Usage:');
   console.error('  run-bug-hunter.cjs preflight [--skill-dir <path>] [--available-backends <csv>] [--backend <name>]');
   console.error('  run-bug-hunter.cjs run --files-json <path> [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--worker-cmd <template>] [--timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>]');
+  console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--plan-path <path>]');
 }
 
 function nowIso() {
@@ -813,6 +814,52 @@ async function main() {
   if (command === 'run') {
     const result = await runPipeline(options);
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === 'plan') {
+    if (!options['files-json']) {
+      throw new Error('--files-json is required for plan command');
+    }
+    const skillDir = resolveSkillDir(options);
+    const filesJsonPath = path.resolve(options['files-json']);
+    const mode = options.mode || 'extended';
+    const chunkSize = toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE);
+    const planPath = path.resolve(options['plan-path'] || '.claude/bug-hunter-plan.json');
+
+    const files = readJson(filesJsonPath);
+    const totalFiles = files.length;
+
+    const chunks = [];
+    for (let i = 0; i < totalFiles; i += chunkSize) {
+      const chunkFiles = files.slice(i, i + chunkSize);
+      chunks.push({
+        id: `chunk-${chunks.length + 1}`,
+        files: chunkFiles,
+        fileCount: chunkFiles.length,
+        status: 'pending'
+      });
+    }
+
+    const planOutput = {
+      generatedAt: nowIso(),
+      mode,
+      skillDir,
+      totalFiles,
+      chunkSize,
+      chunkCount: chunks.length,
+      phases: ['recon', 'hunter', 'skeptic', 'referee'],
+      chunks,
+      instructions: [
+        'This plan was generated for LLM agent consumption.',
+        'The agent should process chunks in order, using the state scripts to track progress.',
+        'For local-sequential mode: read modes/local-sequential.md for execution instructions.',
+        'For subagent mode: read modes/extended.md or modes/scaled.md for dispatch patterns.'
+      ]
+    };
+
+    writeJson(planPath, planOutput);
+    console.log(JSON.stringify(planOutput, null, 2));
     return;
   }
 

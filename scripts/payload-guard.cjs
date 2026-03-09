@@ -12,8 +12,71 @@ const REQUIRED_BY_ROLE = {
   fixer: ['skillDir', 'bugs', 'techStack', 'outputSchema']
 };
 
+const TEMPLATES = {
+  recon: {
+    skillDir: '/absolute/path/to/bug-hunter',
+    targetFiles: ['src/example.ts'],
+    outputSchema: { format: 'risk-map', version: 1 }
+  },
+  'triage-hunter': {
+    skillDir: '/absolute/path/to/bug-hunter',
+    targetFiles: ['src/example.ts'],
+    techStack: { framework: '', auth: '', database: '', dependencies: [] },
+    outputSchema: { format: 'triage-findings', version: 1 }
+  },
+  hunter: {
+    skillDir: '/absolute/path/to/bug-hunter',
+    targetFiles: ['src/example.ts'],
+    riskMap: { critical: [], high: [], medium: [], contextOnly: [] },
+    techStack: { framework: '', auth: '', database: '', dependencies: [] },
+    outputSchema: { format: 'findings', version: 1 }
+  },
+  skeptic: {
+    skillDir: '/absolute/path/to/bug-hunter',
+    bugs: [
+      {
+        bugId: 'BUG-1',
+        severity: 'Critical|Medium|Low',
+        file: 'src/example.ts',
+        lines: '10-15',
+        claim: 'One-sentence description of the bug',
+        evidence: 'Exact code quote from the file',
+        runtimeTrigger: 'Specific scenario that triggers this bug',
+        crossReferences: 'Other files involved, or "Single file"'
+      }
+    ],
+    techStack: { framework: '', auth: '', database: '', dependencies: [] },
+    outputSchema: { format: 'challenges', version: 1 }
+  },
+  referee: {
+    skillDir: '/absolute/path/to/bug-hunter',
+    findings: [{ bugId: 'BUG-1', severity: '', file: '', lines: '', claim: '', evidence: '', runtimeTrigger: '' }],
+    skepticResults: { accepted: ['BUG-1'], disproved: [], details: [] },
+    outputSchema: { format: 'verdicts', version: 1 }
+  },
+  fixer: {
+    skillDir: '/absolute/path/to/bug-hunter',
+    bugs: [
+      {
+        bugId: 'BUG-1',
+        severity: 'Critical|Medium|Low',
+        file: 'src/example.ts',
+        lines: '10-15',
+        description: 'What is wrong',
+        suggestedFix: 'How to fix it'
+      }
+    ],
+    techStack: { framework: '', auth: '', database: '', dependencies: [] },
+    outputSchema: { format: 'fix-report', version: 1 }
+  }
+};
+
 function usage() {
-  console.error('Usage: payload-guard.cjs validate <role> <payloadJsonPath>');
+  console.error('Usage:');
+  console.error('  payload-guard.cjs validate <role> <payloadJsonPath>');
+  console.error('  payload-guard.cjs generate <role> [outputJsonPath]');
+  console.error('');
+  console.error('Roles: ' + Object.keys(REQUIRED_BY_ROLE).join(', '));
 }
 
 function readPayload(filePath) {
@@ -80,17 +143,49 @@ function validate(role, payload) {
 
 function main() {
   const [command, role, payloadJsonPath] = process.argv.slice(2);
-  if (command !== 'validate' || !role || !payloadJsonPath) {
-    usage();
-    process.exit(1);
+
+  if (command === 'generate') {
+    if (!role) {
+      usage();
+      process.exit(1);
+    }
+    const template = TEMPLATES[role];
+    if (!template) {
+      console.error(`Unknown role: ${role}. Available: ${Object.keys(TEMPLATES).join(', ')}`);
+      process.exit(1);
+    }
+    const output = JSON.stringify(template, null, 2);
+    if (payloadJsonPath) {
+      const fs = require('fs');
+      const path = require('path');
+      const dir = path.dirname(payloadJsonPath);
+      if (dir && !fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(payloadJsonPath, output + '\n', 'utf8');
+      console.log(JSON.stringify({ ok: true, role, outputPath: payloadJsonPath }));
+    } else {
+      console.log(output);
+    }
+    return;
   }
 
-  const payload = readPayload(payloadJsonPath);
-  const result = validate(role, payload);
-  console.log(JSON.stringify(result, null, 2));
-  if (!result.ok) {
-    process.exit(1);
+  if (command === 'validate') {
+    if (!role || !payloadJsonPath) {
+      usage();
+      process.exit(1);
+    }
+    const payload = readPayload(payloadJsonPath);
+    const result = validate(role, payload);
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) {
+      process.exit(1);
+    }
+    return;
   }
+
+  usage();
+  process.exit(1);
 }
 
 try {

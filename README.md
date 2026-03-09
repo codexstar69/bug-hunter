@@ -5,8 +5,8 @@
 <h1 align="center">/bug-hunter</h1>
 
 <p align="center">
-  <strong>Adversarial bug detection + autonomous fix for coding agents</strong><br/>
-  Sequential-first pipeline for real runtime bugs, with safe branch-based remediation.
+  <strong>Find real runtime bugs and fix them automatically, with guardrails.</strong><br/>
+  Built for coding agents that need high-signal bug detection, not noisy lint-style output.
 </p>
 
 <p align="center">
@@ -15,155 +15,226 @@
 
 ---
 
-## Overview
+## What Problem This Solves
 
-Bug Hunter is built for issues linters miss: runtime logic flaws, race conditions, auth gaps, and cross-file contract mismatches.
+Most AI code reviews have two common failures:
 
-The system uses adversarial roles in isolated context:
+1. They **over-report** bugs.
+2. They then **agree with themselves** during verification.
 
-1. Recon maps architecture and trust boundaries.
-2. Hunter finds bugs.
-3. Skeptic tries to disprove findings.
-4. Referee decides final verdicts.
-5. Fix phase applies canary-first, confidence-gated fixes.
+Bug Hunter solves this with an adversarial pipeline where different agents have opposite incentives. Findings must survive challenge and re-audit before they are treated as real.
 
-A mandatory re-audit rejection pass drops contradicted or non-reproducible findings before final confirmed counts.
+---
+
+## Why People Use It
+
+### 1) Better signal than single-agent review
+
+You get fewer "looks suspicious" findings and more reproducible issues.
+
+### 2) Faster path from bug to fix
+
+By default, Bug Hunter does not stop at reporting. It can move from:
+
+- finding ->
+- verification ->
+- canary fixes ->
+- targeted/full verification ->
+- safe final diff
+
+### 3) Safe autonomous editing
+
+It fixes on a dedicated branch with checkpoint commits and rollback behavior.
+
+### 4) Works on big repos
+
+Hybrid index + delta + chunk strategy avoids full-repo rereads and reduces context drift.
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
+```
+
+## Quick Start (2 Minutes)
+
+### First run (recommended)
+
+```bash
+/bug-hunter -b your-feature-branch
+```
+
+This scans changed code first and auto-fixes eligible bugs by default.
+
+### Report-only run
+
+```bash
+/bug-hunter --scan-only src/
+```
 
 ---
 
 ## Default Behavior
 
-Bug Hunter now runs in **fix-by-default mode**.
+Bug Hunter is now **fix-by-default**.
 
-- If confirmed eligible bugs exist, Phase 2 starts automatically.
-- If no confirmed bugs exist, run ends after report.
-- Use `--scan-only` for report-only mode with no edits.
+- If confirmed eligible bugs exist, fix phase starts automatically.
+- If no confirmed bugs exist, it ends after report.
+- `--scan-only` disables all code edits.
 
-All edits happen on `bug-hunter-fix-<timestamp>` with checkpoint commits and auto-revert on regression.
+All autonomous edits happen on `bug-hunter-fix-<timestamp>`.
 
 ---
 
-## Commands
+## Command Guide
 
 ```bash
-/bug-hunter                               # full scan + auto-fix (default)
+/bug-hunter                               # full project, default auto-fix
 /bug-hunter src/                          # target directory
 /bug-hunter lib/auth.ts                   # target file
 /bug-hunter -b feature-xyz                # branch diff vs main
 /bug-hunter -b feature-xyz --base dev     # branch diff vs custom base
-/bug-hunter --staged                      # staged files scan
-/bug-hunter --scan-only src/              # report-only mode
-/bug-hunter --fix src/                    # explicit auto-fix (alias of default)
+/bug-hunter --staged                      # staged files
+/bug-hunter --scan-only src/              # report-only mode (no edits)
+/bug-hunter --fix src/                    # explicit auto-fix (same as default)
 /bug-hunter --autonomous src/             # explicit no-intervention auto-fix
-/bug-hunter --fix --approve src/          # ask before each fix
-/bug-hunter --loop src/                   # loop coverage mode
-/bug-hunter --loop --fix src/             # loop + fix mode
+/bug-hunter --fix --approve src/          # prompt before each fix
+/bug-hunter --loop src/                   # iterative coverage mode
+/bug-hunter --loop --fix src/             # iterative find+fix mode
 ```
 
 ---
 
-## Pipeline
+## How The Process Works
 
-### Phase 1: Find + Verify
+## Phase 1: Find and Verify
 
 ```
 Recon -> Deep Hunter -> Skeptic -> Referee -> Re-audit gate
 ```
 
-### Phase 2: Fix + Verify
+### Recon
+
+- maps architecture
+- identifies trust boundaries
+- sets context budget and chunk strategy
+
+### Deep Hunter
+
+- performs the main runtime-focused scan
+- prioritizes critical paths (auth, API boundaries, state transitions)
+
+### Skeptic
+
+- tries to disprove each finding
+- checks framework/library behavior (Context7 when available)
+
+### Referee
+
+- makes final verdict on each finding
+- standardizes severity and confidence
+
+### Re-audit gate (important)
+
+Before final confirmed count:
+
+- all critical findings are re-audited
+- weakly evidenced findings are re-audited
+- sampled medium/low findings are re-checked
+- contradicted/non-reproducible items are rejected
+
+This is one of the main reasons false-positive rate is lower.
+
+## Phase 2: Fix and Verify
 
 ```
 Fix branch -> canary subset -> targeted checks -> rollout -> full checks -> post-fix re-scan
 ```
 
-Fixes are single-writer and sequential by default.
+### Canary-first rollout
+
+High-priority eligible bugs are fixed first in a small subset.
+
+### Verification flow
+
+- run targeted checks after each checkpoint
+- run full checks at end
+- auto-revert regression-causing commits
+- re-scan changed hunks for fixer-introduced issues
 
 ---
 
-## Scaling Strategy
+## Guardrails
 
-Bug Hunter uses a hybrid **index + delta + chunk** model for large repositories.
+Bug Hunter is designed so autonomous mode is useful without being reckless.
 
-### Persistent index
+## Code safety guardrails
+
+- dedicated fix branch per run
+- single-writer lock (`.claude/bug-hunter-fix.lock`)
+- checkpoint commit per bug/cluster
+- automatic revert for regression-causing fixes
+- dirty-tree stash and restore attempt
+
+## False-positive guardrails
+
+- adversarial skeptic role
+- referee final arbitration
+- mandatory re-audit gate before final confirmed list
+- confidence gating (default fix eligibility: confidence >= 75)
+
+## Runtime reliability guardrails
+
+- per-chunk timeout/retry/backoff
+- append-only run journal
+- fail-safe backend fallback (`spawn_agent -> subagent -> team -> local-sequential`)
+
+## Scale guardrails
+
+- hash cache skips unchanged files
+- chunk checkpoints allow resume
+- delta-first scope reduces unnecessary scanning
+- fact cards reduce reread overhead in long runs
+
+---
+
+## Why It Works Well on Big Codebases
+
+Bug Hunter uses a hybrid model, not brute-force full scan every time.
+
+### Persistent code index
 
 `code-index.cjs` builds `.claude/bug-hunter-index.json` with:
 
 - symbols
-- import dependencies
+- imports/dependencies
 - lightweight call graph
 - trust-boundary tags
 
-### Delta mode
+### Delta mode first
 
-`delta-mode.cjs` starts from changed files and expands by dependency hops.
+`delta-mode.cjs` starts from changed files and expands by 1/2-hop dependencies.
 
-- initial scope: changed files + 1/2-hop deps
-- expansion trigger: low-confidence findings
-- expansion inputs: low-confidence files + critical boundary overlays
+### Expansion only when needed
 
-### Chunk state + facts
+If confidence is low, scope expands from low-confidence files plus critical overlays.
 
-`bug-hunter-state.cjs` stores:
+### Stateful chunk execution
 
-- chunk status and retries
-- hash cache (skip unchanged files)
-- bug ledger with confidence
-- chunk fact cards (contracts, auth assumptions, invariants)
-- consistency report + fix plan
+`bug-hunter-state.cjs` tracks:
 
-### Global consistency before fix
-
-`run-bug-hunter.cjs` performs a final consistency pass:
-
-- duplicate/reused bug-id detection
-- conflicting claims at same location
-- low-confidence summary
-
-Then it generates canary-first fix planning.
+- chunk lifecycle
+- retry state
+- hash cache
+- bug ledger + confidence
+- fact cards
+- consistency and fix-plan outputs
 
 ---
 
-## Safety Model
-
-- Dedicated fix branch per run.
-- Single-writer lock via `.claude/bug-hunter-fix.lock`.
-- Checkpoint commit per bug/cluster.
-- Targeted verification before full-suite verification.
-- Automatic `git revert` for regression-causing fixes.
-- Post-fix delta re-scan for fixer-introduced bugs.
-- Dirty tree stash + restore attempt with conflict reporting.
-
----
-
-## Backend Adaptation
-
-Bug Hunter picks one backend and falls back automatically:
-
-1. `spawn_agent` + `wait`
-2. native `subagent`
-3. team-agent tooling
-4. local sequential fallback
-
----
-
-## Context7
-
-Context7 lookups are optional and non-blocking.
-
-- If available, Skeptic/Hunter use docs to validate framework claims.
-- Missing `CONTEXT7_API_KEY` does not block execution.
-
-Setup (optional):
-
-```bash
-export CONTEXT7_API_KEY="your-api-key"
-```
-
----
-
-## Orchestrator
-
-For long or flaky runs use:
+## Orchestrator (Recommended for Large/Flaky Runs)
 
 ```bash
 node scripts/run-bug-hunter.cjs run \
@@ -181,7 +252,7 @@ node scripts/run-bug-hunter.cjs run \
   --backoff-ms 1000
 ```
 
-Artifacts:
+Primary artifacts:
 
 - `.claude/bug-hunter-run.log`
 - `.claude/bug-hunter-state.json`
@@ -194,13 +265,13 @@ Artifacts:
 
 ## Modes
 
-| Mode | File count | Execution |
-|------|------------|-----------|
-| Single-file | 1 | Hunter + Skeptic + Referee |
-| Small | 2-10 | Recon + Hunter + Skeptic + Referee |
-| Parallel (hybrid) | 11-FILE_BUDGET | Recon + deep Hunter (+ optional read-only triage) + Skeptic + Referee |
-| Extended | FILE_BUDGET+1 to FILE_BUDGET*2 | Sequential chunked runs |
-| Scaled | FILE_BUDGET*2+1 to FILE_BUDGET*3 | State-driven chunked runs |
+| Mode | File count | Strategy |
+|------|------------|----------|
+| Single-file | 1 | Direct Hunter -> Skeptic -> Referee |
+| Small | 2-10 | Recon + single deep pass |
+| Parallel (hybrid) | 11-FILE_BUDGET | Deep scan + optional read-only triage |
+| Extended | FILE_BUDGET+1 to FILE_BUDGET*2 | Sequential chunked scanning |
+| Scaled | FILE_BUDGET*2+1 to FILE_BUDGET*3 | State-driven chunk pipeline |
 | Loop | > FILE_BUDGET*3 | Iterative coverage loop |
 
 ---
@@ -208,18 +279,20 @@ Artifacts:
 ## What It Catches
 
 - security vulnerabilities
-- logic errors
-- runtime error-handling gaps
+- logic and state-transition bugs
+- runtime error-handling flaws
 - race conditions
-- API contract breaks
+- API contract mismatches
 - cross-file assumption mismatches
-- data integrity bugs
+- data integrity issues
 
-Not a style/lint tool.
+It is not a style/lint formatter tool.
 
 ---
 
-## Tested Languages
+## Languages
+
+Tested across:
 
 - TypeScript / JavaScript
 - Python
@@ -228,6 +301,46 @@ Not a style/lint tool.
 - Java / Kotlin
 - Ruby
 - PHP
+
+---
+
+## Context7 (Optional)
+
+Context7 lookup is optional and non-blocking.
+
+- if available: better framework-accurate verification
+- if unavailable: run still continues
+
+Optional setup:
+
+```bash
+export CONTEXT7_API_KEY="your-api-key"
+```
+
+---
+
+## Self-Test
+
+The included fixture has 6 planted bugs (2 Critical, 3 Medium, 1 Low).
+
+```bash
+/bug-hunter test-fixture/
+```
+
+Expected:
+
+- all planted bugs should be confirmed
+- at least one false positive should be challenged/dropped
+
+---
+
+## Who Should Try This First
+
+Start with one of these:
+
+1. pre-merge scan on a risky feature branch (`-b feature --base main`)
+2. security-focused scan on auth/payments/API boundary directories
+3. nightly autonomous run on changed services in a monorepo
 
 ---
 
@@ -253,28 +366,13 @@ bug-hunter/
 
 ---
 
-## Self-Test
-
-The included fixture contains 6 planted bugs (2 Critical, 3 Medium, 1 Low).
+## Update / Uninstall
 
 ```bash
-/bug-hunter test-fixture/
-```
-
-Expected outcome: all planted bugs should be confirmed with at least one Skeptic challenge recorded.
-
----
-
-## Install / Update / Remove
-
-```bash
-# install
-git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
-
 # update
 cd ~/.agents/skills/bug-hunter && git pull
 
-# remove
+# uninstall
 rm -rf ~/.agents/skills/bug-hunter
 ```
 

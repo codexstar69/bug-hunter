@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-03-10
+
+### Fixed — Pipeline Execution Overhaul
+- **Concrete backend-to-tool mapping**: SKILL.md Step 0.6 now has explicit instructions for each dispatch mechanism (`subagent`, `teams`, `interactive_shell`, `local-sequential`) with tool invocation syntax, not vague "launch subagent" directives
+- **`local-sequential` mode created**: New `modes/local-sequential.md` (7.8KB) with full phase-by-phase instructions for running Recon → Hunter → Skeptic → Referee in the main agent's own context — the most common execution path
+- **All mode files rewritten**: `small.md`, `parallel.md`, `extended.md`, `scaled.md` now have backend-specific dispatch instructions with complete payload generation, validation, and subagent invocation examples for every phase
+- **Subagent wrapper template**: New `templates/subagent-wrapper.md` — standardized template with `{VARIABLES}` for every subagent dispatch, ensuring consistent system prompt, scope boundaries, kill-switch rules, and output contracts
+- **Inline tool-call examples**: SKILL.md Step 2 now has concrete examples for both `local-sequential` (execute yourself) and `subagent` (dispatch via tool) backends — not just "read prompt and launch"
+- **Coverage enforcement**: New SKILL.md Section 7b makes coverage mandatory — agents cannot claim "audit complete" with CRITICAL/HIGH files unscanned; partial coverage produces explicit warnings with `--loop` recommendation
+- **Step 3 backend override**: Added explicit rule that `local-sequential` backend reads `modes/local-sequential.md` instead of size-based mode files
+- **Payload `generate` command**: `payload-guard.cjs` now has a `generate <role> [path]` command that scaffolds valid payload JSON for any role, eliminating the chicken-and-egg problem of constructing payloads without a template
+- **Payload templates constant**: Added `TEMPLATES` object to `payload-guard.cjs` with complete schemas for all 6 roles (recon, triage-hunter, hunter, skeptic, referee, fixer) including realistic example values
+- **`plan` command**: `run-bug-hunter.cjs` now supports `plan --files-json <path>` to generate a chunk plan as JSON without executing — LLM agents can read this plan and process chunks via their own dispatch
+- **Prompt output headers**: All 5 prompt files (recon, hunter, skeptic, referee, fixer) now have "Output Destination" and "Scope Rules" sections at the top, telling subagents where to write output and what their boundaries are
+
 ## 2026-03-08
 
 ### Changed
@@ -26,6 +41,7 @@
 - **False-positive control**: Added mandatory verification re-audit gate in skill flow so contradicted/non-reproducible findings are rejected before final confirmed counts.
 - **Default fix behavior**: Switched to fix-by-default workflow; `--scan-only` now explicitly disables Phase 2 and keeps report-only mode.
 - **README refresh**: Rewrote README in a consistent pattern aligned to default-fix flow, hybrid index+delta pipeline, re-audit gate, and canary-first remediation.
+- **README optimization**: Expanded onboarding clarity with explicit value proposition, process walk-through, benefits, guardrails, and adoption-first quickstart guidance.
 
 ## 2026-03-07
 
