@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.1 — 2026-03-10
+
+### Fix: `--loop` mode now actually loops
+
+The `--loop` flag was broken — loop mode files described a "ralph-loop" system but never called `ralph_start`, so the pipeline ran once and stopped. Fixed:
+
+- **`modes/loop.md`**: added explicit `ralph_start` call instructions with correct `taskContent` and `maxIterations` parameters
+- **`modes/fix-loop.md`**: same fix for `--loop --fix` combined mode, plus removed manual state file creation (handled by `ralph_start`)
+- **`SKILL.md`**: added CRITICAL integration note requiring `ralph_start` call when `LOOP_MODE=true`
+- Changed completion signal from `<promise>DONE</promise>` to `<promise>COMPLETE</promise>` (correct ralph-loop API)
+- Each iteration now calls `ralph_done` to proceed instead of relying on a non-existent hook
+
 ## 2.2.0 — 2026-03-10
 
 ### Fix pipeline hardening — 12 reliability and safety optimizations

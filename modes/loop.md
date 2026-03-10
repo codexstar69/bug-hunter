@@ -2,14 +2,40 @@
 
 When `--loop` is present, the bug-hunter wraps itself in a ralph-loop that keeps iterating until the audit achieves full coverage. This is for thorough, autonomous audits where you want every file examined.
 
+## CRITICAL: Starting the ralph-loop
+
+**You MUST call the `ralph_start` tool to begin the loop.** Without this call, the loop will not iterate.
+
+When `LOOP_MODE=true` is set (from `--loop` flag), before running the first pipeline iteration:
+
+1. Build the task content from the TODO.md template below.
+2. Call the `ralph_start` tool:
+
+```
+ralph_start({
+  name: "bug-hunter-audit",
+  taskContent: <the TODO.md content below>,
+  maxIterations: 10
+})
+```
+
+3. The ralph-loop system will then drive iteration. Each iteration:
+   - You receive the task prompt with the current checklist state.
+   - You execute one iteration of the bug-hunt pipeline (steps below).
+   - You update `.bug-hunter/coverage.md` with results.
+   - If ALL CRITICAL/HIGH files are DONE → output `<promise>COMPLETE</promise>` to end the loop.
+   - Otherwise → call `ralph_done` to proceed to the next iteration.
+
+**Do NOT manually loop or re-invoke yourself.** The ralph-loop system handles iteration automatically after you call `ralph_start`.
+
 ## How it works
 
-1. **First iteration**: Run the normal pipeline (Recon -> Hunters -> Skeptics -> Referee). At the end, write a coverage report to `.bug-hunter/coverage.md` using the machine-parseable format below.
+1. **First iteration**: Run the normal pipeline (Recon → Hunters → Skeptics → Referee). At the end, write a coverage report to `.bug-hunter/coverage.md` using the machine-parseable format below.
 
 2. **Coverage check**: After each iteration, evaluate:
-   - If ALL CRITICAL and HIGH files show status DONE -> mark `[x] ALL_TASKS_COMPLETE` in TODO.md -> loop ends
-   - If any CRITICAL/HIGH files are SKIPPED or PARTIAL -> update TODO.md with remaining work -> loop continues
-   - If only MEDIUM files remain uncovered -> mark complete (MEDIUM gaps are acceptable)
+   - If ALL CRITICAL and HIGH files show status DONE → output `<promise>COMPLETE</promise>` → loop ends
+   - If any CRITICAL/HIGH files are SKIPPED or PARTIAL → call `ralph_done` → loop continues
+   - If only MEDIUM files remain uncovered → output `<promise>COMPLETE</promise>` (MEDIUM gaps are acceptable)
 
 3. **Subsequent iterations**: Each new iteration reads `.bug-hunter/coverage.md` to see what's already been done, then runs the pipeline ONLY on uncovered files. New findings are appended to the cumulative bug list.
 
@@ -45,39 +71,11 @@ BUG-7|Medium|src/auth/login.ts|89|Password comparison uses timing-unsafe equalit
 BUG-12|Low|src/api/users.ts|120-125|Missing null check on optional profile field
 ```
 
-## Setup (automatic)
+## TODO.md task content for ralph_start
 
-When `--loop` is detected, before running Step 1, create these files:
+Use this as the `taskContent` parameter when calling `ralph_start`:
 
-**`.bug-hunter/ralph-loop.local.md`:**
-```markdown
----
-active: true
-iteration: 0
-max_iterations: 10
-completion_promise: null
----
-
-# Bug Hunt Audit Loop
-
-## Objective
-Complete adversarial bug audit with full coverage of all CRITICAL and HIGH risk files.
-
-## Completion Criteria
-Complete when TODO.md shows [x] ALL_TASKS_COMPLETE
-
-## Verification
-Check .bug-hunter/coverage.md — all CRITICAL/HIGH files must show DONE.
-
-## Instructions
-1. Read .bug-hunter/coverage.md for previous iteration state
-2. Parse the Files table — collect all lines where STATUS is not DONE and TIER is CRITICAL or HIGH
-3. Run bug-hunter pipeline on those files only
-4. Update coverage file: change STATUS to DONE, add BUG-IDs
-5. Mark ALL_TASKS_COMPLETE only when all CRITICAL/HIGH files are DONE
-```
-
-**`TODO.md`** (or append to existing):
+**For `--loop` (scan only):**
 ```markdown
 # Bug Hunt Audit
 
@@ -88,6 +86,14 @@ Check .bug-hunter/coverage.md — all CRITICAL/HIGH files must show DONE.
 
 ## Completion
 - [ ] ALL_TASKS_COMPLETE
+
+## Instructions
+1. Read .bug-hunter/coverage.md for previous iteration state
+2. Parse the Files table — collect all lines where STATUS is not DONE and TIER is CRITICAL or HIGH
+3. Run bug-hunter pipeline on those files only
+4. Update coverage file: change STATUS to DONE, add BUG-IDs
+5. Output <promise>COMPLETE</promise> when all CRITICAL/HIGH files are DONE
+6. Otherwise call ralph_done to continue to the next iteration
 ```
 
 ## Coverage file validation
@@ -105,15 +111,15 @@ Update the CHECKSUM every time you write to the coverage file.
 Each iteration after the first:
 1. Read `.bug-hunter/coverage.md` — parse the Files table
 2. Collect all lines where STATUS != DONE and TIER is CRITICAL or HIGH
-3. If none remain -> update TODO.md with `[x] ALL_TASKS_COMPLETE` -> output `<promise>DONE</promise>`
+3. If none remain → output `<promise>COMPLETE</promise>` (this ends the ralph-loop)
 4. Otherwise, run the pipeline on remaining files only (use small/parallel mode based on count)
 5. Update the coverage file: set STATUS to DONE for scanned files, append new bugs to the Bugs section
 6. Increment ITERATION counter
-7. The ralph-loop hook detects no completion promise -> feeds the prompt back -> next iteration starts
+7. Call `ralph_done` to proceed to the next iteration
 
 ## Safety
 
-- Max 10 iterations by default (adjustable in the state file)
+- Max 10 iterations by default (set via `ralph_start({ maxIterations: 10 })`)
 - Each iteration only scans NEW files — no re-scanning already-DONE files
-- User can stop anytime: `rm .bug-hunter/ralph-loop.local.md`
+- User can stop anytime with ESC or `/ralph-stop`
 - All state is in `.bug-hunter/coverage.md` — fully resumable, machine-parseable

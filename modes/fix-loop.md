@@ -7,6 +7,32 @@ When both `--loop` and `--fix` are set, the ralph-loop wraps the ENTIRE pipeline
 3. **Verify**: Run tests with baseline diff
 4. **Evaluate**: Update coverage file with fix status
 
+## CRITICAL: Starting the ralph-loop
+
+**You MUST call the `ralph_start` tool to begin the loop.** Without this call, the loop will not iterate.
+
+When `LOOP_MODE=true` AND `FIX_MODE=true`, before running the first pipeline iteration:
+
+1. Build the task content from the TODO.md template below.
+2. Call the `ralph_start` tool:
+
+```
+ralph_start({
+  name: "bug-hunter-fix-audit",
+  taskContent: <the TODO.md content below>,
+  maxIterations: 15
+})
+```
+
+3. The ralph-loop system will then drive iteration. Each iteration:
+   - You receive the task prompt with the current checklist state.
+   - You execute one iteration of find + fix.
+   - You update `.bug-hunter/coverage.md` with results.
+   - If all bugs are FIXED and all CRITICAL/HIGH files are DONE → output `<promise>COMPLETE</promise>`.
+   - Otherwise → call `ralph_done` to proceed to the next iteration.
+
+**Do NOT manually loop or re-invoke yourself.** The ralph-loop system handles iteration automatically.
+
 ## Coverage file extension for fix mode
 
 The `.bug-hunter/coverage.md` file gains additional sections:
@@ -41,21 +67,19 @@ For each iteration:
      b. Combine: unfixed bugs + newly confirmed bugs
      c. Run Phase 2 (fix + verify) on combined list
      d. Update coverage file (append new entries to Fixes section)
-     e. Continue loop
+     e. Call ralph_done to proceed to next iteration
   4. If all bugs FIXED and all CRITICAL/HIGH files DONE:
      -> Run final test suite one more time
      -> If no new failures:
-        Mark [x] ALL_TASKS_COMPLETE in TODO.md
-        Output <promise>DONE</promise>
+        Output <promise>COMPLETE</promise>
      -> If pre-existing failures only:
         Note "pre-existing test failures — not caused by bug fixes"
-        Mark [x] ALL_TASKS_COMPLETE
-        Output <promise>DONE</promise>
+        Output <promise>COMPLETE</promise>
 ```
 
-## TODO.md for fix loop
+## TODO.md task content for ralph_start
 
-When `--loop --fix` is active, the TODO.md includes fix tasks:
+Use this as the `taskContent` parameter when calling `ralph_start`:
 
 ```markdown
 # Bug Hunt + Fix Audit
@@ -74,40 +98,18 @@ When `--loop --fix` is active, the TODO.md includes fix tasks:
 
 ## Completion
 - [ ] ALL_TASKS_COMPLETE
-```
-
-## Ralph-loop state file for fix mode
-
-When `--loop --fix`, the `.bug-hunter/ralph-loop.local.md` is:
-
-```markdown
----
-active: true
-iteration: 0
-max_iterations: 15
-completion_promise: null
----
-
-# Bug Hunt + Fix Audit Loop
-
-## Objective
-Find all bugs in the codebase, fix them, and verify fixes pass tests.
-
-## Completion Criteria
-Complete when TODO.md shows [x] ALL_TASKS_COMPLETE
-
-## Verification
-Check .bug-hunter/coverage.md:
-- All CRITICAL/HIGH files must show DONE in Files section
-- All bugs must show FIXED (latest entry) in Fixes section
-- Latest Test Results line must show 0 new failures
 
 ## Instructions
 1. Read .bug-hunter/coverage.md for previous iteration state
 2. Parse Files table — collect unscanned CRITICAL/HIGH files
-3. Parse Fixes table — collect unfixed bugs (latest entry: FIX_REVERTED, FIX_FAILED, FIX_CONFLICT, SKIPPED, FIXER_BUG)
+3. Parse Fixes table — collect unfixed bugs (latest entry not FIXED)
 4. If unscanned files exist: run Phase 1 (find pipeline) on them
 5. If unfixed bugs exist: run Phase 2 (fix pipeline) on them
 6. Update coverage file with results
-7. Mark ALL_TASKS_COMPLETE only when all bugs are FIXED and no new test failures
+7. Output <promise>COMPLETE</promise> when all bugs are FIXED and no new test failures
+8. Otherwise call ralph_done to continue to the next iteration
 ```
+
+## Ralph-loop state file for fix mode
+
+When `--loop --fix`, the `.bug-hunter/ralph-loop.local.md` is created automatically by the `ralph_start` tool. You do NOT need to create this file manually — just call `ralph_start` with the correct parameters.

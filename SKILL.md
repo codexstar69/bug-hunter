@@ -406,6 +406,8 @@ If LOOP_MODE=true, also read:
 - `SKILL_DIR/modes/fix-loop.md` when FIX_MODE=true
 - `SKILL_DIR/modes/loop.md` otherwise
 
+**CRITICAL — ralph-loop integration:** When `LOOP_MODE=true`, you MUST call the `ralph_start` tool before running the first pipeline iteration. The loop mode files (`loop.md` / `fix-loop.md`) contain the exact `ralph_start` call to make, including the `taskContent` and `maxIterations` parameters. Without calling `ralph_start`, the loop will NOT iterate — it will run once and stop. After each iteration, call `ralph_done` to continue, or output `<promise>COMPLETE</promise>` when done.
+
 Report the chosen mode to the user.
 
 **Then follow the steps in the loaded mode file.** Each mode file contains the specific steps for running Recon, Hunters, Skeptics, and Referee for that mode. Each mode also references `modes/_dispatch.md` for backend-specific dispatch patterns. Execute them in order.
@@ -475,7 +477,7 @@ In a collapsed `<details>` section (for transparency).
 
 If the coverage assessment shows ANY CRITICAL or HIGH files were not scanned, the pipeline is NOT complete:
 
-1. If `--loop` was specified: the ralph-loop will automatically continue to the next iteration covering missed files. Do NOT output `<promise>DONE</promise>` until all CRITICAL/HIGH files show DONE.
+1. If `--loop` was specified: the ralph-loop will automatically continue to the next iteration covering missed files. Call `ralph_done` to proceed to the next iteration. Do NOT output `<promise>COMPLETE</promise>` until all CRITICAL/HIGH files show DONE.
 
 2. If `--loop` was NOT specified AND missed files exist:
    - If total files ≤ FILE_BUDGET × 3: Output the report with a WARNING:
