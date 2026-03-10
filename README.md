@@ -567,6 +567,7 @@ Every run creates a `.bug-hunter/` directory (add to `.gitignore`) containing:
 | `skeptic.md` | Always | Skeptic challenge decisions with evidence |
 | `referee.md` | Always | Referee final verdicts with enrichment |
 | `fix-report.md` | Fix mode | Per-bug fix status, verification results, git diff summary |
+| `fix-report.json` | Fix mode | Machine-readable fix results for CI/CD gating and dashboards |
 | `threat-model.md` | `--threat-model` | STRIDE threat model with trust boundaries and data flows |
 | `dep-findings.json` | `--deps` | Dependency CVE results with reachability analysis |
 | `state.json` | Large scans | Progress checkpoint for resume after interruption |
@@ -599,6 +600,7 @@ The pipeline adapts to whatever it finds. Triage classifies files by extension a
 | `--loop` | Iterative mode for large codebases — runs until 100% critical file coverage |
 | `--deps` | Include dependency CVE scanning with reachability analysis |
 | `--threat-model` | Generate or use STRIDE threat model for targeted security analysis |
+| `--dry-run` | Preview planned fixes without editing files — outputs diff previews and `fix-report.json` |
 
 All flags compose: `/bug-hunter --deps --threat-model --loop --fix src/`
 

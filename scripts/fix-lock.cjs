@@ -7,6 +7,7 @@ const path = require('path');
 function usage() {
   console.error('Usage:');
   console.error('  fix-lock.cjs acquire <lockPath> [ttlSeconds]');
+  console.error('  fix-lock.cjs renew <lockPath>');
   console.error('  fix-lock.cjs release <lockPath>');
   console.error('  fix-lock.cjs status <lockPath> [ttlSeconds]');
 }
@@ -57,6 +58,19 @@ function writeLock(lockPath) {
   };
   fs.writeFileSync(lockPath, `${JSON.stringify(lockData, null, 2)}\n`, 'utf8');
   return lockData;
+}
+
+function renew(lockPath) {
+  const existing = readLock(lockPath);
+  if (!existing) {
+    console.log(JSON.stringify({ ok: false, renewed: false, reason: 'no-lock' }, null, 2));
+    process.exit(1);
+    return;
+  }
+  existing.createdAtMs = nowMs();
+  existing.renewedAt = new Date().toISOString();
+  fs.writeFileSync(lockPath, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
+  console.log(JSON.stringify({ ok: true, renewed: true, lock: existing }, null, 2));
 }
 
 function acquire(lockPath, ttlSeconds) {
@@ -126,6 +140,10 @@ function main() {
 
   if (command === 'acquire') {
     acquire(lockPath, ttlSeconds);
+    return;
+  }
+  if (command === 'renew') {
+    renew(lockPath);
     return;
   }
   if (command === 'release') {

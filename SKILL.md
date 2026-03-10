@@ -1,7 +1,7 @@
 ---
 name: bug-hunter
 description: "Adversarial bug hunting with a sequential-first pipeline (Recon, Hunter, Skeptic, Referee) that can optionally use safe read-only parallel triage. Finds, verifies, and auto-fixes real bugs by default (with --scan-only opt-out) using checkpointed verification and resume state for large codebases. Use this skill whenever the user wants bug finding, security audits, regression checks, or code review focused on runtime behavior."
-argument-hint: "[path | -b <branch> [--base <base-branch>] | --staged | --scan-only | --fix | --autonomous | --loop | --approve | --deps | --threat-model]"
+argument-hint: "[path | -b <branch> [--base <base-branch>] | --staged | --scan-only | --fix | --autonomous | --loop | --approve | --deps | --threat-model | --dry-run]"
 disable-model-invocation: true
 ---
 
@@ -55,6 +55,7 @@ For large scans: process chunks sequentially with persistent state to avoid comp
 /bug-hunter --deps src/                 # Include dependency CVE scan
 /bug-hunter --threat-model src/         # Generate/use STRIDE threat model
 /bug-hunter --deps --threat-model src/  # Full security audit
+/bug-hunter --fix --dry-run src/        # Preview fixes without editing files
 ```
 
 ## Target
@@ -72,6 +73,7 @@ The raw arguments are: $ARGUMENTS
 0f. If arguments contain `--approve`: strip it from the arguments and set `APPROVE_MODE=true`. When this flag is set, Fixer agents run in `mode: "default"` (user reviews and approves each edit). When not set, `APPROVE_MODE=false` and Fixers run autonomously.
 0g. If arguments contain `--deps`: strip it and set `DEP_SCAN=true`. Dependency scanning runs package manager audit tools and checks if vulnerable APIs are actually called in the codebase.
 0h. If arguments contain `--threat-model`: strip it and set `THREAT_MODEL_MODE=true`. Generates a STRIDE threat model at `.bug-hunter/threat-model.md` if one doesn't exist, then feeds it to Recon + Hunter for targeted security analysis.
+0i. If arguments contain `--dry-run`: strip it and set `DRY_RUN_MODE=true`. Forces `FIX_MODE=true`. In dry-run mode, Phase 2 builds the fix plan and the Fixer reads code and outputs planned changes as unified diff previews, but no file edits, git commits, or lock acquisition occur. Produces `fix-report.json` with `"dry_run": true`.
 
 1. If arguments contain `--staged`: this is **staged file mode**.
    - Run `git diff --cached --name-only` using the Bash tool to get the list of staged files.
