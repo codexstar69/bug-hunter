@@ -1,0 +1,128 @@
+# Bug Hunter — Full Reference
+
+> AI-powered adversarial bug finding that argues with itself to surface real vulnerabilities — and auto-fixes them safely.
+
+## Overview
+
+Bug Hunter is an automated adversarial code auditing skill for AI coding agents. Instead of a single AI scanning code and flooding you with false alarms, it runs an adversarial multi-agent pipeline: one agent hunts for bugs, a second agent tries to disprove them, and a third agent delivers an independent final verdict.
+
+## Pipeline Architecture
+
+### Phase 1: Triage (0 tokens, <2s)
+`scripts/triage.cjs` classifies every file by risk tier (CRITICAL/HIGH/MEDIUM/LOW/SKIP) using filename patterns, directory structure, and file size heuristics. Outputs `.bug-hunter/triage.json` with strategy, file budget, domain map, risk map, and scan order.
+
+### Phase 2: Recon
+Enrichment agent maps the tech stack, auth mechanisms, database layer, and key dependencies. Produces a risk map that guides Hunter scan order.
+
+### Phase 3: Hunt
+Hunter agent scans files in risk-map order (CRITICAL → HIGH → MEDIUM). Reports behavioral bugs with exact code evidence, runtime triggers, and cross-file references. Verifies claims against official documentation via `doc-lookup.cjs`.
+
+### Phase 4: Skeptic Challenge
+Adversarial Skeptic re-reads actual source code for every finding and attempts to disprove it. Applies 15 hard exclusion rules for settled false-positive categories. Uses risk calculations (EV = confidence × points - (1-confidence) × 2×points) to decide ACCEPT vs DISPROVE.
+
+### Phase 5: Referee Verdict
+Independent Referee reads original code, Hunter findings, and Skeptic challenges. Delivers final CONFIRMED/DISMISSED/NEEDS_REVIEW verdicts. Enriches security findings with STRIDE, CWE, CVSS 3.1, reachability analysis, and proof-of-concept blocks.
+
+### Phase 6: Fix (optional, --fix flag)
+Surgical auto-fix with git branching, test baseline capture, confidence-gated fix queue, canary rollout, per-bug commits, automatic rollback on test regression, and post-fix re-scan.
+
+## Documentation Verification
+
+Bug Hunter verifies claims against official library documentation before any agent asserts framework behavior. Uses a hybrid approach:
+
+1. **Context Hub (chub)** — curated, versioned, annotatable docs (primary)
+2. **Context7 API** — broad coverage fallback when chub doesn't have the library
+
+```bash
+# Primary: doc-lookup.cjs (tries chub first, falls back to Context7)
+node scripts/doc-lookup.cjs search "express" "middleware error handling"
+node scripts/doc-lookup.cjs get "prisma/orm" "parameterized queries" --lang js
+
+# Fallback: context7-api.cjs (Context7 only)
+node scripts/context7-api.cjs search "express" "middleware"
+node scripts/context7-api.cjs context "/expressjs/express" "error handling"
+```
+
+## Security Classification
+
+### STRIDE Threat Categories
+Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege
+
+### CWE Mapping
+SQL Injection (CWE-89), Command Injection (CWE-78), XSS (CWE-79), Path Traversal (CWE-22), IDOR (CWE-639), Missing Auth (CWE-306/862), Hardcoded Credentials (CWE-798), SSRF (CWE-918), and more.
+
+### CVSS 3.1 Scoring
+Critical and High security findings receive CVSS 3.1 base scores with attack vector, complexity, privileges required, and impact metrics.
+
+## Bug Finding Categories
+
+- Logic errors, off-by-one, wrong comparisons, inverted conditions
+- Security: injection, auth bypass, SSRF, path traversal, XSS
+- Race conditions, deadlocks, data corruption
+- Unhandled error paths, null/undefined dereferences
+- Resource leaks, API contract violations
+- State management bugs, data integrity issues
+- Missing boundary validation, cross-file contract violations
+
+## CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--fix` | Enable auto-fix after scanning |
+| `--diff <branch>` | Scan only files changed vs branch |
+| `--staged` | Scan only git-staged files |
+| `--threat-model` | Generate STRIDE threat model |
+| `--deps` | Include dependency CVE scan |
+| `--dry-run` | Preview fixes without editing |
+| `--no-loop` | Single pass (disable iterative coverage) |
+| `--loop` | Iterative until full coverage (default) |
+
+## Output Files
+
+| File | Description |
+|------|-------------|
+| `.bug-hunter/triage.json` | File classification and scan strategy |
+| `.bug-hunter/recon.md` | Tech stack and risk map |
+| `.bug-hunter/findings.md` | Hunter bug reports |
+| `.bug-hunter/skeptic.md` | Skeptic challenges |
+| `.bug-hunter/report.md` | Final Referee verdicts |
+| `.bug-hunter/findings.json` | Machine-readable findings for CI/CD |
+| `.bug-hunter/fix-report.md` | Fix results (when --fix used) |
+| `.bug-hunter/fix-report.json` | Machine-readable fix results |
+| `.bug-hunter/threat-model.md` | STRIDE threat model (when --threat-model used) |
+| `.bug-hunter/dep-findings.json` | Dependency CVE results (when --deps used) |
+
+## Supported Languages
+
+JavaScript, TypeScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, C/C++
+
+## Supported Frameworks
+
+Express, Fastify, Next.js, Django, Flask, FastAPI, Gin, Echo, Actix, Spring Boot, Rails, Laravel — and any framework with docs in Context Hub or Context7.
+
+## Project Structure
+
+```
+bug-hunter/
+├── SKILL.md              # Agent integration instructions
+├── README.md             # Full documentation
+├── CHANGELOG.md          # Version history
+├── modes/                # Execution strategies by codebase size
+├── prompts/              # Agent system prompts
+├── scripts/              # Node.js helpers (zero AI tokens)
+├── templates/            # Subagent launch template
+└── test-fixture/         # 6 planted bugs for validation
+```
+
+## Install
+
+```bash
+git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
+npm install -g @aisuite/chub  # optional: curated doc verification
+```
+
+Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, or any AI agent with file-reading and shell-command capabilities.
+
+## License
+
+MIT

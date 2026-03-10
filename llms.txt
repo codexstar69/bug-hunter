@@ -1,0 +1,46 @@
+# Bug Hunter
+
+> AI-powered adversarial bug finding that argues with itself to surface real vulnerabilities — and auto-fixes them safely.
+
+## What It Does
+
+Bug Hunter is an automated adversarial code auditing skill for AI coding agents. It runs a multi-agent pipeline where one agent hunts for bugs, a second tries to disprove them, and a third delivers an independent verdict. Only bugs that survive all three stages appear in your report.
+
+## Key Capabilities
+
+- Zero-token triage: classifies files by risk in <2s before any AI runs
+- Adversarial pipeline: Hunter → Skeptic → Referee eliminates false positives
+- Security classification: STRIDE threat categories, CWE weakness IDs, CVSS 3.1 scoring
+- Documentation verification: checks claims against official library docs via Context Hub + Context7
+- Safe auto-fix: git-branched fixes with canary rollout, test verification, and automatic rollback
+- Dependency CVE scanning: lockfile-aware audits for npm, pnpm, yarn, bun
+
+## Usage
+
+```
+/bug-hunter src/              # scan a directory
+/bug-hunter src/ --fix        # scan and auto-fix
+/bug-hunter --diff main       # scan only changed files vs main branch
+/bug-hunter --threat-model    # generate STRIDE threat model first
+/bug-hunter --deps            # include dependency CVE scan
+```
+
+## Install
+
+```bash
+git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
+npm install -g @aisuite/chub  # optional: curated doc verification
+```
+
+Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf.
+
+## Documentation
+
+- [README.md](https://github.com/codexstar69/bug-hunter/blob/main/README.md) — full documentation
+- [SKILL.md](https://github.com/codexstar69/bug-hunter/blob/main/SKILL.md) — agent integration instructions
+- [CHANGELOG.md](https://github.com/codexstar69/bug-hunter/blob/main/CHANGELOG.md) — version history
+- [CONTRIBUTING.md](https://github.com/codexstar69/bug-hunter/blob/main/CONTRIBUTING.md) — contribution guide
+
+## License
+
+MIT

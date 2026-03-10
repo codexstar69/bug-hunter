@@ -169,10 +169,19 @@ Before doing anything else, verify the environment:
 
 5. **Verify helper scripts exist**:
    ```
-   ls "$SKILL_DIR/scripts/run-bug-hunter.cjs" "$SKILL_DIR/scripts/bug-hunter-state.cjs" "$SKILL_DIR/scripts/delta-mode.cjs" "$SKILL_DIR/scripts/payload-guard.cjs" "$SKILL_DIR/scripts/fix-lock.cjs" "$SKILL_DIR/scripts/triage.cjs"
+   ls "$SKILL_DIR/scripts/run-bug-hunter.cjs" "$SKILL_DIR/scripts/bug-hunter-state.cjs" "$SKILL_DIR/scripts/delta-mode.cjs" "$SKILL_DIR/scripts/payload-guard.cjs" "$SKILL_DIR/scripts/fix-lock.cjs" "$SKILL_DIR/scripts/triage.cjs" "$SKILL_DIR/scripts/doc-lookup.cjs"
    ```
    If any are missing, stop and tell the user to update/reinstall the skill.
    Note: `code-index.cjs` is optional — enables cross-domain dependency analysis for boundary audits in large-codebase mode, but the pipeline works fully without it.
+   Note: `context7-api.cjs` is kept as a fallback — `doc-lookup.cjs` is the primary doc verification script.
+
+5b. **Check Context Hub CLI (optional, non-blocking)**:
+   ```bash
+   chub --help 2>/dev/null && chub update 2>/dev/null
+   ```
+   - If `chub` is available, `doc-lookup.cjs` will use it as the primary doc source.
+   - If `chub` is not installed, `doc-lookup.cjs` falls back to Context7 automatically.
+   - Suggest: `npm install -g @aisuite/chub` if missing — but do NOT block the pipeline.
 
 6. **Select orchestration backend (cross-CLI portability)**:
 

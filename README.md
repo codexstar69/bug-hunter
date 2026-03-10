@@ -695,11 +695,16 @@ bug-hunter/
 # Clone into your agent's skills directory
 git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
 
+# Install Context Hub CLI (recommended — curated docs for doc verification)
+npm install -g @aisuite/chub
+
 # Update to latest version
 cd ~/.agents/skills/bug-hunter && git pull
 ```
 
 **Requirements:** Node.js 18+. No other dependencies.
+
+**Optional:** `@aisuite/chub` for curated documentation lookup. Without it, doc verification falls back to Context7 API (still works, just less curated).
 
 **Works with:** Pi, Claude Code, Codex, Cursor, Windsurf, or any AI agent with file-reading and shell-command capabilities.
 

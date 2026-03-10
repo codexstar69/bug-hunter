@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.4.0 — 2026-03-10
+
+### Context Hub integration — curated docs with Context7 fallback
+
+- New `scripts/doc-lookup.cjs`: hybrid documentation lookup that tries [Context Hub](https://github.com/andrewyng/context-hub) (chub) first for curated, versioned, annotatable docs, then falls back to Context7 API when chub doesn't have the library
+- All agent prompts (hunter, skeptic, fixer, doc-lookup) updated to use `doc-lookup.cjs` as primary with `context7-api.cjs` as explicit fallback
+- Preflight smoke test now checks `doc-lookup.cjs` first, falls back to `context7-api.cjs`
+- `run-bug-hunter.cjs` validates both scripts exist at startup
+- Requires `@aisuite/chub` installed globally (`npm install -g @aisuite/chub`) — optional but recommended; pipeline works without it via Context7 fallback
+
 ## 2.3.0 — 2026-03-10
 
 ### Loop mode is now on by default
