@@ -28,6 +28,10 @@ Bug Hunter solves both:
 
 ## How It Works (The Big Picture)
 
+<p align="center">
+  <img src="docs/images/2026-03-10-pipeline-overview.png" alt="Bug Hunter Pipeline — 8-step flow from Triage through Verify" width="100%">
+</p>
+
 ```
 Your Code
     ↓
@@ -51,6 +55,10 @@ Your Code
 ```
 
 ### Why Does This Work Better?
+
+<p align="center">
+  <img src="docs/images/2026-03-10-adversarial-debate.png" alt="Adversarial debate — Hunter vs Skeptic with Referee verdict" width="100%">
+</p>
 
 Each agent has **opposite incentives**:
 
@@ -118,6 +126,10 @@ The Hunter agent reads your code file by file and looks for bugs that will cause
 What it does NOT report: style issues, naming preferences, unused code, TODO comments, or suggestions. Only real behavioral bugs.
 
 ### 📚 Official Documentation Verification
+
+<p align="center">
+  <img src="docs/images/2026-03-10-doc-verify-fix-plan.png" alt="Documentation verification flow and strategic fix planning timeline" width="100%">
+</p>
 
 This is one of Bug Hunter's most important features. AI models often make wrong assumptions about how libraries and frameworks work — "Express sanitizes input by default" (it doesn't), "Prisma parameterizes `$queryRaw` automatically" (it depends). Wrong assumptions lead to false positives AND missed real bugs.
 
@@ -218,6 +230,10 @@ The Skeptic agent doesn't just rubber-stamp findings. It re-reads the actual cod
 Everything else gets full adversarial analysis with code re-reading, framework verification (using doc-lookup), and confidence-gated decisions.
 
 ### ⚖️ Enriched Referee Verdicts
+
+<p align="center">
+  <img src="docs/images/2026-03-10-security-finding-card.png" alt="Enriched security finding card with CVSS score, STRIDE, CWE, and proof of concept" width="100%">
+</p>
 
 For confirmed security bugs, the Referee adds professional-grade enrichment:
 
