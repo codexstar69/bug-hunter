@@ -18,11 +18,26 @@ Before touching code:
    - Run `git status --porcelain`
    - If dirty working tree, run `git stash push -m "bug-hunter-pre-fix-$(date +%s)"` and record `STASH_CREATED=true`
    - Create fix branch: `git checkout -b bug-hunter-fix-$(date +%Y%m%d-%H%M%S)`
+   - Record `FIX_BRANCH` = the branch name
 
 Report:
 - Fix branch name
 - Base commit hash (`FIX_BASE_COMMIT`)
 - Whether stash was created
+
+**8a-wt. Worktree isolation setup (subagent/teams backends only)**
+
+If `AGENT_BACKEND` is `subagent` or `teams` and `worktree-harvest.cjs` exists:
+1. Clean up any stale worktrees from previous failed runs:
+   ```
+   node "$SKILL_DIR/scripts/worktree-harvest.cjs" cleanup-all ".bug-hunter/worktrees"
+   ```
+2. Set `WORKTREE_MODE=true`.
+
+If `AGENT_BACKEND` is `local-sequential` or `interactive_shell`, or `worktree-harvest.cjs` is missing:
+- Set `WORKTREE_MODE=false`. No worktree setup needed — Fixer edits directly.
+
+**IMPORTANT:** Do NOT use the Agent tool's built-in `isolation: "worktree"` parameter for Fixer dispatch. That creates an ephemeral branch and auto-cleans on exit, losing commits. We manage our own worktrees via `worktree-harvest.cjs` which keeps the Fixer on the same fix branch.
 
 Acquire single-writer lock before edits (skip if `DRY_RUN_MODE=true`):
 
@@ -126,24 +141,65 @@ Execution order:
 
 For each batch in order:
 1. Check Phase 2 timeout and circuit breaker before launching.
-2. Launch one Fixer with:
-   - `prompts/fixer.md`
-   - Batch bug subset (max `MAX_BUGS_PER_FIXER` bugs)
-   - Recon tech stack context
-3. Validate Fixer payload before launch:
+2. Validate Fixer payload before launch:
    ```
    node "$SKILL_DIR/scripts/payload-guard.cjs" validate fixer ".bug-hunter/payloads/fixer-batch-<id>.json"
    ```
-4. Permission mode:
+3. Permission mode:
    - `APPROVE_MODE=true` → `mode: "default"`
    - `APPROVE_MODE=false` → `mode: "auto"`
    - `DRY_RUN_MODE=true` → Fixer reads code and outputs planned diff only, no Edit tool calls
-5. Apply returned changes (skip if dry-run).
-6. Commit checkpoint — **one commit per bug** (mandatory):
+
+**Path A — Worktree mode (`WORKTREE_MODE=true`):**
+
+4a. Prepare isolated worktree:
+   ```
+   node "$SKILL_DIR/scripts/worktree-harvest.cjs" prepare "$FIX_BRANCH" ".bug-hunter/worktrees/fixer-batch-<id>"
+   ```
+   Record `PRE_HARVEST_HEAD` from the output.
+
+5a. Dispatch Fixer subagent with worktree CWD:
+   - Compute `WORKTREE_ABS` (absolute path of the worktree directory).
+   - In the Fixer task instructions, include:
+     - `"Your working directory is: $WORKTREE_ABS"`
+     - `"You MUST git add + git commit each fix: fix(bug-hunter): BUG-N — [description]"`
+     - `"Do NOT use EnterWorktree/ExitWorktree — you are already in an isolated worktree"`
+     - `"Do NOT switch branches or run git checkout"`
+   - Do NOT set `isolation: "worktree"` on the Agent tool — we manage worktrees ourselves.
+   - Launch one Fixer with: `prompts/fixer.md`, batch bug subset, recon tech stack context.
+
+6a. After Fixer completes (or crashes), harvest commits:
+   ```
+   node "$SKILL_DIR/scripts/worktree-harvest.cjs" harvest ".bug-hunter/worktrees/fixer-batch-<id>"
+   ```
+   Read harvest result:
+   - If `harvestedCount > 0`: record commit hashes per BUG-ID in fix ledger.
+   - If `uncommittedStashed: true`: mark those bugs as `FIX_FAILED` with reason "fixer-did-not-commit".
+   - If `branchSwitched: true`: mark all bugs in batch as `FIX_FAILED` with reason "branch-switched".
+   - If `noChanges: true`: mark all bugs in batch as `SKIPPED`.
+
+7a. Clean up worktree:
+   ```
+   node "$SKILL_DIR/scripts/worktree-harvest.cjs" cleanup ".bug-hunter/worktrees/fixer-batch-<id>"
+   ```
+
+8a. Renew lock after each batch:
+   ```
+   node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock"
+   ```
+
+**Path B — Direct mode (`WORKTREE_MODE=false`):**
+
+4b. Launch one Fixer with:
+   - `prompts/fixer.md`
+   - Batch bug subset (max `MAX_BUGS_PER_FIXER` bugs)
+   - Recon tech stack context
+5b. Apply returned changes (skip if dry-run).
+6b. Commit checkpoint — **one commit per bug** (mandatory):
    - `fix(bug-hunter): BUG-N — [short description]`
    - Exception: if two bugs touch the same lines and cannot be separated, combine into a single commit with both BUG-IDs.
-7. Record commit hash per BUG-ID in a fix ledger.
-8. **Renew lock** after each bug fix:
+7b. Record commit hash per BUG-ID in a fix ledger.
+8b. **Renew lock** after each bug fix:
    ```
    node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock"
    ```
@@ -151,6 +207,19 @@ For each batch in order:
 If a bug cannot be fixed, mark `SKIPPED` and continue.
 
 ### Step 10: Verify and auto-revert
+
+**10-pre. Rejoin fix branch (worktree mode only)**
+
+If `WORKTREE_MODE=true`:
+1. Ensure all worktrees are cleaned up:
+   ```
+   node "$SKILL_DIR/scripts/worktree-harvest.cjs" cleanup-all ".bug-hunter/worktrees"
+   ```
+2. Return main working tree to the fix branch:
+   ```
+   node "$SKILL_DIR/scripts/worktree-harvest.cjs" checkout-fix "$FIX_BRANCH"
+   ```
+3. The main working tree now has all Fixer commits. Proceed with verification.
 
 **10a. Fast checks after each checkpoint**
 
@@ -208,6 +277,23 @@ This removes ambiguity from `<base-branch>` and works for path scans, staged sca
 
 ### Step 12: Restore user state and report
 
+**12-pre. Worktree cleanup (safety net)**
+
+If `WORKTREE_MODE=true`:
+```
+node "$SKILL_DIR/scripts/worktree-harvest.cjs" cleanup-all ".bug-hunter/worktrees"
+```
+If main tree is still detached, restore to fix branch:
+```
+node "$SKILL_DIR/scripts/worktree-harvest.cjs" checkout-fix "$FIX_BRANCH"
+```
+If checkout-fix fails, fall back to `ORIGINAL_BRANCH`:
+```
+git checkout "$ORIGINAL_BRANCH"
+```
+
+**12a. Stash restore**
+
 If stash was created (not applicable in dry-run mode):
 1. Attempt automatic restore (`git stash pop`).
 2. If restore succeeds, report `stash_restored=true`.
@@ -217,7 +303,7 @@ Always release single-writer lock at the end (success or failure path):
 ```
 node "$SKILL_DIR/scripts/fix-lock.cjs" release ".bug-hunter/fix.lock"
 ```
-If an earlier step aborts Phase 2, run the same release command in best-effort cleanup before returning.
+If an earlier step aborts Phase 2, run the same release command AND worktree cleanup-all in best-effort cleanup before returning.
 
 Present:
 - Fix summary by status

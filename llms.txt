@@ -12,7 +12,7 @@ Bug Hunter is an automated adversarial code auditing skill for AI coding agents.
 - Adversarial pipeline: Hunter → Skeptic → Referee eliminates false positives
 - Security classification: STRIDE threat categories, CWE weakness IDs, CVSS 3.1 scoring
 - Documentation verification: checks claims against official library docs via Context Hub + Context7
-- Safe auto-fix: git-branched fixes with canary rollout, test verification, and automatic rollback
+- Safe auto-fix: git-branched fixes with worktree isolation, canary rollout, test verification, and automatic rollback
 - Dependency CVE scanning: lockfile-aware audits for npm, pnpm, yarn, bun
 
 ## Usage
@@ -28,11 +28,20 @@ Bug Hunter is an automated adversarial code auditing skill for AI coding agents.
 ## Install
 
 ```bash
+# npm global install (recommended)
+npm install -g @codexstar/bug-hunter && bug-hunter install
+
+# Cross-IDE install via skills.sh
+npx skills add codexstar69/bug-hunter
+
+# Git clone
 git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
-npm install -g @aisuite/chub  # optional: curated doc verification
+
+# Optional: curated doc verification
+npm install -g @aisuite/chub
 ```
 
-Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf.
+Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot.
 
 ## Documentation
 

@@ -1,0 +1,56 @@
+{
+  "name": "@codexstar/bug-hunter",
+  "version": "3.0.0",
+  "description": "Adversarial AI bug hunter — multi-agent pipeline finds security vulnerabilities, logic errors, and runtime bugs, then fixes them autonomously. Works with Claude Code, Cursor, Codex CLI, Copilot, Kiro, and more.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "bug-hunter": "bin/bug-hunter"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "skill",
+    "bug-hunter",
+    "security",
+    "vulnerability",
+    "code-review",
+    "auto-fix",
+    "claude-code",
+    "cursor",
+    "codex",
+    "copilot",
+    "kiro",
+    "multi-agent",
+    "adversarial",
+    "static-analysis"
+  ],
+  "files": [
+    "bin/",
+    "scripts/",
+    "prompts/",
+    "templates/",
+    "modes/",
+    "evals/",
+    "SKILL.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codexstar69/bug-hunter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codexstar69/bug-hunter/issues"
+  },
+  "homepage": "https://github.com/codexstar69/bug-hunter#readme",
+  "scripts": {
+    "test": "node --test scripts/tests/*.test.cjs",
+    "doctor": "node bin/bug-hunter doctor",
+    "postinstall": "node -e \"console.log('\\n  Run: bug-hunter install    to set up the skill\\n  Run: bug-hunter doctor     to check your environment\\n')\""
+  }
+}

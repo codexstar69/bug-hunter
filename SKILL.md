@@ -174,14 +174,24 @@ Before doing anything else, verify the environment:
    If any are missing, stop and tell the user to update/reinstall the skill.
    Note: `code-index.cjs` is optional — enables cross-domain dependency analysis for boundary audits in large-codebase mode, but the pipeline works fully without it.
    Note: `context7-api.cjs` is kept as a fallback — `doc-lookup.cjs` is the primary doc verification script.
+   Note: `worktree-harvest.cjs` is optional — enables worktree-isolated Fixer dispatch for `subagent`/`teams` backends. Without it, Fixers edit directly on the fix branch (still safe via single-writer lock + auto-revert).
 
-5b. **Check Context Hub CLI (optional, non-blocking)**:
+5b. **Check Context Hub CLI (recommended, non-blocking)**:
    ```bash
    chub --help 2>/dev/null && chub update 2>/dev/null
    ```
-   - If `chub` is available, `doc-lookup.cjs` will use it as the primary doc source.
-   - If `chub` is not installed, `doc-lookup.cjs` falls back to Context7 automatically.
-   - Suggest: `npm install -g @aisuite/chub` if missing — but do NOT block the pipeline.
+   - If `chub` is available, set `CHUB_AVAILABLE=true`. Report: `✓ Context Hub available — using curated docs for verification.`
+   - If `chub` is NOT installed, set `CHUB_AVAILABLE=false`. **Warn the user visibly:**
+     ```
+     ⚠️ Context Hub (chub) is not installed. Doc verification will fall back to Context7 API,
+        which has broader coverage but less curated results.
+
+        For better doc verification accuracy, install Context Hub:
+          npm install -g @aisuite/chub
+
+        More info: https://github.com/andrewyng/context-hub
+     ```
+   - Do NOT block the pipeline — Context7 fallback works, just with less curated results.
 
 6. **Select orchestration backend (cross-CLI portability)**:
 
@@ -606,4 +616,9 @@ The test fixture source files ship with the skill. If using `--fix` mode on the 
 | Fixer | timeout/error | Mark unfixed bugs as SKIPPED |
 | Post-fix tests | new failures | Auto-revert failed fix commit, mark FIX_REVERTED |
 | Post-fix re-scan | timeout/error | Skip re-scan, note "fixer output not re-verified" |
+| Worktree prepare | `git worktree add` fails | Fall back to `WORKTREE_MODE=false` (direct edit mode) for this run |
+| Worktree harvest | no commits found, dirty | Stash uncommitted work, mark bugs as `FIX_FAILED` (reason: fixer-did-not-commit) |
+| Worktree harvest | branch switched | Mark all bugs in batch as `FIX_FAILED` (reason: branch-switched) |
+| Worktree cleanup | `git worktree remove` fails | Force-remove directory, run `git worktree prune` |
+| Stale worktrees | from previous crash | `cleanup-all` at Step 8a-wt removes them before starting |
 | Fix lock release | release fails | Warn user to clear `.bug-hunter/fix.lock` manually |

@@ -1,5 +1,40 @@
 # Changelog
 
+## 3.0.0 — 2026-03-10
+
+### npm package, worktree-isolated Fixer, and cross-IDE installation
+
+**npm global install and CLI:**
+- New `package.json` with `@codexstar/bug-hunter` package name
+- New `bin/bug-hunter` CLI entry point with `install`, `doctor`, and `info` commands
+- `bug-hunter install` auto-detects Claude Code, Codex, Cursor, Kiro, and generic agents directories
+- `bug-hunter doctor` checks environment readiness (Node.js, Context Hub, Context7, git)
+- Install via: `npm install -g @codexstar/bug-hunter && bug-hunter install`
+
+**Cross-IDE installation via skills.sh:**
+- Compatible with `npx skills add codexstar69/bug-hunter` for Cursor, Windsurf, Copilot, Kiro, and Claude Code
+- No publish step required — auto-discovered from public GitHub repo with valid SKILL.md
+
+**Worktree-isolated Fixer dispatch (subagent/teams backends):**
+- New `scripts/worktree-harvest.cjs` — manages git worktrees for safe, isolated Fixer execution
+  - 6 subcommands: `prepare`, `harvest`, `checkout-fix`, `cleanup`, `cleanup-all`, `status`
+  - Fixer edits happen in an isolated worktree; commits land on the fix branch without touching the user's working tree
+  - Crash recovery via `cleanup-all` with automatic stash preservation
+  - Meta-file filtering prevents `.worktree-manifest.json` and `.harvest-result.json` from polluting dirty detection
+- `modes/fix-pipeline.md` updated with dual-path dispatch: worktree path (prepare → dispatch → harvest → cleanup) and direct path
+- `modes/_dispatch.md` updated with Fixer worktree lifecycle diagram and CRITICAL warning about Agent tool's built-in `isolation: "worktree"`
+- `templates/subagent-wrapper.md` updated with `{WORKTREE_RULES}` variable for Fixer isolation rules
+- 13 new tests in `scripts/tests/worktree-harvest.test.cjs` (full suite: 25/25 passing)
+
+**Context Hub preflight warning:**
+- SKILL.md Step 5b now shows a visible `⚠️` warning when `chub` is not installed, with install command
+- Previously was a silent suggestion — now impossible to miss
+
+**SKILL.md error table:**
+- 5 new error rows for worktree failures: prepare, harvest dirty, harvest no-manifest, cleanup, and checkout-fix errors
+
+---
+
 ## 2026-03-10 13:26
 
 - `scripts/triage.cjs`: LOW-only repositories promoted into `scanOrder` so script-heavy codebases do not collapse to zero scannable files

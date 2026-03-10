@@ -5,70 +5,86 @@
 <h1 align="center">🐛 Bug Hunter</h1>
 <p align="center"><strong>AI-powered adversarial bug finding that argues with itself to surface real vulnerabilities — and auto-fixes them safely.</strong></p>
 <p align="center">
-  <a href="#quick-start">Quick Start</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#usage">Usage</a> ·
   <a href="#how-the-adversarial-pipeline-works">How It Works</a> ·
   <a href="#features">Features</a> ·
-  <a href="#security-classification-stride-cwe-cvss">Security Classification</a> ·
-  <a href="#strategic-fix-planning-and-safe-auto-fix">Auto-Fix</a> ·
-  <a href="#supported-languages-and-frameworks">Languages</a> ·
-  <a href="#install">Install</a>
+  <a href="#security-classification-stride-cwe-cvss">Security</a> ·
+  <a href="#supported-languages-and-frameworks">Languages</a>
 </p>
+
+---
+
+## Install
+
+```bash
+# One-line install for any IDE (Claude Code, Cursor, Windsurf, Copilot, Kiro)
+npx skills add codexstar69/bug-hunter
+```
+
+**Or install globally via npm:**
+
+```bash
+npm install -g @codexstar/bug-hunter
+bug-hunter install     # auto-detects your IDE/agent
+bug-hunter doctor      # verify environment
+```
+
+**Or clone manually:**
+
+```bash
+git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
+```
+
+**Optional (recommended):** Install [Context Hub](https://github.com/andrewyng/context-hub) for curated documentation verification:
+```bash
+npm install -g @aisuite/chub
+```
+
+> **Requirements:** Node.js 18+. No other dependencies.
+>
+> **Works with:** [Pi](https://github.com/mariozechner/pi-coding-agent), Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot — or any AI agent that can read files and run shell commands.
+
+---
+
+## Usage
+
+```bash
+/bug-hunter                        # scan entire project, auto-fix confirmed bugs
+/bug-hunter src/                   # scan a specific directory
+/bug-hunter lib/auth.ts            # scan a single file
+/bug-hunter --scan-only src/       # report only — no code changes
+/bug-hunter --fix --approve src/   # ask before each fix
+/bug-hunter -b feature-xyz         # scan only files changed in branch (vs main)
+/bug-hunter --staged               # scan staged files (pre-commit hook)
+/bug-hunter --deps --threat-model  # full audit: CVEs + STRIDE threat model
+```
+
+---
+
+## What Is Bug Hunter
+
+Three AI agents argue about your code. One hunts for bugs. One tries to disprove every finding. One delivers the final verdict. Only bugs that survive all three stages make the report.
+
+This eliminates the two biggest problems with AI code review: **false positive overload** (the Skeptic catches them) and **fixes that break things** (canary rollout with automatic rollback catches those).
 
 ---
 
 ## Table of Contents
 
-- [What Is Bug Hunter](#what-is-bug-hunter)
-- [The Problem with AI Code Review](#the-problem-with-ai-code-review)
 - [How the Adversarial Pipeline Works](#how-the-adversarial-pipeline-works)
-  - [Pipeline Architecture Overview](#pipeline-architecture-overview)
-  - [Adversarial Debate — Hunter vs Skeptic vs Referee](#adversarial-debate--hunter-vs-skeptic-vs-referee)
-  - [Agent Incentive Scoring System](#agent-incentive-scoring-system)
-- [Quick Start](#quick-start)
-  - [Installation](#installation)
-  - [Basic Usage](#basic-usage)
-  - [Branch Diff and Staged File Scanning](#branch-diff-and-staged-file-scanning)
-  - [Full Security Audit Mode](#full-security-audit-mode)
 - [Features](#features)
-  - [Zero-Token Triage — Instant File Classification](#zero-token-triage--instant-file-classification)
-  - [Deep Bug Hunting — Runtime Behavioral Analysis](#deep-bug-hunting--runtime-behavioral-analysis)
-  - [Official Documentation Verification via Context Hub + Context7](#official-documentation-verification-via-context-hub--context7)
-  - [Adversarial Skeptic with 15 Hard Exclusion Rules](#adversarial-skeptic-with-15-hard-exclusion-rules)
-  - [Few-Shot Calibration for Precision Tuning](#few-shot-calibration-for-precision-tuning)
-  - [Automatic Codebase Scaling Strategies](#automatic-codebase-scaling-strategies)
 - [Security Classification — STRIDE, CWE, and CVSS](#security-classification-stride-cwe-cvss)
-  - [STRIDE Threat Categorization](#stride-threat-categorization)
-  - [CWE Weakness Identification](#cwe-weakness-identification)
-  - [CVSS 3.1 Severity Scoring](#cvss-31-severity-scoring)
-  - [Enriched Referee Verdicts with Proof of Concept](#enriched-referee-verdicts-with-proof-of-concept)
 - [Threat Modeling with STRIDE](#threat-modeling-with-stride)
 - [Dependency CVE Scanning](#dependency-cve-scanning)
 - [Strategic Fix Planning and Safe Auto-Fix](#strategic-fix-planning-and-safe-auto-fix)
-  - [Phase 1 — Safety Setup and Git Branching](#phase-1--safety-setup-and-git-branching)
-  - [Phase 2 — Test Baseline Capture](#phase-2--test-baseline-capture)
-  - [Phase 3 — Confidence-Gated Fix Queue](#phase-3--confidence-gated-fix-queue)
-  - [Phase 4 — Canary Rollout Strategy](#phase-4--canary-rollout-strategy)
-  - [Phase 5 — Post-Fix Verification and Re-Scan](#phase-5--post-fix-verification-and-re-scan)
-  - [Fix Status Reference](#fix-status-reference)
-  - [Documentation-Verified Fixes](#documentation-verified-fixes)
 - [Structured JSON Output for CI/CD Integration](#structured-json-output-for-cicd-integration)
 - [Output Files Reference](#output-files-reference)
 - [Supported Languages and Frameworks](#supported-languages-and-frameworks)
 - [CLI Flags Reference](#cli-flags-reference)
 - [Self-Test and Validation](#self-test-and-validation)
 - [Project Structure](#project-structure)
-- [Install](#install)
 - [License](#license)
-
----
-
-## What Is Bug Hunter
-
-Bug Hunter is an **automated adversarial code auditing system** that uses multiple AI agents working together — and against each other — to find real bugs in your codebase. It functions as a team of expert security reviewers who cross-check each other's work through structured debate.
-
-Instead of a single AI scanning your code and flooding you with false alarms, Bug Hunter runs an **adversarial multi-agent pipeline**: one agent hunts for bugs, a second agent tries to disprove them, and a third agent delivers an independent final verdict. Only bugs that survive all three stages appear in your report.
-
-Bug Hunter works with **any AI coding agent** — [Pi](https://github.com/mariozechner/pi-coding-agent), Claude Code, Codex, Cursor, Windsurf, or anything that can read files and run shell commands.
 
 ---
 
@@ -141,61 +157,6 @@ Each agent independently reads the source code. No agent trusts another's analys
 This scoring creates a **self-correcting equilibrium**. The Hunter doesn't flood the report with low-quality findings because false positives reduce its score. The Skeptic doesn't dismiss everything because missing a real bug incurs a double penalty. The Referee can't rubber-stamp — it must independently verify.
 
 ---
-
-## Quick Start
-
-### Installation
-
-```bash
-# Clone into your agent's skills directory
-git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
-```
-
-**Requirements:** Node.js 18+ (for triage and helper scripts). No other dependencies.
-
-**Compatible agents:** Pi, Claude Code, Codex, Cursor, Windsurf, or any AI agent with file-reading and shell-command tools.
-
-### Basic Usage
-
-```bash
-# Scan your entire project and auto-fix confirmed bugs
-/bug-hunter
-
-# Scan a specific directory
-/bug-hunter src/
-
-# Scan a single file
-/bug-hunter lib/auth.ts
-
-# Report only — no code changes
-/bug-hunter --scan-only src/
-
-# Find and fix bugs, but ask before each fix
-/bug-hunter --fix --approve src/
-```
-
-### Branch Diff and Staged File Scanning
-
-```bash
-# Scan only files changed in a feature branch (vs main)
-/bug-hunter -b feature-xyz
-
-# Scan branch diff against a specific base branch
-/bug-hunter -b feature-xyz --base dev
-
-# Scan staged files before committing (pre-commit hook integration)
-/bug-hunter --staged
-```
-
-### Full Security Audit Mode
-
-```bash
-# Full audit: dependency CVE scanning + STRIDE threat modeling
-/bug-hunter --deps --threat-model src/
-
-# Iterative audit for large codebases — runs until 100% critical coverage
-/bug-hunter --deps --threat-model src/
-```
 
 ---
 
@@ -431,6 +392,7 @@ Bug Hunter doesn't throw uncoordinated patches at your codebase. After the Refer
 - Stashes uncommitted changes safely — nothing is lost
 - Creates a dedicated fix branch: `bug-hunter-fix-YYYYMMDD-HHmmss`
 - Acquires a **single-writer lock** — prevents concurrent fixers from conflicting
+- **Worktree isolation** (subagent/teams backends): Fixer runs in an isolated git worktree so edits never touch your working tree until verified — managed by `worktree-harvest.cjs` with automatic crash recovery
 
 ### Phase 2 — Test Baseline Capture
 
@@ -568,6 +530,7 @@ Every run creates a `.bug-hunter/` directory (add to `.gitignore`) containing:
 | `referee.md` | Always | Referee final verdicts with enrichment |
 | `fix-report.md` | Fix mode | Per-bug fix status, verification results, git diff summary |
 | `fix-report.json` | Fix mode | Machine-readable fix results for CI/CD gating and dashboards |
+| `worktree-*/` | Worktree fix mode | Temporary isolated worktrees for Fixer subagents (auto-cleaned) |
 | `threat-model.md` | `--threat-model` | STRIDE threat model with trust boundaries and data flows |
 | `dep-findings.json` | `--deps` | Dependency CVE results with reachability analysis |
 | `state.json` | Large scans | Progress checkpoint for resume after interruption |
@@ -631,6 +594,10 @@ bug-hunter/
 ├── SKILL.md                              # Pipeline orchestration logic
 ├── README.md                             # This documentation
 ├── CHANGELOG.md                          # Version history
+├── package.json                          # npm package config (@codexstar/bug-hunter)
+│
+├── bin/
+│   └── bug-hunter                        # CLI entry point (install, doctor, info)
 │
 ├── docs/
 │   └── images/                           # Documentation visuals
@@ -649,9 +616,9 @@ bug-hunter/
 │   ├── large-codebase.md                 #   Domain-scoped pipelines
 │   ├── local-sequential.md               #   Single-agent execution
 │   ├── loop.md                           #   Iterative coverage loop
-│   ├── fix-pipeline.md                   #   Auto-fix orchestration
+│   ├── fix-pipeline.md                   #   Auto-fix orchestration (with worktree isolation)
 │   ├── fix-loop.md                       #   Fix + re-scan loop
-│   └── _dispatch.md                      #   Shared dispatch patterns
+│   └── _dispatch.md                      #   Shared dispatch patterns + worktree lifecycle
 │
 ├── prompts/                              # Agent system prompts
 │   ├── recon.md                          #   Reconnaissance agent
@@ -675,10 +642,14 @@ bug-hunter/
 │   ├── delta-mode.cjs                    #   Changed-file scope reduction
 │   ├── payload-guard.cjs                 #   Subagent payload validation
 │   ├── fix-lock.cjs                      #   Concurrent fixer prevention
-│   └── code-index.cjs                    #   Cross-domain analysis (optional)
+│   ├── worktree-harvest.cjs              #   Worktree isolation for Fixer subagents
+│   ├── code-index.cjs                    #   Cross-domain analysis (optional)
+│   └── tests/                            #   Test suite (node --test)
+│       ├── run-bug-hunter.test.cjs       #     Orchestrator tests
+│       └── worktree-harvest.test.cjs     #     Worktree lifecycle tests
 │
 ├── templates/
-│   └── subagent-wrapper.md               # Subagent launch template
+│   └── subagent-wrapper.md               # Subagent launch template (with worktree rules)
 │
 └── test-fixture/                         # 6 planted bugs for validation
     ├── server.js
@@ -686,27 +657,6 @@ bug-hunter/
     ├── db.js
     └── users.js
 ```
-
----
-
-## Install
-
-```bash
-# Clone into your agent's skills directory
-git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
-
-# Install Context Hub CLI (recommended — curated docs for doc verification)
-npm install -g @aisuite/chub
-
-# Update to latest version
-cd ~/.agents/skills/bug-hunter && git pull
-```
-
-**Requirements:** Node.js 18+. No other dependencies.
-
-**Optional:** `@aisuite/chub` for curated documentation lookup. Without it, doc verification falls back to Context7 API (still works, just less curated).
-
-**Works with:** Pi, Claude Code, Codex, Cursor, Windsurf, or any AI agent with file-reading and shell-command capabilities.
 
 ---
 

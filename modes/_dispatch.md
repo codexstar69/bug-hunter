@@ -73,6 +73,43 @@ interactive_shell({ command: 'pi "<filled task prompt>"', mode: "dispatch" })
 
 ---
 
+## Fixer Dispatch: Worktree Isolation (subagent/teams only)
+
+When `WORKTREE_MODE=true`, the Fixer runs in a managed git worktree for isolation. The orchestrator handles the full lifecycle — the Fixer just edits and commits.
+
+**Key differences from other role dispatches:**
+
+1. The worktree is created by the orchestrator via `worktree-harvest.cjs prepare` BEFORE dispatch.
+2. The Fixer's working directory is set to the worktree's absolute path, not the project root.
+3. The Fixer MUST `git add` + `git commit` each fix (uncommitted work = `FIX_FAILED`).
+4. The orchestrator harvests commits via `worktree-harvest.cjs harvest` AFTER dispatch.
+5. The orchestrator cleans up via `worktree-harvest.cjs cleanup` AFTER harvest.
+
+**CRITICAL — do NOT use `isolation: "worktree"` on the Agent tool:**
+The Agent tool's built-in worktree isolation creates an ephemeral branch and auto-cleans on exit, which loses Fixer commits. We manage worktrees ourselves so the Fixer commits land directly on the fix branch.
+
+**Fixer-specific template variables for `{PHASE_SPECIFIC_CONTEXT}`:**
+- `WORKTREE_DIR: <absolute path to worktree>`
+- `FIX_BRANCH: <branch name>`
+- `COMMIT_FORMAT: fix(bug-hunter): BUG-N — [description]`
+- Worktree isolation rules (see `{WORKTREE_RULES}` in subagent-wrapper.md)
+
+**Lifecycle diagram:**
+```
+Orchestrator                         Fixer (in worktree)
+     |                                     |
+     |-- prepare (worktree-harvest.cjs) -->|
+     |                                     |-- read code
+     |                                     |-- edit files
+     |                                     |-- git add + commit per bug
+     |                                     |-- report done
+     |<-- harvest (worktree-harvest.cjs) --|
+     |-- cleanup (worktree-harvest.cjs)    |
+     |-- verify on fix branch              |
+```
+
+---
+
 ## Context Pruning Rules
 
 When passing data between phases, include only what the receiving role needs:

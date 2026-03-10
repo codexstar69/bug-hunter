@@ -16,6 +16,9 @@ Thanks for your interest in contributing. Bug Hunter is an open-source adversari
 git clone https://github.com/codexstar69/bug-hunter.git
 cd bug-hunter
 
+# Run the test suite (25 tests)
+node --test scripts/tests/*.test.cjs
+
 # Run the self-test against the test fixture
 node scripts/run-bug-hunter.cjs preflight --skill-dir .
 
@@ -28,8 +31,9 @@ npm install -g @aisuite/chub
 1. Keep PRs focused — one concern per PR
 2. Test your changes against the `test-fixture/` directory
 3. If modifying agent prompts, explain the reasoning and expected impact on false positive / true positive rates
-4. Run `node scripts/run-bug-hunter.cjs preflight --skill-dir .` to verify nothing is broken
-5. Update `CHANGELOG.md` with your changes
+4. Run `node --test scripts/tests/*.test.cjs` to verify all tests pass
+5. Run `node scripts/run-bug-hunter.cjs preflight --skill-dir .` to verify preflight checks
+6. Update `CHANGELOG.md` with your changes
 
 ## Code Style
 

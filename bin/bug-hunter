@@ -1,0 +1,222 @@
+#!/usr/bin/env node
+
+/**
+ * bug-hunter CLI — installs the bug-hunter skill into your agent's skill directory.
+ *
+ * Usage:
+ *   bug-hunter install            # Auto-detect agent and install skill
+ *   bug-hunter install --agent claude-code
+ *   bug-hunter install --path ~/.custom/skills
+ *   bug-hunter doctor             # Check environment (node, chub, context7)
+ *   bug-hunter info               # Show skill metadata
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+const SKILL_SRC = path.resolve(__dirname, '..');
+const SKILL_NAME = 'bug-hunter';
+
+// Agent skill directories in priority order
+const AGENT_DIRS = [
+  { agent: 'claude-code', dir: path.join(require('os').homedir(), '.claude', 'skills', SKILL_NAME) },
+  { agent: 'codex', dir: path.join(require('os').homedir(), '.codex', 'skills', SKILL_NAME) },
+  { agent: 'agents', dir: path.join(require('os').homedir(), '.agents', 'skills', SKILL_NAME) },
+  { agent: 'cursor', dir: path.join(require('os').homedir(), '.cursor', 'skills', SKILL_NAME) },
+  { agent: 'kiro', dir: path.join(require('os').homedir(), '.kiro', 'skills', SKILL_NAME) },
+];
+
+function usage() {
+  console.log(`
+  bug-hunter - Adversarial AI bug hunting skill
+
+  Commands:
+    install [--agent <name>] [--path <dir>]   Install skill into agent directory
+    doctor                                     Check environment readiness
+    info                                       Show skill metadata
+
+  Options:
+    --agent <name>    Target agent: claude-code, codex, cursor, kiro, agents
+    --path <dir>      Custom install directory (overrides --agent)
+
+  Examples:
+    bug-hunter install                         # Auto-detect agent
+    bug-hunter install --agent claude-code     # Specific agent
+    bug-hunter install --path ~/my-skills/bug-hunter
+    bug-hunter doctor                          # Check node, chub, context7
+  `.trim());
+}
+
+function copyRecursive(src, dest) {
+  const stat = fs.statSync(src);
+  if (stat.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src)) {
+      // Skip git, node_modules, tmp, .bug-hunter output
+      if (['.git', 'node_modules', 'tmp', '.bug-hunter'].includes(entry)) continue;
+      copyRecursive(path.join(src, entry), path.join(dest, entry));
+    }
+  } else {
+    fs.copyFileSync(src, dest);
+  }
+}
+
+function install(args) {
+  let targetDir = null;
+  let agentName = null;
+
+  // Parse args
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--path' && args[i + 1]) {
+      targetDir = path.resolve(args[++i]);
+    } else if (args[i] === '--agent' && args[i + 1]) {
+      agentName = args[++i];
+    }
+  }
+
+  // Resolve target directory
+  if (!targetDir) {
+    if (agentName) {
+      const match = AGENT_DIRS.find(a => a.agent === agentName);
+      if (!match) {
+        console.error(`Unknown agent: ${agentName}`);
+        console.error(`Available: ${AGENT_DIRS.map(a => a.agent).join(', ')}`);
+        process.exit(1);
+      }
+      targetDir = match.dir;
+    } else {
+      // Auto-detect: use first agent whose parent dir exists
+      for (const { agent, dir } of AGENT_DIRS) {
+        const parent = path.dirname(path.dirname(dir)); // e.g. ~/.claude
+        if (fs.existsSync(parent)) {
+          targetDir = dir;
+          agentName = agent;
+          break;
+        }
+      }
+      if (!targetDir) {
+        // Default to ~/.agents/skills/bug-hunter
+        targetDir = AGENT_DIRS.find(a => a.agent === 'agents').dir;
+        agentName = 'agents';
+      }
+    }
+  }
+
+  console.log(`Installing bug-hunter skill...`);
+  console.log(`  Source:  ${SKILL_SRC}`);
+  console.log(`  Target:  ${targetDir}`);
+  if (agentName) console.log(`  Agent:   ${agentName}`);
+
+  // Copy skill files
+  copyRecursive(SKILL_SRC, targetDir);
+
+  console.log(`\n  Installed successfully.\n`);
+  console.log(`  Usage: /bug-hunter src/`);
+  console.log(`  Docs:  https://github.com/codexstar69/bug-hunter`);
+
+  // Run doctor automatically after install
+  console.log('');
+  doctor();
+}
+
+function doctor() {
+  console.log('Environment check:\n');
+  let issues = 0;
+
+  // Node.js
+  try {
+    const nodeVersion = execFileSync('node', ['--version'], { encoding: 'utf8' }).trim();
+    console.log(`  [ok] Node.js ${nodeVersion}`);
+  } catch {
+    console.log('  [!!] Node.js not found — required for doc verification');
+    issues++;
+  }
+
+  // Context Hub (chub)
+  try {
+    execFileSync('chub', ['--help'], { stdio: 'ignore', timeout: 3000 });
+    console.log('  [ok] Context Hub (chub) installed — curated docs available');
+  } catch {
+    console.log('  [--] Context Hub (chub) not installed — will fall back to Context7');
+    console.log('       Install for better doc verification: npm install -g @aisuite/chub');
+    console.log('       More info: https://github.com/andrewyng/context-hub');
+  }
+
+  // Context7 API
+  try {
+    const c7Script = path.join(SKILL_SRC, 'scripts', 'context7-api.cjs');
+    if (fs.existsSync(c7Script)) {
+      console.log('  [ok] Context7 fallback available');
+    } else {
+      console.log('  [--] Context7 script not found (non-critical)');
+    }
+  } catch {
+    console.log('  [--] Context7 check skipped');
+  }
+
+  // Git
+  try {
+    const gitVersion = execFileSync('git', ['--version'], { encoding: 'utf8' }).trim();
+    console.log(`  [ok] ${gitVersion}`);
+  } catch {
+    console.log('  [!!] Git not found — required for fix pipeline');
+    issues++;
+  }
+
+  console.log('');
+  if (issues === 0) {
+    console.log('  Ready to hunt bugs.\n');
+  } else {
+    console.log(`  ${issues} issue(s) found. Fix them for full functionality.\n`);
+  }
+}
+
+function info() {
+  const skillMd = path.join(SKILL_SRC, 'SKILL.md');
+  if (!fs.existsSync(skillMd)) {
+    console.error('SKILL.md not found');
+    process.exit(1);
+  }
+
+  const content = fs.readFileSync(skillMd, 'utf8');
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (frontmatterMatch) {
+    const lines = frontmatterMatch[1].split('\n');
+    console.log('\nbug-hunter skill metadata:\n');
+    for (const line of lines) {
+      console.log(`  ${line}`);
+    }
+    console.log('');
+  }
+
+  console.log(`  Install:  npx skills add codexstar69/bug-hunter`);
+  console.log(`  Or:       npm install -g @codexstar/bug-hunter && bug-hunter install`);
+  console.log(`  Repo:     https://github.com/codexstar69/bug-hunter`);
+  console.log('');
+}
+
+// Main
+const args = process.argv.slice(2);
+const command = args[0];
+
+switch (command) {
+  case 'install':
+    install(args.slice(1));
+    break;
+  case 'doctor':
+    doctor();
+    break;
+  case 'info':
+    info();
+    break;
+  case '--help':
+  case '-h':
+  case undefined:
+    usage();
+    break;
+  default:
+    console.error(`Unknown command: ${command}`);
+    usage();
+    process.exit(1);
+}

@@ -37,6 +37,18 @@ adversarial review process.
 - **Stop when done.** Do not continue to other phases or offer next-step suggestions.
 - **NEVER run destructive commands** like `rm -rf`.
 
+## Worktree Isolation Rules (Fixer role only)
+
+{WORKTREE_RULES}
+
+If worktree rules are provided above (non-empty), these apply:
+- You are working in an **isolated git worktree**. Your edits cannot affect the user's main working tree.
+- You **MUST** `git add` and `git commit` each fix before you finish. Uncommitted changes will be lost and marked as `FIX_FAILED`.
+- Commit message format: `fix(bug-hunter): BUG-N — [short description]`
+- Do **NOT** call `EnterWorktree` or `ExitWorktree` tools.
+- Do **NOT** run `git checkout`, `git switch`, or `git branch`.
+- If you encounter a git error, report it in your output and stop. Do not attempt recovery.
+
 ## Your Assignment
 
 ---BEGIN ASSIGNMENT---

@@ -26,6 +26,8 @@ Independent Referee reads original code, Hunter findings, and Skeptic challenges
 ### Phase 6: Fix (optional, --fix flag)
 Surgical auto-fix with git branching, test baseline capture, confidence-gated fix queue, canary rollout, per-bug commits, automatic rollback on test regression, and post-fix re-scan.
 
+When using subagent or teams backends, the Fixer runs in a **worktree-isolated environment** managed by `scripts/worktree-harvest.cjs`. The Fixer edits code in a separate git worktree — commits land on the fix branch without touching the user's working tree. The orchestrator handles the full lifecycle: prepare (create worktree) → dispatch Fixer → harvest (verify commits) → cleanup (remove worktree). Crash recovery via `cleanup-all` preserves uncommitted work as stashes.
+
 ## Documentation Verification
 
 Bug Hunter verifies claims against official library documentation before any agent asserts framework behavior. Uses a hybrid approach:
@@ -89,6 +91,7 @@ Critical and High security findings receive CVSS 3.1 base scores with attack vec
 | `.bug-hunter/findings.json` | Machine-readable findings for CI/CD |
 | `.bug-hunter/fix-report.md` | Fix results (when --fix used) |
 | `.bug-hunter/fix-report.json` | Machine-readable fix results |
+| `.bug-hunter/worktree-*/` | Temporary Fixer worktrees (auto-cleaned) |
 | `.bug-hunter/threat-model.md` | STRIDE threat model (when --threat-model used) |
 | `.bug-hunter/dep-findings.json` | Dependency CVE results (when --deps used) |
 
@@ -107,21 +110,44 @@ bug-hunter/
 ├── SKILL.md              # Agent integration instructions
 ├── README.md             # Full documentation
 ├── CHANGELOG.md          # Version history
+├── package.json          # npm package config (@codexstar/bug-hunter)
+├── bin/
+│   └── bug-hunter        # CLI entry point (install, doctor, info)
 ├── modes/                # Execution strategies by codebase size
 ├── prompts/              # Agent system prompts
 ├── scripts/              # Node.js helpers (zero AI tokens)
-├── templates/            # Subagent launch template
+│   ├── worktree-harvest.cjs  # Worktree isolation for Fixer subagents
+│   └── tests/            # Test suite (node --test, 25 tests)
+├── templates/            # Subagent launch template (with worktree rules)
 └── test-fixture/         # 6 planted bugs for validation
 ```
 
 ## Install
 
 ```bash
+# npm global install (recommended)
+npm install -g @codexstar/bug-hunter && bug-hunter install
+
+# Cross-IDE install via skills.sh
+npx skills add codexstar69/bug-hunter
+
+# Git clone
 git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
-npm install -g @aisuite/chub  # optional: curated doc verification
+
+# Optional: curated doc verification
+npm install -g @aisuite/chub
 ```
 
-Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, or any AI agent with file-reading and shell-command capabilities.
+Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot, or any AI agent with file-reading and shell-command capabilities.
+
+### CLI Commands (npm install)
+
+| Command | Description |
+|---------|-------------|
+| `bug-hunter install` | Auto-detect agent and install skill |
+| `bug-hunter install --agent claude-code` | Install for specific agent |
+| `bug-hunter doctor` | Check environment readiness |
+| `bug-hunter info` | Show skill metadata |
 
 ## License
 
