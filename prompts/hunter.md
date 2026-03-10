@@ -66,6 +66,10 @@ Before reporting findings about library/framework behavior, verify against docs 
 
 `SKILL_DIR` is injected by the orchestrator.
 
+**Search:** `node "$SKILL_DIR/scripts/doc-lookup.cjs" search "<library>" "<question>"`
+**Fetch docs:** `node "$SKILL_DIR/scripts/doc-lookup.cjs" get "<library-or-id>" "<specific question>"`
+
+**Fallback (if doc-lookup fails):**
 **Search:** `node "$SKILL_DIR/scripts/context7-api.cjs" search "<library>" "<question>"`
 **Fetch docs:** `node "$SKILL_DIR/scripts/context7-api.cjs" context "<library-id>" "<specific question>"`
 

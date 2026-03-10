@@ -122,11 +122,17 @@ When your DISPROVE argument depends on a framework/library claim (e.g., "Express
 
 **Search for the library:**
 ```bash
-node "$SKILL_DIR/scripts/context7-api.cjs" search "<library>" "<question>"
+node "$SKILL_DIR/scripts/doc-lookup.cjs" search "<library>" "<question>"
 ```
 
 **Fetch docs for a specific claim:**
 ```bash
+node "$SKILL_DIR/scripts/doc-lookup.cjs" get "<library-or-id>" "<specific question>"
+```
+
+**Fallback (if doc-lookup fails):**
+```bash
+node "$SKILL_DIR/scripts/context7-api.cjs" search "<library>" "<question>"
 node "$SKILL_DIR/scripts/context7-api.cjs" context "<library-id>" "<specific question>"
 ```
 

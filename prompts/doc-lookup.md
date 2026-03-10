@@ -1,4 +1,4 @@
-## Documentation Lookup (Context7)
+## Documentation Lookup (Context Hub + Context7 fallback)
 
 When you need to verify a claim about how a library, framework, or API actually behaves — do NOT guess from training data. Look it up.
 
@@ -14,21 +14,27 @@ When you need to verify a claim about how a library, framework, or API actually 
 
 `SKILL_DIR` is injected by the orchestrator. Use it for all helper script paths.
 
+The lookup script tries **Context Hub (chub)** first for curated, versioned docs, then falls back to **Context7** when chub doesn't have the library.
+
 **Step 1: Search for the library**
 ```bash
-node "$SKILL_DIR/scripts/context7-api.cjs" search "<library>" "<what you need to know>"
+node "$SKILL_DIR/scripts/doc-lookup.cjs" search "<library>" "<what you need to know>"
 ```
-Example: `node "$SKILL_DIR/scripts/context7-api.cjs" search "prisma" "SQL injection parameterized queries"`
+Example: `node "$SKILL_DIR/scripts/doc-lookup.cjs" search "prisma" "SQL injection parameterized queries"`
 
-This returns a list of matching libraries with IDs. Pick the best match (highest trust score, correct version).
+This returns results from both sources with a `recommended_source` and `recommended_id`.
 
 **Step 2: Fetch documentation**
 ```bash
-node "$SKILL_DIR/scripts/context7-api.cjs" context "<library-id>" "<specific question>"
+node "$SKILL_DIR/scripts/doc-lookup.cjs" get "<library-or-id>" "<specific question>"
 ```
-Example: `node "$SKILL_DIR/scripts/context7-api.cjs" context "/prisma/prisma" "are raw queries parameterized by default"`
+Example: `node "$SKILL_DIR/scripts/doc-lookup.cjs" get "prisma/orm" "are raw queries parameterized by default"`
 
-This returns relevant documentation snippets with code examples.
+This fetches curated docs from chub if available, otherwise Context7 documentation snippets with code examples.
+
+**Optional flags:**
+- `--lang js|py` — language variant (for chub docs with multiple languages)
+- `--source chub|context7` — force a specific source
 
 ### Rules
 

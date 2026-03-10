@@ -158,12 +158,13 @@ Before doing anything else, verify the environment:
     ```
     This directory stores all pipeline artifacts. Add `.bug-hunter/` to your project's `.gitignore`.
 
-4. **Context7 availability (optional, non-blocking)**: Run a quick smoke test:
+4. **Doc lookup availability (optional, non-blocking)**: Run a quick smoke test:
    ```
-   node "$SKILL_DIR/scripts/context7-api.cjs" search "express" "middleware"
+   node "$SKILL_DIR/scripts/doc-lookup.cjs" search "express" "middleware"
    ```
    - If it returns results, set `DOC_LOOKUP_AVAILABLE=true`.
-   - If it fails, warn the user and set `DOC_LOOKUP_AVAILABLE=false`.
+   - If it fails, try the fallback: `node "$SKILL_DIR/scripts/context7-api.cjs" search "express" "middleware"`
+   - If both fail, warn the user and set `DOC_LOOKUP_AVAILABLE=false`.
    - Missing `CONTEXT7_API_KEY` must NOT block execution; anonymous lookups may still work.
 
 5. **Verify helper scripts exist**:
@@ -375,7 +376,7 @@ subagent({
 read({ path: ".bug-hunter/findings.md" })
 ```
 
-When launching subagents, always pass `SKILL_DIR` explicitly in the task context so prompt commands like `node "$SKILL_DIR/scripts/context7-api.cjs"` resolve correctly.
+When launching subagents, always pass `SKILL_DIR` explicitly in the task context so prompt commands like `node "$SKILL_DIR/scripts/doc-lookup.cjs"` resolve correctly. The `context7-api.cjs` script is kept as a fallback if `doc-lookup.cjs` fails.
 
 Before every subagent launch, validate payload shape with:
 ```

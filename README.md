@@ -32,7 +32,7 @@
 - [Features](#features)
   - [Zero-Token Triage — Instant File Classification](#zero-token-triage--instant-file-classification)
   - [Deep Bug Hunting — Runtime Behavioral Analysis](#deep-bug-hunting--runtime-behavioral-analysis)
-  - [Official Documentation Verification via Context7](#official-documentation-verification-via-context7)
+  - [Official Documentation Verification via Context Hub + Context7](#official-documentation-verification-via-context-hub--context7)
   - [Adversarial Skeptic with 15 Hard Exclusion Rules](#adversarial-skeptic-with-15-hard-exclusion-rules)
   - [Few-Shot Calibration for Precision Tuning](#few-shot-calibration-for-precision-tuning)
   - [Automatic Codebase Scaling Strategies](#automatic-codebase-scaling-strategies)
@@ -223,15 +223,15 @@ The Hunter agent reads your code file-by-file, prioritized by risk level, and se
 
 The Hunter does **not** report: code style preferences, naming conventions, unused variables, TODO comments, or subjective improvement suggestions. Only behavioral bugs that affect runtime correctness or security.
 
-### Official Documentation Verification via Context7
+### Official Documentation Verification via Context Hub + Context7
 
 <p align="center">
-  <img src="docs/images/doc-verify-fix-plan.png" alt="Documentation verification workflow — agents check official library docs via Context7 API before making claims, plus strategic fix planning timeline with canary rollout and checkpoint verification" width="100%">
+  <img src="docs/images/doc-verify-fix-plan.png" alt="Documentation verification workflow — agents check official library docs via Context Hub and Context7 API before making claims, plus strategic fix planning timeline with canary rollout and checkpoint verification" width="100%">
 </p>
 
 AI models frequently make incorrect assumptions about library behavior — "Express sanitizes input by default" (it doesn't), "Prisma parameterizes `$queryRaw` automatically" (it depends on usage). These wrong assumptions produce both false positives and missed real bugs.
 
-Bug Hunter solves this by **verifying claims against official documentation** via the [Context7](https://context7.com) API before any agent makes an assertion about framework behavior.
+Bug Hunter solves this by **verifying claims against official documentation** via [Context Hub](https://github.com/andrewyng/context-hub) (curated, versioned docs) with [Context7](https://context7.com) as a fallback, before any agent makes an assertion about framework behavior.
 
 #### Which Agents Verify Documentation and When
 
@@ -248,7 +248,7 @@ When the Hunter reports a potential SQL injection:
 ```
 1. Hunter reads code: db.query(`SELECT * FROM users WHERE id = ${userId}`)
 2. Hunter queries: "Does node-postgres parameterize template literals?"
-   → Runs: node context7-api.cjs context "/node-postgres/node-pg" "template literal queries"
+   → Runs: node doc-lookup.cjs get "/node-postgres/node-pg" "template literal queries"
    → pg docs: template literals are interpolated directly, NOT parameterized
 3. Hunter reports: "SQL injection — per pg docs, template literals are string-interpolated"
 ```
@@ -271,7 +271,7 @@ When the Skeptic reviews the same finding:
 
 #### Supported Ecosystem Coverage
 
-Documentation verification works for any library indexed by Context7 — covering the majority of popular packages across **npm, PyPI, Go modules, Rust crates, Ruby gems**, and more.
+Documentation verification works for any library available in [Context Hub](https://github.com/andrewyng/context-hub) (curated docs) or indexed by Context7 — covering the majority of popular packages across **npm, PyPI, Go modules, Rust crates, Ruby gems**, and more.
 
 ### Adversarial Skeptic with 15 Hard Exclusion Rules
 
@@ -496,7 +496,7 @@ Example: Fixing SQL injection (BUG-1)
 
 1. Fixer reads Referee verdict: "SQL injection via string concatenation in pg query"
 2. Fixer queries: "Correct parameterized query pattern in node-postgres?"
-   → Runs: node context7-api.cjs context "/node-postgres/node-pg" "parameterized queries"
+   → Runs: node doc-lookup.cjs get "/node-postgres/node-pg" "parameterized queries"
    → pg docs: Use db.query('SELECT * FROM users WHERE id = $1', [userId])
 3. Fixer implements the documented pattern — not a guess from training data
 4. Checkpoint commit → tests run → pass ✅
@@ -668,7 +668,8 @@ bug-hunter/
 ├── scripts/                              # Node.js helpers (zero AI tokens)
 │   ├── triage.cjs                        #   File classification (<2s)
 │   ├── dep-scan.cjs                      #   Dependency CVE scanner
-│   ├── context7-api.cjs                  #   Documentation lookup API
+│   ├── doc-lookup.cjs                    #   Documentation lookup (chub + Context7 fallback)
+│   ├── context7-api.cjs                  #   Context7 API fallback
 │   ├── run-bug-hunter.cjs                #   Chunk orchestrator
 │   ├── bug-hunter-state.cjs              #   Persistent state for resume
 │   ├── delta-mode.cjs                    #   Changed-file scope reduction

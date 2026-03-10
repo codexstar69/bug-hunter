@@ -44,7 +44,7 @@ adversarial review process.
 **Scan target:** {TARGET_DESCRIPTION}
 
 **SKILL_DIR:** {SKILL_DIR}
-(Use this path for all helper script invocations like `node "$SKILL_DIR/scripts/context7-api.cjs"`)
+(Use this path for all helper script invocations like `node "$SKILL_DIR/scripts/doc-lookup.cjs"` or the fallback `node "$SKILL_DIR/scripts/context7-api.cjs"`)
 
 **Files to scan (in risk-map order):**
 {FILE_LIST}

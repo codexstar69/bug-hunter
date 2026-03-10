@@ -115,6 +115,7 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'scripts', 'bug-hunter-state.cjs'),
     path.join(skillDir, 'scripts', 'payload-guard.cjs'),
     path.join(skillDir, 'scripts', 'fix-lock.cjs'),
+    path.join(skillDir, 'scripts', 'doc-lookup.cjs'),
     path.join(skillDir, 'scripts', 'context7-api.cjs'),
     path.join(skillDir, 'scripts', 'code-index.cjs'),
     path.join(skillDir, 'scripts', 'delta-mode.cjs')
