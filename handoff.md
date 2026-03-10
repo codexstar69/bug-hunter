@@ -24,6 +24,8 @@
 - The structured-output migration plan is effectively complete; the remaining
   follow-up is only secondary doc cleanup where old `*.md` artifact wording may
   still appear in historical text.
+- Added `.github/workflows/publish.yml` so GitHub releases can publish the npm
+  package automatically once `NPM_TOKEN` is configured in repo secrets.
 
 ## Last prompts
 
@@ -55,12 +57,15 @@ Both passed on 2026-03-11.
 - `docs/plans/2026-03-11-structured-output-migration-plan.md`
 - `CHANGELOG.md`
 - `package.json`
+- `.github/workflows/publish.yml`
 
 ## Next steps
 
 - sweep remaining secondary docs for stale `*.md` phase-artifact references
 - decide whether `run-bug-hunter.cjs phase` should be documented in README or
   kept as an internal orchestration helper only
+- add repo secret `NPM_TOKEN`, then either rerun `v3.0.4` publish manually or
+  wait for the next tagged GitHub release
 
 ## Environment
 

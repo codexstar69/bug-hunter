@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- GitHub Actions npm publish workflow on release publish or manual dispatch, with version/tag verification before `npm publish`
+
 ## [3.0.4] — 2026-03-11
 
 ### Added
