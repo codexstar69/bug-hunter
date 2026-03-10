@@ -1,4 +1,4 @@
-.DS_Store
+**/.DS_Store
 *.swp
 *.swo
 *~
@@ -6,6 +6,9 @@
 .env.local
 .idea/
 .vscode/
+node_modules/
+.ralph/
+.claude/settings.local.json
 .claude/bug-hunter-state.json
 .claude/bug-hunter-fix.lock
 .claude/bug-hunter-run.log

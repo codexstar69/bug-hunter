@@ -6,7 +6,7 @@ If you discover a security vulnerability in Bug Hunter, please report it respons
 
 **Do NOT open a public GitHub issue for security vulnerabilities.**
 
-Instead, email the maintainer directly or use [GitHub's private vulnerability reporting](https://github.com/codexstar69/bug-hunter/security/advisories/new).
+Instead, email the maintainer directly at **security@codexstar.dev** or use [GitHub's private vulnerability reporting](https://github.com/codexstar69/bug-hunter/security/advisories/new).
 
 ## What Qualifies
 

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run tests
+        run: node --test scripts/tests/*.test.cjs
+
+      - name: Run preflight check
+        run: node scripts/run-bug-hunter.cjs preflight --skill-dir .
+
+      - name: Verify bin is executable
+        run: test -x bin/bug-hunter
+
+      - name: Verify --version works
+        run: node bin/bug-hunter --version
+
+      - name: Verify --help works
+        run: node bin/bug-hunter --help
