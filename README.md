@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/2026-03-12-hero-bug-hunter-overview.png" alt="Bug Hunter product overview banner — code and pull requests flow through adversarial review, strategic fix planning, and verified patch delivery" width="720">
+  <img src="docs/images/hero.png" alt="Bug Hunter — Adversarial Bug Finding for Coding Agents. Pipeline: Triage → Recon → Hunters (Security, Logic) → Skeptics → Referee → Fixers → Verify. Compatible with all coding agent terminals and IDEs." width="720">
 </p>
 
 <h1 align="center">🐛 Bug Hunter</h1>
@@ -719,7 +719,7 @@ bug-hunter/
 │
 ├── docs/
 │   └── images/                           # Documentation visuals
-│       ├── 2026-03-12-hero-bug-hunter-overview.png   #   Product overview hero
+│       ├── hero.png                                   #   Product overview hero
 │       ├── 2026-03-12-pr-review-flow.png             #   PR review + security workflow
 │       ├── 2026-03-12-security-pack.png              #   Bundled local security pack
 │       ├── 2026-03-12-fix-plan-rollout.png           #   Strategic fix planning + rollout
