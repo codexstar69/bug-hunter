@@ -205,7 +205,8 @@ function sleep(ms) {
 
 function runCommandOnce({ command, timeoutMs }) {
   return new Promise((resolve) => {
-    const child = childProcess.spawn('/bin/zsh', ['-lc', command], {
+    const shell = process.env.SHELL || '/bin/bash';
+    const child = childProcess.spawn(shell, ['-lc', command], {
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = '';
