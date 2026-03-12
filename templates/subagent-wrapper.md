@@ -107,7 +107,7 @@ When you have finished your analysis:
 |----------|-------------|---------|
 | `{ROLE_NAME}` | Agent role identifier | `hunter`, `skeptic`, `referee`, `recon`, `fixer` |
 | `{ROLE_DESCRIPTION}` | One-line role description | "Bug Hunter — find behavioral bugs in source code" |
-| `{PROMPT_CONTENT}` | Full contents of the prompt .md file | Contents of `prompts/hunter.md` |
+| `{PROMPT_CONTENT}` | Full contents of the agent skill file | Contents of `skills/hunter/SKILL.md` |
 | `{TARGET_DESCRIPTION}` | What is being scanned | "FindCoffee monorepo, packages/auth + packages/order" |
 | `{SKILL_DIR}` | Absolute path to the bug-hunter skill directory | `/Users/codex/.agents/skills/bug-hunter` |
 | `{FILE_LIST}` | Newline-separated file paths in scan order | CRITICAL files first, then HIGH, then MEDIUM |

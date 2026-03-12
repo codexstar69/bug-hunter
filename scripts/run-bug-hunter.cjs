@@ -132,7 +132,19 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'schemas', 'fix-plan.schema.json'),
     path.join(skillDir, 'schemas', 'fix-strategy.schema.json'),
     path.join(skillDir, 'schemas', 'recon.schema.json'),
-    path.join(skillDir, 'schemas', 'shared.schema.json')
+    path.join(skillDir, 'schemas', 'shared.schema.json'),
+    // Core agent skills (migrated from prompts/)
+    path.join(skillDir, 'skills', 'hunter', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'skeptic', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'referee', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'fixer', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'recon', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'doc-lookup', 'SKILL.md'),
+    // Security skills
+    path.join(skillDir, 'skills', 'threat-model-generation', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'commit-security-scan', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'security-review', 'SKILL.md'),
+    path.join(skillDir, 'skills', 'vulnerability-validation', 'SKILL.md')
   ];
 }
 

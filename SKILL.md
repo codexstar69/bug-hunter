@@ -182,7 +182,7 @@ Before doing anything else, verify the environment:
    - Fallback probe order: `$HOME/.agents/skills/bug-hunter`, `$HOME/.claude/skills/bug-hunter`, `$HOME/.codex/skills/bug-hunter`.
    - Use this path for ALL Read tool calls and shell commands.
 
-2. **Verify skill files exist**: Run `ls "$SKILL_DIR/prompts/hunter.md"` via Bash. If this fails, stop and tell the user: "Bug Hunter skill files not found. Reinstall the skill and retry."
+2. **Verify skill files exist**: Run `ls "$SKILL_DIR/skills/hunter/SKILL.md"` via Bash. If this fails, stop and tell the user: "Bug Hunter skill files not found. Reinstall the skill and retry."
 
 3. **Node.js available**: Run `node --version` via Bash. If it fails, stop and tell the user: "Node.js is required for doc verification. Please install Node.js to continue."
 
@@ -346,7 +346,7 @@ If `THREAT_MODEL_MODE=true`:
    - If it exists but is >90 days old: warn user ("Threat model is N days old — regenerating"), regenerate.
    - If it doesn't exist: generate it.
 2. To generate:
-   - Read `$SKILL_DIR/prompts/threat-model.md`.
+   - Read `$SKILL_DIR/skills/threat-model-generation/SKILL.md`.
    - Dispatch the threat model generation agent (or execute locally if local-sequential).
    - Input: triage.json (if available) for file structure, or Glob-based discovery.
    - Wait for `.bug-hunter/threat-model.md` to be written.
@@ -388,13 +388,13 @@ If `.bug-hunter/dep-findings.json` exists with REACHABLE findings, include them 
 |-------|-----------------|
 | PR security review | `skills/commit-security-scan/SKILL.md` (if `PR_SECURITY_MODE=true` or the user asks for PR-focused security review) |
 | Security review | `skills/security-review/SKILL.md` (if `SECURITY_REVIEW_MODE=true` or the user asks for an enterprise/full security audit) |
-| Threat Model (Step 1b) | `skills/threat-model-generation/SKILL.md` + `prompts/threat-model.md` (only if THREAT_MODEL_MODE=true) |
-| Recon (Step 4) | `prompts/recon.md` (skip for single-file mode) |
-| Hunters (Step 5) | `prompts/hunter.md` + `prompts/doc-lookup.md` + `prompts/examples/hunter-examples.md` |
+| Threat Model (Step 1b) | `skills/threat-model-generation/SKILL.md` (only if THREAT_MODEL_MODE=true) |
+| Recon (Step 4) | `skills/recon/SKILL.md` (skip for single-file mode) |
+| Hunters (Step 5) | `skills/hunter/SKILL.md` + `prompts/examples/hunter-examples.md` |
 | Security validation | `skills/vulnerability-validation/SKILL.md` (if `VALIDATE_SECURITY_MODE=true` or confirmed security findings need exploitability validation) |
-| Skeptics (Step 6) | `prompts/skeptic.md` + `prompts/doc-lookup.md` + `prompts/examples/skeptic-examples.md` |
-| Referee (Step 7) | `prompts/referee.md` |
-| Fixers (Phase 2) | `prompts/fixer.md` + `prompts/doc-lookup.md` (only if FIX_MODE=true) |
+| Skeptics (Step 6) | `skills/skeptic/SKILL.md` + `prompts/examples/skeptic-examples.md` |
+| Referee (Step 7) | `skills/referee/SKILL.md` |
+| Fixers (Phase 2) | `skills/fixer/SKILL.md` (only if FIX_MODE=true) |
 
 **Concrete examples for each backend:**
 
@@ -402,8 +402,8 @@ If `.bug-hunter/dep-findings.json` exists with REACHABLE findings, include them 
 
 ```
 # Phase B — launching Hunter yourself
-# 1. Read the prompt file:
-read({ path: "$SKILL_DIR/prompts/hunter.md" })
+# 1. Read the skill file:
+read({ path: "$SKILL_DIR/skills/hunter/SKILL.md" })
 
 # 2. You now have the Hunter's full instructions. Execute them yourself:
 #    - Read each file in risk-map order using the Read tool
@@ -418,8 +418,8 @@ write({ path: ".bug-hunter/findings.json", content: "<your findings json>" })
 
 ```
 # Phase B — launching Hunter via subagent
-# 1. Read the prompt:
-read({ path: "$SKILL_DIR/prompts/hunter.md" })
+# 1. Read the skill:
+read({ path: "$SKILL_DIR/skills/hunter/SKILL.md" })
 # 2. Read the wrapper template:
 read({ path: "$SKILL_DIR/templates/subagent-wrapper.md" })
 # 3. Fill the template with:

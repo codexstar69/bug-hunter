@@ -68,6 +68,21 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
     );
   }
 
+  // Copy bundled skill SKILL.md files
+  const skillNames = [
+    'hunter', 'skeptic', 'referee', 'fixer', 'recon', 'doc-lookup',
+    'threat-model-generation', 'commit-security-scan', 'security-review',
+    'vulnerability-validation'
+  ];
+  for (const name of skillNames) {
+    const destDir = path.join(optionalSkillDir, 'skills', name);
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(
+      path.resolve(__dirname, '..', '..', 'skills', name, 'SKILL.md'),
+      path.join(destDir, 'SKILL.md')
+    );
+  }
+
   const result = runJson('node', [
     path.join(scriptsDir, 'run-bug-hunter.cjs'),
     'preflight',
