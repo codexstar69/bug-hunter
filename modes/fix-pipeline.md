@@ -50,11 +50,14 @@ DYNAMIC_TTL = max(1800, ELIGIBLE_COUNT * 600)   # 10 min per bug, minimum 30 min
 ```
 node "$SKILL_DIR/scripts/fix-lock.cjs" acquire ".bug-hunter/fix.lock" $DYNAMIC_TTL
 ```
+Record `LOCK_OWNER_TOKEN` from the returned JSON (`lock.ownerToken`).
 If lock cannot be acquired, stop Phase 2 to avoid concurrent mutation.
+
+**Owner token:** `acquire` returns `lock.ownerToken`; renew/release now require that token. Persist it for the entire Phase 2 run as `LOCK_OWNER_TOKEN`.
 
 **Lock renewal:** During Step 9 execution, renew the lock after each bug fix to prevent TTL expiry on long runs:
 ```
-node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock"
+node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock" "$LOCK_OWNER_TOKEN"
 ```
 
 **8b. Detect verification commands**
@@ -81,7 +84,16 @@ If `TEST_COMMAND` is not null:
 
 If baseline cannot run, set `BASELINE=null` and `FLAKY_TESTS={}` and continue with manual-verification warning.
 
-**8d. Build sequential fix plan**
+**8d. Build fix strategy + sequential fix plan**
+
+Before deciding what to patch, write `.bug-hunter/fix-strategy.json` and `.bug-hunter/fix-strategy.md`.
+The strategy artifact must classify each confirmed bug into one of:
+- `safe-autofix`
+- `manual-review`
+- `larger-refactor`
+- `architectural-remediation`
+
+If `PLAN_ONLY_MODE=true`, stop after the strategy artifact and fix-plan preview are written.
 
 Prepare bug queue:
 1. Apply confidence gate:
@@ -185,7 +197,7 @@ For each batch in order:
 
 8a. Renew lock after each batch:
    ```
-   node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock"
+   node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock" "$LOCK_OWNER_TOKEN"
    ```
 
 **Path B — Direct mode (`WORKTREE_MODE=false`):**
@@ -201,7 +213,7 @@ For each batch in order:
 7b. Record commit hash per BUG-ID in a fix ledger.
 8b. **Renew lock** after each bug fix:
    ```
-   node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock"
+   node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock" "$LOCK_OWNER_TOKEN"
    ```
 
 If a bug cannot be fixed, mark `SKIPPED` and continue.
@@ -303,7 +315,7 @@ If stash was created (not applicable in dry-run mode):
 
 Always release single-writer lock at the end (success or failure path):
 ```
-node "$SKILL_DIR/scripts/fix-lock.cjs" release ".bug-hunter/fix.lock"
+node "$SKILL_DIR/scripts/fix-lock.cjs" release ".bug-hunter/fix.lock" "$LOCK_OWNER_TOKEN"
 ```
 If an earlier step aborts Phase 2, run the same release command AND worktree cleanup-all in best-effort cleanup before returning.
 

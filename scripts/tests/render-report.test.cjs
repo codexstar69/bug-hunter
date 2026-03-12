@@ -134,3 +134,47 @@ test('render-report renders a markdown summary from fix-report JSON', () => {
   assert.match(result.stdout, /BUG-1 \| FIXED \| CRITICAL/);
   assert.match(result.stdout, /Parameterized the query/);
 });
+
+test('render-report renders a markdown summary from fix-strategy JSON', () => {
+  const sandbox = makeSandbox('render-fix-strategy-');
+  const script = resolveSkillScript('render-report.cjs');
+  const fixStrategyPath = path.join(sandbox, 'fix-strategy.json');
+
+  writeJson(fixStrategyPath, {
+    version: '3.1.0',
+    generatedAt: '2026-03-12T00:00:00.000Z',
+    confidenceThreshold: 75,
+    summary: {
+      confirmed: 2,
+      safeAutofix: 1,
+      manualReview: 1,
+      largerRefactor: 0,
+      architecturalRemediation: 0,
+      canaryCandidates: 1,
+      rolloutCandidates: 0
+    },
+    clusters: [
+      {
+        clusterId: 'cluster-1',
+        strategy: 'safe-autofix',
+        executionStage: 'canary',
+        autofixEligible: true,
+        bugIds: ['BUG-1'],
+        files: ['src/a.ts'],
+        maxSeverity: 'CRITICAL',
+        summary: '1 bug(s) in src classified as safe-autofix.',
+        recommendedAction: 'Proceed through the guarded fix pipeline with canary verification and rollback safety.',
+        reasons: ['Finding is localized enough for a guarded surgical fix.']
+      }
+    ]
+  });
+
+  const result = runRaw('node', [script, 'fix-strategy', fixStrategyPath], {
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /# Fix Strategy/);
+  assert.match(result.stdout, /cluster-1 \| safe-autofix \| canary/);
+  assert.match(result.stdout, /guarded fix pipeline/);
+});

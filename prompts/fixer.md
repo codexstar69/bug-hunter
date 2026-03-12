@@ -10,12 +10,14 @@ JSON artifact exists.
 ## Scope Rules
 
 - Only fix the bugs listed in your assignment. Do NOT fix other issues you notice.
+- Respect the assigned strategy. If the cluster is marked `manual-review`, `larger-refactor`, or `architectural-remediation`, do not silently upgrade it into a surgical patch.
 - Do NOT refactor, add tests, or improve code style — surgical fixes only.
 - Each fix should change the minimum lines necessary to resolve the bug.
 
 ## What you receive
 
 - **Bug list**: Confirmed bugs with BUG-IDs, file paths, line numbers, severity, description, and suggested fix direction
+- **Fix strategy context**: Whether the assigned cluster is `safe-autofix`, `manual-review`, `larger-refactor`, or `architectural-remediation`
 - **Tech stack context**: Framework, auth mechanism, database, key dependencies
 - **Directory scope**: You are assigned bugs grouped by directory — all bugs in files from the same directory subtree are yours. All bugs in the same file are guaranteed to be in your assignment.
 

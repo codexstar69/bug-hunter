@@ -106,6 +106,17 @@ test('prepare cleans up stale worktree', () => {
   assert.equal(result.ok, true);
 });
 
+test('prepare refuses to delete an unrelated pre-existing directory', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'notes');
+  fs.mkdirSync(wtDir, { recursive: true });
+  fs.writeFileSync(path.join(wtDir, 'keep.txt'), 'keep\n');
+
+  const result = runRaw('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  assert.equal(fs.existsSync(path.join(wtDir, 'keep.txt')), true);
+});
+
 test('harvest finds new commits', () => {
   const { repo, fixBranch } = makeGitFixture();
   const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
@@ -180,6 +191,45 @@ test('cleanup handles missing worktree gracefully', () => {
   assert.equal(result.reason, 'not-found');
 });
 
+test('cleanup does not report success for unmanaged directories', () => {
+  const { repo } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'notes');
+  fs.mkdirSync(wtDir, { recursive: true });
+  fs.writeFileSync(path.join(wtDir, 'keep.txt'), 'keep\n');
+
+  const result = runJson('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
+  assert.equal(result.ok, true);
+  assert.equal(result.removed, false);
+  assert.equal(fs.existsSync(path.join(wtDir, 'keep.txt')), true);
+});
+
+test('cleanup preserves worktree contents when harvest fails', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  fs.rmSync(path.join(wtDir, '.worktree-manifest.json'));
+
+  const result = runJson('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
+  assert.equal(result.ok, true);
+  assert.equal(result.removed, false);
+  assert.equal(fs.existsSync(wtDir), true);
+});
+
+test('cleanup returns stash metadata when defensive harvest stashes uncommitted work', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  fs.writeFileSync(path.join(wtDir, 'dirty.txt'), 'uncommitted\n');
+
+  const result = runJson('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
+  assert.equal(result.ok, true);
+  assert.equal(result.removed, true);
+  assert.equal(typeof result.stashRef, 'string');
+  assert.equal(result.stashRef.length > 0, true);
+});
+
 test('cleanup-all removes multiple worktrees', () => {
   const { repo, fixBranch } = makeGitFixture();
   const parentDir = path.join(repo, '.bug-hunter', 'worktrees');
@@ -200,6 +250,21 @@ test('cleanup-all removes multiple worktrees', () => {
   const result = runJson('node', [SCRIPT, 'cleanup-all', parentDir], { cwd: repo });
   assert.equal(result.ok, true);
   assert.ok(result.cleaned >= 1);
+});
+
+test('cleanup-all preserves unrelated directories under the parent', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const parentDir = path.join(repo, '.bug-hunter', 'worktrees');
+  const wt1 = path.join(parentDir, 'batch-1');
+  const unrelated = path.join(parentDir, 'notes');
+
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wt1], { cwd: repo });
+  fs.mkdirSync(unrelated, { recursive: true });
+  fs.writeFileSync(path.join(unrelated, 'readme.txt'), 'keep me\n', 'utf8');
+
+  runJson('node', [SCRIPT, 'cleanup-all', parentDir], { cwd: repo });
+  assert.equal(fs.existsSync(unrelated), true);
+  assert.equal(fs.existsSync(path.join(unrelated, 'readme.txt')), true);
 });
 
 test('checkout-fix returns main tree to fix branch', () => {
@@ -290,6 +355,7 @@ test('status reports worktree health', () => {
   assert.equal(s2.isStale, false);
   assert.equal(s2.commitCount, 0);
   assert.equal(s2.harvested, false);
+  assert.equal(s2.hasUncommitted, false);
 
   // Clean up
   runJson('node', [SCRIPT, 'harvest', wtDir], { cwd: repo });

@@ -18,7 +18,7 @@ const DEFAULT_EXPANSION_CAP = 40;
 function usage() {
   console.error('Usage:');
   console.error('  run-bug-hunter.cjs preflight [--skill-dir <path>] [--available-backends <csv>] [--backend <name>]');
-  console.error('  run-bug-hunter.cjs run --files-json <path> [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--worker-cmd <template>] [--timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>]');
+  console.error('  run-bug-hunter.cjs run --files-json <path> [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--worker-cmd <template>] [--timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
   console.error('  run-bug-hunter.cjs phase --artifact <name> --output-path <path> --worker-cmd <template> [--phase-name <name>] [--skill-dir <path>] [--journal-path <path>] [--render-cmd <template>] [--render-output-path <path>] [--timeout-ms <n>] [--render-timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>]');
   console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--plan-path <path>]');
 }
@@ -123,11 +123,14 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'scripts', 'doc-lookup.cjs'),
     path.join(skillDir, 'scripts', 'context7-api.cjs'),
     path.join(skillDir, 'scripts', 'delta-mode.cjs'),
+    path.join(skillDir, 'scripts', 'pr-scope.cjs'),
     path.join(skillDir, 'schemas', 'findings.schema.json'),
     path.join(skillDir, 'schemas', 'skeptic.schema.json'),
     path.join(skillDir, 'schemas', 'referee.schema.json'),
     path.join(skillDir, 'schemas', 'coverage.schema.json'),
     path.join(skillDir, 'schemas', 'fix-report.schema.json'),
+    path.join(skillDir, 'schemas', 'fix-plan.schema.json'),
+    path.join(skillDir, 'schemas', 'fix-strategy.schema.json'),
     path.join(skillDir, 'schemas', 'recon.schema.json'),
     path.join(skillDir, 'schemas', 'shared.schema.json')
   ];
@@ -161,18 +164,38 @@ function runJsonScript(scriptPath, args) {
   return JSON.parse(output);
 }
 
+function runTextScript(scriptPath, args) {
+  const result = childProcess.spawnSync('node', [scriptPath, ...args], {
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    const stderr = (result.stderr || '').trim();
+    const stdout = (result.stdout || '').trim();
+    throw new Error(stderr || stdout || `Script failed: ${scriptPath}`);
+  }
+  return result.stdout || '';
+}
+
 function appendJournal(logPath, event) {
   ensureDir(path.dirname(logPath));
   const line = JSON.stringify({ at: nowIso(), ...event });
   fs.appendFileSync(logPath, `${line}\n`, 'utf8');
 }
 
+function shellQuote(value) {
+  const stringValue = String(value);
+  if (stringValue.length === 0) {
+    return "''";
+  }
+  return `'${stringValue.replace(/'/g, `'\\''`)}'`;
+}
+
 function fillTemplate(template, variables) {
   return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
     if (!(key in variables)) {
-      return match;
+      throw new Error(`Unknown template placeholder: ${key}`);
     }
-    return String(variables[key]);
+    return shellQuote(variables[key]);
   });
 }
 
@@ -226,6 +249,7 @@ async function runWithRetry({
   journalPath,
   phase,
   chunkId,
+  beforeAttempt,
   postAttempt
 }) {
   const attempts = maxRetries + 1;
@@ -240,6 +264,9 @@ async function runWithRetry({
       attempts,
       timeoutMs
     });
+    if (typeof beforeAttempt === 'function') {
+      await beforeAttempt({ attempt });
+    }
     const result = await runCommandOnce({ command, timeoutMs });
     let finalResult = result;
 
@@ -426,17 +453,56 @@ function buildConsistencyReport({ bugLedger, confidenceThreshold }) {
   };
 }
 
-function buildFixPlan({ bugLedger, confidenceThreshold, canarySize }) {
-  const withConfidenceScore = bugLedger.map((entry) => {
+function buildConflictSets(consistency) {
+  const conflicts = toArray(consistency && consistency.conflicts);
+  const bugIds = new Set();
+  const locations = new Set();
+
+  for (const conflict of conflicts) {
+    if (conflict && conflict.type === 'bug-id-reused' && conflict.bugId) {
+      bugIds.add(String(conflict.bugId));
+    }
+    if (conflict && conflict.type === 'location-claim-conflict' && conflict.location) {
+      locations.add(String(conflict.location));
+    }
+  }
+
+  return { bugIds, locations };
+}
+
+function applyConflictClassification(entry, classification, conflictSets) {
+  const bugId = String(entry.bugId || '').trim();
+  const location = `${entry.file || ''}|${entry.lines || ''}`;
+  const hasConflict = conflictSets.bugIds.has(bugId) || conflictSets.locations.has(location);
+  if (!hasConflict) {
+    return classification;
+  }
+  return {
+    strategy: 'manual-review',
+    executionStage: 'manual-review',
+    autofixEligible: false,
+    reason: 'Consistency conflict requires manual review before any fix is attempted.'
+  };
+}
+
+function buildFixPlan({ bugLedger, confidenceThreshold, canarySize, consistency }) {
+  const conflictSets = buildConflictSets(consistency);
+  const classifiedEntries = bugLedger.map((entry) => {
     const confidenceRaw = entry.confidenceScore;
     const confidenceScore = Number.isFinite(Number(confidenceRaw)) ? Number(confidenceRaw) : null;
+    const classification = applyConflictClassification(
+      entry,
+      classifyStrategy({ ...entry, confidenceScore }, confidenceThreshold),
+      conflictSets
+    );
     return {
       ...entry,
-      confidenceScore
+      confidenceScore,
+      ...classification
     };
   });
-  const eligible = withConfidenceScore
-    .filter((entry) => entry.confidenceScore !== null && entry.confidenceScore >= confidenceThreshold)
+  const eligible = classifiedEntries
+    .filter((entry) => entry.autofixEligible === true)
     .sort((left, right) => {
       const severityDiff = severityRank(right.severity) - severityRank(left.severity);
       if (severityDiff !== 0) {
@@ -448,8 +514,8 @@ function buildFixPlan({ bugLedger, confidenceThreshold, canarySize }) {
       }
       return String(left.key).localeCompare(String(right.key));
     });
-  const manualReview = withConfidenceScore
-    .filter((entry) => entry.confidenceScore === null || entry.confidenceScore < confidenceThreshold);
+  const manualReview = classifiedEntries
+    .filter((entry) => entry.autofixEligible !== true);
   const canary = eligible.slice(0, canarySize);
   const rollout = eligible.slice(canarySize);
 
@@ -458,7 +524,7 @@ function buildFixPlan({ bugLedger, confidenceThreshold, canarySize }) {
     confidenceThreshold,
     canarySize,
     totals: {
-      findings: withConfidenceScore.length,
+      findings: classifiedEntries.length,
       eligible: eligible.length,
       canary: canary.length,
       rollout: rollout.length,
@@ -467,6 +533,146 @@ function buildFixPlan({ bugLedger, confidenceThreshold, canarySize }) {
     canary,
     rollout,
     manualReview
+  };
+}
+
+function classifyStrategy(entry, confidenceThreshold) {
+  const confidenceScore = Number.isFinite(Number(entry.confidenceScore)) ? Number(entry.confidenceScore) : null;
+  const claim = String(entry.claim || '').toLowerCase();
+  const crossReferences = toArray(entry.crossReferences);
+  const architecturalSignals = ['architecture', 'migration', 'schema', 'contract', 'signature', 'protocol'];
+  const refactorSignals = ['refactor', 'transaction', 'concurrency', 'race', 'lock ordering'];
+
+  if (confidenceScore === null || confidenceScore < confidenceThreshold) {
+    return {
+      strategy: 'manual-review',
+      executionStage: 'manual-review',
+      autofixEligible: false,
+      reason: 'Confidence is below the autofix threshold.'
+    };
+  }
+
+  if (architecturalSignals.some((signal) => claim.includes(signal)) || crossReferences.length >= 3) {
+    return {
+      strategy: 'architectural-remediation',
+      executionStage: 'report-only',
+      autofixEligible: false,
+      reason: 'Claim spans broader contracts or architecture boundaries.'
+    };
+  }
+
+  if (refactorSignals.some((signal) => claim.includes(signal)) || severityRank(entry.severity) >= 2 && crossReferences.length >= 2) {
+    return {
+      strategy: 'larger-refactor',
+      executionStage: 'manual-review',
+      autofixEligible: false,
+      reason: 'Fix likely needs coordinated multi-file changes beyond a surgical patch.'
+    };
+  }
+
+  return {
+    strategy: 'safe-autofix',
+    executionStage: severityRank(entry.severity) >= 2 ? 'canary' : 'rollout',
+    autofixEligible: true,
+    reason: 'Finding is localized enough for a guarded surgical fix.'
+  };
+}
+
+function recommendedActionForStrategy(strategy) {
+  if (strategy === 'architectural-remediation') {
+    return 'Do not auto-edit. Capture a remediation design and schedule a broader change.';
+  }
+  if (strategy === 'larger-refactor') {
+    return 'Pause before patching. Review interfaces, callers, and rollback scope with a human.';
+  }
+  if (strategy === 'manual-review') {
+    return 'Keep this in the report and require human approval before any edits.';
+  }
+  return 'Proceed through the guarded fix pipeline with canary verification and rollback safety.';
+}
+
+function buildFixStrategy({ bugLedger, confidenceThreshold, consistency }) {
+  const conflictSets = buildConflictSets(consistency);
+  const normalized = bugLedger.map((entry) => {
+    const confidenceScore = Number.isFinite(Number(entry.confidenceScore)) ? Number(entry.confidenceScore) : null;
+    const classification = applyConflictClassification(
+      entry,
+      classifyStrategy({ ...entry, confidenceScore }, confidenceThreshold),
+      conflictSets
+    );
+    const filePath = String(entry.file || '').trim() || 'unknown-file';
+    const clusterDir = path.dirname(filePath);
+    const clusterSeed = `${classification.strategy}|${classification.executionStage}|${clusterDir}`;
+    return {
+      ...entry,
+      confidenceScore,
+      file: filePath,
+      clusterDir,
+      clusterSeed,
+      ...classification
+    };
+  });
+
+  const byCluster = new Map();
+  for (const entry of normalized) {
+    if (!byCluster.has(entry.clusterSeed)) {
+      byCluster.set(entry.clusterSeed, []);
+    }
+    byCluster.get(entry.clusterSeed).push(entry);
+  }
+
+  const clusters = [...byCluster.entries()].map(([clusterSeed, entries], index) => {
+    const strategy = entries[0].strategy;
+    const executionStage = entries[0].executionStage;
+    const files = [...new Set(entries.map((entry) => entry.file))].sort();
+    const bugIds = [...new Set(entries.map((entry) => String(entry.bugId || entry.key || '').trim()).filter(Boolean))];
+    const maxSeverity = entries
+      .map((entry) => entry.severity)
+      .sort((left, right) => severityRank(right) - severityRank(left))[0] || 'LOW';
+    const reasons = [...new Set(entries.map((entry) => entry.reason).filter(Boolean))];
+    const firstDir = entries[0].clusterDir || path.dirname(files[0] || 'unknown-file');
+    return {
+      clusterId: `cluster-${index + 1}`,
+      strategy,
+      executionStage,
+      autofixEligible: entries.every((entry) => entry.autofixEligible),
+      bugIds,
+      files,
+      maxSeverity,
+      summary: `${bugIds.length} bug(s) in ${firstDir || '.'} classified as ${strategy}.`,
+      recommendedAction: recommendedActionForStrategy(strategy),
+      reasons
+    };
+  }).sort((left, right) => {
+    const stageRank = {
+      canary: 0,
+      rollout: 1,
+      'manual-review': 2,
+      'report-only': 3
+    };
+    const stageDiff = stageRank[left.executionStage] - stageRank[right.executionStage];
+    if (stageDiff !== 0) {
+      return stageDiff;
+    }
+    return severityRank(right.maxSeverity) - severityRank(left.maxSeverity);
+  });
+
+  const summary = {
+    confirmed: normalized.length,
+    safeAutofix: normalized.filter((entry) => entry.strategy === 'safe-autofix').length,
+    manualReview: normalized.filter((entry) => entry.strategy === 'manual-review').length,
+    largerRefactor: normalized.filter((entry) => entry.strategy === 'larger-refactor').length,
+    architecturalRemediation: normalized.filter((entry) => entry.strategy === 'architectural-remediation').length,
+    canaryCandidates: normalized.filter((entry) => entry.executionStage === 'canary').length,
+    rolloutCandidates: normalized.filter((entry) => entry.executionStage === 'rollout').length
+  };
+
+  return {
+    version: '3.1.0',
+    generatedAt: nowIso(),
+    confidenceThreshold,
+    summary,
+    clusters
   };
 }
 
@@ -677,6 +883,10 @@ async function runPhase(options) {
     journalPath,
     phase: phaseName,
     chunkId: artifact,
+    beforeAttempt: async () => {
+      removeFileIfExists(outputPath);
+      removeFileIfExists(renderOutputPath);
+    },
     postAttempt: async () => {
       const validation = validateNamedArtifact({
         artifactName: artifact,
@@ -830,6 +1040,10 @@ async function processPendingChunks({
       journalPath,
       phase: 'chunk-worker',
       chunkId: chunk.id,
+      beforeAttempt: async () => {
+        removeFileIfExists(findingsJsonPath);
+        removeFileIfExists(factsJsonPath);
+      },
       postAttempt: async () => {
         const findingsValidation = validateFindingsArtifact(findingsJsonPath);
         if (findingsValidation.ok) {
@@ -986,6 +1200,8 @@ async function runPipeline(options) {
   const chunksDir = path.resolve(path.dirname(statePath), 'chunks');
   const consistencyReportPath = path.resolve(options['consistency-report'] || path.join(path.dirname(statePath), 'consistency.json'));
   const fixPlanPath = path.resolve(options['fix-plan-path'] || path.join(path.dirname(statePath), 'fix-plan.json'));
+  const strategyPath = path.resolve(options['strategy-path'] || path.join(path.dirname(statePath), 'fix-strategy.json'));
+  const strategyMarkdownPath = path.resolve(options['strategy-markdown-path'] || path.join(path.dirname(statePath), 'fix-strategy.md'));
   const coveragePath = path.resolve(options['coverage-path'] || path.join(path.dirname(statePath), 'coverage.json'));
   const coverageMarkdownPath = path.resolve(options['coverage-markdown-path'] || path.join(path.dirname(statePath), 'coverage.md'));
   const factsPath = path.resolve(options['facts-path'] || path.join(path.dirname(statePath), 'bug-hunter-facts.json'));
@@ -1099,11 +1315,78 @@ async function runPipeline(options) {
   writeJson(consistencyReportPath, consistency);
   runJsonScript(stateScript, ['set-consistency', statePath, consistencyReportPath]);
 
+  const hasOpenOrFailedChunks = (status.summary.chunkStatus.pending || 0) > 0
+    || (status.summary.chunkStatus.inProgress || 0) > 0
+    || (status.summary.chunkStatus.failed || 0) > 0;
+
+  if (hasOpenOrFailedChunks) {
+    appendJournal(journalPath, {
+      event: 'fix-planning-skipped',
+      reason: 'incomplete-or-failed-chunks',
+      chunkStatus: status.summary.chunkStatus
+    });
+
+    return {
+      ok: true,
+      backend,
+      journalPath,
+      statePath,
+      indexPath: scope.indexPath,
+      deltaMode: scope.deltaMode,
+      deltaSummary: scope.deltaResult ? {
+        selectedCount: (scope.deltaResult.selected || []).length,
+        expansionCandidatesCount: (scope.deltaResult.expansionCandidates || []).length
+      } : null,
+      consistencyReportPath,
+      strategyPath: null,
+      strategyMarkdownPath: null,
+      fixPlanPath: null,
+      coveragePath: null,
+      coverageMarkdownPath: null,
+      factsPath,
+      status: status.summary,
+      consistency: {
+        conflicts: consistency.conflicts.length,
+        lowConfidenceFindings: consistency.lowConfidenceFindings
+      },
+      fixStrategy: null,
+      fixPlan: null
+    };
+  }
+
+  const fixStrategy = buildFixStrategy({
+    bugLedger: toArray(finalState.bugLedger),
+    confidenceThreshold,
+    consistency
+  });
+  const fixStrategyValidation = validateArtifactValue({
+    artifactName: 'fix-strategy',
+    value: fixStrategy
+  });
+  if (!fixStrategyValidation.ok) {
+    throw new Error(`Generated invalid fix strategy artifact: ${fixStrategyValidation.errors.join('; ')}`);
+  }
+  writeJson(strategyPath, fixStrategy);
+  ensureDir(path.dirname(strategyMarkdownPath));
+  fs.writeFileSync(
+    strategyMarkdownPath,
+    runTextScript(path.join(skillDir, 'scripts', 'render-report.cjs'), ['fix-strategy', strategyPath]),
+    'utf8'
+  );
+
   const fixPlan = buildFixPlan({
     bugLedger: toArray(finalState.bugLedger),
     confidenceThreshold,
-    canarySize
+    canarySize,
+    consistency
   });
+  const fixPlanValidation = validateArtifactValue({
+    artifactName: 'fix-plan',
+    value: fixPlan
+  });
+  if (!fixPlanValidation.ok) {
+    throw new Error(`Generated invalid fix plan artifact: ${fixPlanValidation.errors.join('; ')}`);
+  }
   writeJson(fixPlanPath, fixPlan);
   runJsonScript(stateScript, ['set-fix-plan', statePath, fixPlanPath]);
 
@@ -1143,6 +1426,8 @@ async function runPipeline(options) {
       expansionCandidatesCount: (scope.deltaResult.expansionCandidates || []).length
     } : null,
     consistencyReportPath,
+    strategyPath,
+    strategyMarkdownPath,
     fixPlanPath,
     coveragePath,
     coverageMarkdownPath,
@@ -1152,6 +1437,7 @@ async function runPipeline(options) {
       conflicts: consistency.conflicts.length,
       lowConfidenceFindings: consistency.lowConfidenceFindings
     },
+    fixStrategy: fixStrategy.summary,
     fixPlan: fixPlan.totals
   };
 }

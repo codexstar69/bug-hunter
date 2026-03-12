@@ -1,8 +1,6 @@
 ---
 name: bug-hunter
 description: "Adversarial bug hunting with a sequential-first pipeline (Recon, Hunter, Skeptic, Referee) that can optionally use safe read-only parallel triage. Finds, verifies, and auto-fixes real bugs by default (with --scan-only opt-out) using checkpointed verification and resume state for large codebases. Use this skill whenever the user wants bug finding, security audits, regression checks, or code review focused on runtime behavior."
-argument-hint: "[path | -b <branch> [--base <base-branch>] | --staged | --scan-only | --fix | --autonomous | --no-loop | --approve | --deps | --threat-model | --dry-run]"
-disable-model-invocation: true
 ---
 
 # Bug Hunt - Adversarial Bug Finding
@@ -44,9 +42,21 @@ For large scans: process chunks sequentially with persistent state to avoid comp
 /bug-hunter lib/auth.ts                  # Scan specific file
 /bug-hunter -b feature-xyz              # Scan files changed in feature-xyz vs main
 /bug-hunter -b feature-xyz --base dev   # Scan files changed in feature-xyz vs dev
+/bug-hunter --pr                        # Easy alias for --pr current
+/bug-hunter --pr current                # Review the current PR end to end
+/bug-hunter --pr recent --scan-only     # Review the most recent PR without editing code
+/bug-hunter --pr 123                    # Review a specific PR number
+/bug-hunter --pr-security               # PR security review: PR scope + threat model + dependency scan
+/bug-hunter --last-pr --review          # Easy mnemonic for “review the last PR”
+/bug-hunter --review-pr                 # Alias for --pr current
 /bug-hunter --staged                    # Scan staged files (pre-commit check)
 /bug-hunter --scan-only src/            # Scan only, no code changes
+/bug-hunter --review src/               # Easy alias for --scan-only
 /bug-hunter --fix src/                   # Find bugs AND auto-fix them
+/bug-hunter --plan-only src/             # Build fix strategy + plan, but do not edit files
+/bug-hunter --plan src/                  # Easy alias for --plan-only
+/bug-hunter --safe src/                  # Easy alias for --fix --approve
+/bug-hunter --preview src/               # Easy alias for --fix --dry-run
 /bug-hunter --autonomous src/            # Alias for no-intervention auto-fix run
 /bug-hunter --fix -b feature-xyz        # Find + fix on branch diff
 /bug-hunter --fix --approve src/        # Find + fix, but ask before each fix
@@ -55,6 +65,8 @@ For large scans: process chunks sequentially with persistent state to avoid comp
 /bug-hunter --no-loop --scan-only src/   # Single-pass scan, no fixes, no loop
 /bug-hunter --deps src/                 # Include dependency CVE scan
 /bug-hunter --threat-model src/         # Generate/use STRIDE threat model
+/bug-hunter --security-review src/      # Enterprise security workflow: threat model + CVEs + validation
+/bug-hunter --validate-security src/    # Force vulnerability-validation for security findings
 /bug-hunter --deps --threat-model src/  # Full security audit
 /bug-hunter --fix --dry-run src/        # Preview fixes without editing files
 ```
@@ -75,14 +87,36 @@ The raw arguments are: $ARGUMENTS
 0g. If arguments contain `--deps`: strip it and set `DEP_SCAN=true`. Dependency scanning runs package manager audit tools and checks if vulnerable APIs are actually called in the codebase.
 0h. If arguments contain `--threat-model`: strip it and set `THREAT_MODEL_MODE=true`. Generates a STRIDE threat model at `.bug-hunter/threat-model.md` if one doesn't exist, then feeds it to Recon + Hunter for targeted security analysis.
 0i. If arguments contain `--dry-run`: strip it and set `DRY_RUN_MODE=true`. Forces `FIX_MODE=true`. In dry-run mode, Phase 2 builds the fix plan and the Fixer reads code and outputs planned changes as unified diff previews, but no file edits, git commits, or lock acquisition occur. Produces `fix-report.json` with `"dry_run": true`.
+0j. If arguments contain `--preview`: strip it, set `DRY_RUN_MODE=true`, and force `FIX_MODE=true`. Treat it as a memorable alias for `--fix --dry-run`.
+0k. If arguments contain `--plan-only`: strip it and set `PLAN_ONLY_MODE=true`. The pipeline still scans, verifies, and builds `fix-strategy.json` + `fix-plan.json`, but it stops before the Fixer edits code.
+0l. If arguments contain `--plan`: strip it and set `PLAN_ONLY_MODE=true`. Treat it as a memorable alias for `--plan-only`.
+0m. If arguments contain `--review-pr`: strip it and treat it as `--pr current`.
+0n. If arguments contain `--pr` with no selector after it, treat it as `--pr current`.
+0o. If arguments contain `--last-pr`: strip it and treat it as `--pr recent`.
+0p. If arguments contain `--review`: strip it and set `FIX_MODE=false`. Treat it as a memorable alias for `--scan-only`.
+0q. If arguments contain `--safe`: strip it, set `FIX_MODE=true`, and set `APPROVE_MODE=true`. Treat it as a memorable alias for `--fix --approve`.
+0r. If arguments contain `--pr-security`: strip it, set `PR_SECURITY_MODE=true`, force `DEP_SCAN=true`, force `THREAT_MODEL_MODE=true`, force `FIX_MODE=false`, and if no explicit `--pr` selector was provided treat it as `--pr current`.
+0s. If arguments contain `--security-review`: strip it, set `SECURITY_REVIEW_MODE=true`, force `DEP_SCAN=true`, force `THREAT_MODEL_MODE=true`, and force `FIX_MODE=false`.
+0t. If arguments contain `--validate-security`: strip it and set `VALIDATE_SECURITY_MODE=true`.
 
-1. If arguments contain `--staged`: this is **staged file mode**.
+1. If arguments contain `--pr <selector>`: this is **PR review mode**.
+   - Valid selectors: `current`, `recent`, or a PR number like `123`.
+   - If `--base <base-branch>` is present, pass it through for current-branch git fallback.
+   - Run:
+     ```bash
+     node "$SKILL_DIR/scripts/pr-scope.cjs" resolve "<selector>" --repo-root "$PWD" [--base <base-branch>]
+     ```
+   - If it fails, report the error to the user and stop.
+   - Save the JSON result to `.bug-hunter/pr-scope.json` for later reporting.
+   - Use `changedFiles` from the JSON output as the scan target (scan full file contents, not just the diff).
+
+2. If arguments contain `--staged`: this is **staged file mode**.
    - Run `git diff --cached --name-only` using the Bash tool to get the list of staged files.
    - If the command fails, report the error to the user and stop.
    - If no files are staged, tell the user there are no staged changes to scan and stop.
    - The scan target is the list of staged files (scan their full contents, not just the diff).
 
-2. If arguments contain `-b <branch>`: this is **branch diff mode**.
+3. If arguments contain `-b <branch>`: this is **branch diff mode**.
    - Extract the branch name after `-b`.
    - If `--base <base-branch>` is also present, use that as the base branch. Otherwise default to `main`.
    - Run `git diff --name-only <base>...<branch>` using the Bash tool to get the list of changed files.
@@ -90,9 +124,9 @@ The raw arguments are: $ARGUMENTS
    - If no files changed, tell the user there are no changes to scan and stop.
    - The scan target is the list of changed files (scan their full contents, not just the diff).
 
-3. If arguments do NOT contain `-b` or `--staged`: treat the entire argument string as a **path target** (file or directory). If empty, scan the current working directory.
+4. If arguments do NOT contain `--pr`, `-b`, or `--staged`: treat the entire argument string as a **path target** (file or directory). If empty, scan the current working directory.
 
-**After resolving the file list (for modes 1 and 2), filter out non-source files:**
+**After resolving the file list (for modes 1, 2, and 3), filter out non-source files:**
 
 Remove any files matching these patterns — they are not scannable source code:
 - Docs/text: `*.md`, `*.txt`, `*.rst`, `*.adoc`
@@ -169,7 +203,7 @@ Before doing anything else, verify the environment:
 
 5. **Verify helper scripts exist**:
    ```
-   ls "$SKILL_DIR/scripts/run-bug-hunter.cjs" "$SKILL_DIR/scripts/bug-hunter-state.cjs" "$SKILL_DIR/scripts/delta-mode.cjs" "$SKILL_DIR/scripts/payload-guard.cjs" "$SKILL_DIR/scripts/fix-lock.cjs" "$SKILL_DIR/scripts/triage.cjs" "$SKILL_DIR/scripts/doc-lookup.cjs"
+   ls "$SKILL_DIR/scripts/run-bug-hunter.cjs" "$SKILL_DIR/scripts/bug-hunter-state.cjs" "$SKILL_DIR/scripts/delta-mode.cjs" "$SKILL_DIR/scripts/payload-guard.cjs" "$SKILL_DIR/scripts/fix-lock.cjs" "$SKILL_DIR/scripts/triage.cjs" "$SKILL_DIR/scripts/doc-lookup.cjs" "$SKILL_DIR/scripts/pr-scope.cjs"
    ```
    If any are missing, stop and tell the user to update/reinstall the skill.
    Note: `code-index.cjs` is optional — enables cross-domain dependency analysis for boundary audits in large-codebase mode, but the pipeline works fully without it.
@@ -249,10 +283,10 @@ Before doing anything else, verify the environment:
 
 ### Step 1: Parse arguments, resolve target, and run triage
 
-Follow the rules in the **Target** section above. If in branch diff or staged mode, run the appropriate git command now, collect the file list, and apply the filter.
+Follow the rules in the **Target** section above. If in PR review, branch diff, or staged mode, run the appropriate resolver command now, collect the file list, and apply the filter.
 
 Report to the user:
-- Mode (full project / directory / file / branch diff / staged)
+- Mode (full project / directory / file / PR review / branch diff / staged)
 - Number of source files to scan (after filtering)
 - Number of files filtered out
 
@@ -304,7 +338,10 @@ Proceeding with partial scan — highest-priority queued files only.
 ### Step 1b: Generate threat model (if --threat-model)
 
 If `THREAT_MODEL_MODE=true`:
-1. Check if `.bug-hunter/threat-model.md` already exists.
+1. Read the bundled local skill `SKILL_DIR/skills/threat-model-generation/SKILL.md` before generating the threat model. This keeps the enterprise security pack end-to-end connected to the main Bug Hunter flow.
+2. Use the bundled skill's Bug Hunter-native artifact conventions (`.bug-hunter/threat-model.md`, `.bug-hunter/security-config.json`).
+
+3. Check if `.bug-hunter/threat-model.md` already exists.
    - If it exists and was modified within the last 90 days: use it as-is. Set `THREAT_MODEL_AVAILABLE=true`.
    - If it exists but is >90 days old: warn user ("Threat model is N days old — regenerating"), regenerate.
    - If it doesn't exist: generate it.
@@ -321,7 +358,10 @@ If `THREAT_MODEL_MODE=false` but `.bug-hunter/threat-model.md` exists:
 
 ### Step 1c: Dependency scan (if --deps)
 
-If `DEP_SCAN=true`:
+If `DEP_SCAN=true` or `SECURITY_REVIEW_MODE=true` or `PR_SECURITY_MODE=true`:
+- Read the bundled local skill `SKILL_DIR/skills/security-review/SKILL.md` when running the broader enterprise security workflow.
+
+If `DEP_SCAN=true`: 
 ```bash
 node "$SKILL_DIR/scripts/dep-scan.cjs" --target "<TARGET_PATH>" --output .bug-hunter/dep-findings.json
 ```
@@ -335,15 +375,23 @@ If `.bug-hunter/dep-findings.json` exists with REACHABLE findings, include them 
 
 ### Step 2: Read prompt files on demand (context efficiency)
 
+**Security-pack routing:**
+- If `PR_SECURITY_MODE=true`, read `SKILL_DIR/skills/commit-security-scan/SKILL.md` before the normal PR-review scan.
+- If `SECURITY_REVIEW_MODE=true`, read `SKILL_DIR/skills/security-review/SKILL.md` before the broader security audit flow.
+- If `VALIDATE_SECURITY_MODE=true`, read `SKILL_DIR/skills/vulnerability-validation/SKILL.md` before finalizing confirmed security findings.
+
 **MANDATORY**: You MUST read prompt files using the Read tool before passing them to subagents or executing them yourself. Do NOT skip this or act from memory. Use the absolute SKILL_DIR path resolved in Step 0.
 
 **Load only what you need for each phase — do NOT read all files upfront:**
 
 | Phase | Read These Files |
 |-------|-----------------|
-| Threat Model (Step 1b) | `prompts/threat-model.md` (only if THREAT_MODEL_MODE=true) |
+| PR security review | `skills/commit-security-scan/SKILL.md` (if `PR_SECURITY_MODE=true` or the user asks for PR-focused security review) |
+| Security review | `skills/security-review/SKILL.md` (if `SECURITY_REVIEW_MODE=true` or the user asks for an enterprise/full security audit) |
+| Threat Model (Step 1b) | `skills/threat-model-generation/SKILL.md` + `prompts/threat-model.md` (only if THREAT_MODEL_MODE=true) |
 | Recon (Step 4) | `prompts/recon.md` (skip for single-file mode) |
 | Hunters (Step 5) | `prompts/hunter.md` + `prompts/doc-lookup.md` + `prompts/examples/hunter-examples.md` |
+| Security validation | `skills/vulnerability-validation/SKILL.md` (if `VALIDATE_SECURITY_MODE=true` or confirmed security findings need exploitability validation) |
 | Skeptics (Step 6) | `prompts/skeptic.md` + `prompts/doc-lookup.md` + `prompts/examples/skeptic-examples.md` |
 | Referee (Step 7) | `prompts/referee.md` |
 | Fixers (Phase 2) | `prompts/fixer.md` + `prompts/doc-lookup.md` (only if FIX_MODE=true) |
@@ -525,7 +573,15 @@ If the coverage assessment shows ANY queued scannable source files were not scan
 If zero bugs were confirmed, say so clearly — a clean report is a good result.
 
 **Routing after report:**
+- If there are confirmed security findings AND (`VALIDATE_SECURITY_MODE=true` OR `PR_SECURITY_MODE=true` OR `SECURITY_REVIEW_MODE=true`):
+  - Read `SKILL_DIR/skills/vulnerability-validation/SKILL.md`.
+  - Re-check reachability, exploitability, PoC quality, and CVSS details for the confirmed security findings before finalizing the security summary.
+- If confirmed bugs > 0 AND `PLAN_ONLY_MODE=true`:
+  - Build `fix-strategy.json` and `fix-plan.json`.
+  - Present the strategy clusters (safe autofix vs manual review vs larger refactor vs architectural remediation).
+  - Stop before the Fixer edits code.
 - If confirmed bugs > 0 AND `FIX_MODE=true`:
+  - Build and present `fix-strategy.json` first.
   - Auto-fix only `ELIGIBLE` bugs.
   - Apply canary-first rollout: fix top critical eligible subset first, verify, then continue remaining eligible fixes.
   - Keep `MANUAL_REVIEW` bugs in report only (do not auto-edit).

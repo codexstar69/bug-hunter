@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "fix-plan",
+  "title": "Bug Hunter Fix Plan Artifact",
+  "type": "object",
+  "required": [
+    "generatedAt",
+    "confidenceThreshold",
+    "canarySize",
+    "totals",
+    "canary",
+    "rollout",
+    "manualReview"
+  ],
+  "properties": {
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "confidenceThreshold": { "type": "integer", "minimum": 1 },
+    "canarySize": { "type": "integer", "minimum": 1 },
+    "totals": {
+      "type": "object",
+      "required": ["findings", "eligible", "canary", "rollout", "manualReview"],
+      "properties": {
+        "findings": { "type": "integer", "minimum": 0 },
+        "eligible": { "type": "integer", "minimum": 0 },
+        "canary": { "type": "integer", "minimum": 0 },
+        "rollout": { "type": "integer", "minimum": 0 },
+        "manualReview": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "canary": { "$ref": "#/definitions/fixPlanEntries" },
+    "rollout": { "$ref": "#/definitions/fixPlanEntries" },
+    "manualReview": { "$ref": "#/definitions/fixPlanEntries" }
+  },
+  "definitions": {
+    "fixPlanEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bugId",
+          "severity",
+          "category",
+          "file",
+          "lines",
+          "claim",
+          "evidence",
+          "runtimeTrigger",
+          "crossReferences",
+          "confidenceScore",
+          "strategy",
+          "executionStage",
+          "autofixEligible",
+          "reason"
+        ],
+        "properties": {
+          "bugId": { "type": "string", "minLength": 1 },
+          "severity": { "type": "string", "enum": ["Critical", "Medium", "Low"] },
+          "category": { "type": "string", "minLength": 1 },
+          "file": { "type": "string", "minLength": 1 },
+          "lines": { "type": "string", "minLength": 1 },
+          "claim": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string", "minLength": 1 },
+          "runtimeTrigger": { "type": "string", "minLength": 1 },
+          "crossReferences": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "confidenceScore": { "type": "number", "minimum": 0, "maximum": 100 },
+          "confidenceLabel": { "type": "string", "enum": ["high", "medium", "low"] },
+          "stride": { "type": "string", "minLength": 1 },
+          "cwe": { "type": "string", "minLength": 1 },
+          "key": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "updatedAt": { "type": "string", "minLength": 1 },
+          "strategy": {
+            "type": "string",
+            "enum": ["safe-autofix", "manual-review", "larger-refactor", "architectural-remediation"]
+          },
+          "executionStage": {
+            "type": "string",
+            "enum": ["canary", "rollout", "manual-review", "report-only"]
+          },
+          "autofixEligible": { "type": "boolean" },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

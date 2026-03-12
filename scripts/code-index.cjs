@@ -453,11 +453,18 @@ function queryBugs(indexPath, bugsJsonPath, hopsRaw) {
     .map((bug) => String((bug && bug.file) || '').trim())
     .filter(Boolean)
     .map((filePath) => path.resolve(filePath));
-  const tempSeedPath = path.join(path.dirname(path.resolve(bugsJsonPath)), '.seed-files.tmp.json');
+  const tempSeedPath = path.join(
+    path.dirname(path.resolve(bugsJsonPath)),
+    `.seed-files.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp.json`
+  );
   writeJson(tempSeedPath, seedFiles);
-  const result = query(indexPath, tempSeedPath, hopsRaw);
-  fs.unlinkSync(tempSeedPath);
-  return result;
+  try {
+    return query(indexPath, tempSeedPath, hopsRaw);
+  } finally {
+    if (fs.existsSync(tempSeedPath)) {
+      fs.unlinkSync(tempSeedPath);
+    }
+  }
 }
 
 function main() {

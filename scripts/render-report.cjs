@@ -14,6 +14,7 @@ function usage() {
   console.error('  render-report.cjs skeptic <skeptic-json>');
   console.error('  render-report.cjs referee <referee-json>');
   console.error('  render-report.cjs fix-report <fix-report-json>');
+  console.error('  render-report.cjs fix-strategy <fix-strategy-json>');
 }
 
 function toArray(value) {
@@ -218,6 +219,40 @@ function renderFixReport({ fixReportPath }) {
   return `${lines.join('\n')}\n`;
 }
 
+function renderFixStrategy({ fixStrategyPath }) {
+  const strategy = readJson(fixStrategyPath);
+  const clusters = toArray(strategy.clusters);
+  const lines = [
+    '# Fix Strategy',
+    '',
+    `- Confidence threshold: ${strategy.confidenceThreshold}`,
+    `- Confirmed findings: ${strategy.summary.confirmed}`,
+    `- Safe autofix: ${strategy.summary.safeAutofix}`,
+    `- Manual review: ${strategy.summary.manualReview}`,
+    `- Larger refactor: ${strategy.summary.largerRefactor}`,
+    `- Architectural remediation: ${strategy.summary.architecturalRemediation}`,
+    `- Canary candidates: ${strategy.summary.canaryCandidates}`,
+    `- Rollout candidates: ${strategy.summary.rolloutCandidates}`,
+    '',
+    '## Clusters'
+  ];
+
+  if (clusters.length === 0) {
+    lines.push('- None');
+  } else {
+    for (const cluster of clusters) {
+      lines.push(`- ${cluster.clusterId} | ${cluster.strategy} | ${cluster.executionStage} | max severity ${cluster.maxSeverity}`);
+      lines.push(`  Bugs: ${toArray(cluster.bugIds).join(', ')}`);
+      lines.push(`  Files: ${toArray(cluster.files).join(', ')}`);
+      lines.push(`  Summary: ${cluster.summary}`);
+      lines.push(`  Action: ${cluster.recommendedAction}`);
+      lines.push(`  Reasons: ${toArray(cluster.reasons).join(' | ')}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
 function main() {
   const [command, ...args] = process.argv.slice(2);
   if (!command) {
@@ -282,6 +317,18 @@ function main() {
     }
     process.stdout.write(renderFixReport({
       fixReportPath: path.resolve(fixReportPath)
+    }));
+    return;
+  }
+
+  if (command === 'fix-strategy') {
+    const [fixStrategyPath] = args;
+    if (!fixStrategyPath) {
+      usage();
+      process.exit(1);
+    }
+    process.stdout.write(renderFixStrategy({
+      fixStrategyPath: path.resolve(fixStrategyPath)
     }));
     return;
   }

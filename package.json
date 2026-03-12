@@ -38,6 +38,8 @@
     "modes/",
     "evals/",
     "docs/",
+    "agents/",
+    "skills/",
     "SKILL.md",
     "README.md",
     "CHANGELOG.md",

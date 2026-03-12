@@ -1,11 +1,13 @@
 <p align="center">
-  <img src="docs/images/hero.png" alt="Bug Hunter — AI-powered adversarial code security scanner with multi-agent pipeline for automated vulnerability detection, false-positive elimination, and safe auto-fix" width="720">
+  <img src="docs/images/2026-03-12-hero-bug-hunter-overview.png" alt="Bug Hunter product overview banner — code and pull requests flow through adversarial review, strategic fix planning, and verified patch delivery" width="720">
 </p>
 
 <h1 align="center">🐛 Bug Hunter</h1>
 <p align="center"><strong>AI-powered adversarial bug finding that argues with itself to surface real vulnerabilities — and auto-fixes them safely.</strong></p>
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="#new-in-this-update">New in This Update</a> ·
+  <a href="#start-here">Start Here</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#how-the-adversarial-pipeline-works">How It Works</a> ·
   <a href="#features">Features</a> ·
@@ -47,6 +49,39 @@ npm install -g @aisuite/chub
 
 ---
 
+## New in This Update
+
+This release makes Bug Hunter much better at PR-first auditing and safer at automated remediation.
+
+- **PR review is now a first-class workflow.** Review the current PR, the most recent PR, or a specific PR number with `--pr`, `--pr current`, `--pr recent`, or `--pr 123`.
+- **PR security review is now built in.** `--pr-security` runs a PR-scoped security audit with threat-model and dependency context, without editing code.
+- **Strategic remediation is now explicit.** Bug Hunter writes `fix-strategy.json` and `fix-plan.json` before fixes run, so auto-fix decisions stay explainable and reviewable.
+- **The security pack is now bundled locally.** `commit-security-scan`, `security-review`, `threat-model-generation`, and `vulnerability-validation` now ship inside the repo under `skills/`.
+- **Fix execution is harder to break.** This update adds schema-validated fix plans, atomic lock handling, safer worktree cleanup, stash preservation, and shell-safe worker command templating.
+
+<p align="center">
+  <img src="docs/images/2026-03-12-pr-review-flow.png" alt="PR review workflow banner — pull request scope, security checks, threat-model context, and final verdict in a clean product-style UI" width="100%">
+</p>
+
+## Start Here
+
+If you're evaluating the new PR flow, start with one of these:
+
+```bash
+/bug-hunter --pr                 # review the current PR end to end
+/bug-hunter --pr-security        # PR-focused security review without editing code
+/bug-hunter --last-pr --review   # review the most recent PR without fixes
+/bug-hunter --plan src/          # build fix-strategy.json + fix-plan.json only
+```
+
+If you just want the default repo audit:
+
+```bash
+/bug-hunter
+```
+
+---
+
 ## Usage
 
 ```bash
@@ -54,9 +89,22 @@ npm install -g @aisuite/chub
 /bug-hunter src/                   # scan a specific directory
 /bug-hunter lib/auth.ts            # scan a single file
 /bug-hunter --scan-only src/       # report only — no code changes
+/bug-hunter --review src/          # easy alias for --scan-only
 /bug-hunter --fix --approve src/   # ask before each fix
+/bug-hunter --safe src/            # easy alias for --fix --approve
 /bug-hunter -b feature-xyz         # scan only files changed in branch (vs main)
+/bug-hunter --pr                   # easy alias for --pr current
+/bug-hunter --pr current           # review the current PR end to end
+/bug-hunter --pr recent            # review the most recently updated open PR
+/bug-hunter --pr 123               # review a specific PR number
+/bug-hunter --pr-security          # PR security review with threat model + CVE context
+/bug-hunter --review-pr            # easy alias for --pr current
+/bug-hunter --last-pr --review     # review the most recent PR without editing
 /bug-hunter --staged               # scan staged files (pre-commit hook)
+/bug-hunter --plan src/            # easy alias for --plan-only
+/bug-hunter --preview src/         # easy alias for --fix --dry-run
+/bug-hunter --security-review src/ # enterprise security workflow for a path or repo
+/bug-hunter --validate-security src/ # force exploitability validation for security findings
 /bug-hunter --deps --threat-model  # full audit: CVEs + STRIDE threat model
 ```
 
@@ -72,6 +120,8 @@ This eliminates the two biggest problems with AI code review: **false positive o
 
 ## Table of Contents
 
+- [New in This Update](#new-in-this-update)
+- [Start Here](#start-here)
 - [How the Adversarial Pipeline Works](#how-the-adversarial-pipeline-works)
 - [Features](#features)
 - [Security Classification — STRIDE, CWE, and CVSS](#security-classification-stride-cwe-cvss)
@@ -161,6 +211,28 @@ This scoring creates a **self-correcting equilibrium**. The Hunter doesn't flood
 ---
 
 ## Features
+
+### Bundled Local Security Skills
+
+Bug Hunter now ships with a portable local security pack under `skills/`:
+- `commit-security-scan`
+- `security-review`
+- `threat-model-generation`
+- `vulnerability-validation`
+
+These are bundled inside the repository so the system does not depend on external marketplace paths or machine-specific skill installs. They are adapted to Bug Hunter-native artifacts like `.bug-hunter/threat-model.md`, `.bug-hunter/security-config.json`, `.bug-hunter/findings.json`, and `.bug-hunter/referee.json`.
+
+They are now wired into the main Bug Hunter flow:
+- PR-focused security review routes into `commit-security-scan`
+- `--threat-model` routes into `threat-model-generation`
+- enterprise/full security review routes into `security-review`
+- exploitability confirmation for security findings routes into `vulnerability-validation`
+
+Bug Hunter remains the top-level orchestrator; the bundled skills are capability modules inside that orchestration.
+
+<p align="center">
+  <img src="docs/images/2026-03-12-security-pack.png" alt="Bundled local security pack banner — Bug Hunter orchestrates commit security scan, security review, threat-model generation, and vulnerability validation" width="100%">
+</p>
 
 ### Zero-Token Triage — Instant File Classification
 
@@ -385,6 +457,10 @@ Dependency findings are saved to `.bug-hunter/dep-findings.json` and cross-refer
 
 Bug Hunter doesn't throw uncoordinated patches at your codebase. After the Referee confirms real bugs, the system builds a **strategic fix plan** with safety gates at every step — the difference between "an AI that edits files" and "an AI that engineers patches."
 
+<p align="center">
+  <img src="docs/images/2026-03-12-fix-plan-rollout.png" alt="Strategic fix planning banner — strategy, confidence gating, canary rollout, verification, and rollback safety" width="100%">
+</p>
+
 ### Phase 1 — Safety Setup and Git Branching
 
 - Verifies you're in a git repository (warns if not — no rollback without version control)
@@ -400,14 +476,26 @@ Bug Hunter doesn't throw uncoordinated patches at your codebase. After the Refer
 - Runs the test suite once to record the **passing baseline**
 - This baseline is critical: if a fix causes a previously-passing test to fail, the fix is auto-reverted
 
-### Phase 3 — Confidence-Gated Fix Queue
+### Phase 3 — Strategy Before Patching
+
+Before the Fixer edits anything, Bug Hunter now writes a canonical `fix-strategy.json` artifact.
+It clusters confirmed bugs and classifies them into one of four tracks:
+
+- **safe-autofix** — localized enough for guarded patching
+- **manual-review** — confidence too low for unattended edits
+- **larger-refactor** — needs coordinated multi-file changes
+- **architectural-remediation** — broad contract or design issue; report, don’t auto-edit
+
+This makes the remediation plan visible before execution. Users who want review without mutation can run `--plan-only` to stop after strategy + plan generation.
+
+### Phase 4 — Confidence-Gated Fix Queue
 
 - **75% confidence gate**: only bugs the Referee confirmed with ≥75% confidence are auto-fixed
 - Bugs below the threshold are marked `MANUAL_REVIEW` — reported but never auto-edited
 - **Conflict resolution**: same-file bugs are grouped and ordered to prevent overlapping edits
 - **Severity ordering**: Critical → High → Medium → Low
 
-### Phase 4 — Canary Rollout Strategy
+### Phase 5 — Canary Rollout Strategy
 
 ```
 Fix Plan: 7 eligible bugs | canary: 2 | rollout: 5 | manual-review: 3
@@ -469,6 +557,10 @@ This prevents a common failure: the Fixer "fixing" a bug using an API pattern th
 ---
 
 ## Structured JSON Output for CI/CD Integration
+
+<p align="center">
+  <img src="docs/images/2026-03-12-machine-readable-artifacts.png" alt="Machine-readable artifacts banner — findings, skeptic, referee, fix strategy, fix plan, and CI automation outputs" width="100%">
+</p>
 
 Every run produces machine-readable output at `.bug-hunter/findings.json` for pipeline automation:
 
@@ -532,6 +624,10 @@ Every run creates a `.bug-hunter/` directory (add to `.gitignore`) containing:
 | `skeptic.md` | Optional | Markdown companion rendered from `skeptic.json` |
 | `referee.md` | Optional | Markdown companion rendered from `referee.json` |
 | `coverage.md` | Loop/autonomous runs | Markdown companion rendered from `coverage.json` |
+| `fix-strategy.json` | When findings exist | Canonical remediation strategy: safe autofix vs manual review vs refactor vs architectural work |
+| `fix-strategy.md` | When findings exist | Markdown companion rendered from `fix-strategy.json` |
+| `fix-plan.json` | Plan/fix mode | Canonical execution plan for canary rollout, gating, and safe fix order |
+| `fix-plan.md` | Plan/fix mode | Markdown companion rendered from `fix-plan.json` |
 | `fix-report.md` | Fix mode | Markdown companion for fix results |
 | `fix-report.json` | Fix mode | Machine-readable fix results for CI/CD gating and dashboards |
 | `worktree-*/` | Worktree fix mode | Temporary isolated worktrees for Fixer subagents (auto-cleaned) |
@@ -559,16 +655,30 @@ The pipeline adapts to whatever it finds. Triage classifies files by extension a
 | `src/` or `file.ts` | Scan specific path |
 | `-b branch-name` | Scan files changed in branch (vs main) |
 | `-b branch --base dev` | Scan branch diff against specific base |
+| `--pr` | Easy alias for `--pr current` |
+| `--pr current` | Review the current PR using GitHub metadata when available, with git fallback on the current branch |
+| `--pr recent` | Review the most recently updated open PR |
+| `--pr 123` | Review a specific PR number |
+| `--pr-security` | Enterprise PR security review: PR scope + threat model + dependency context |
+| `--last-pr` | Easy alias for `--pr recent` |
+| `--review-pr` | Alias for `--pr current` |
 | `--staged` | Scan git-staged files (pre-commit hook integration) |
 | `--scan-only` | Report only — no code changes |
+| `--review` | Easy alias for `--scan-only` |
 | `--fix` | Find and auto-fix bugs (default behavior) |
+| `--plan-only` | Build `fix-strategy.json` + fix plan, then stop before the fixer edits code |
+| `--plan` | Easy alias for `--plan-only` |
 | `--approve` | Interactive mode — ask before each fix |
+| `--safe` | Easy alias for `--fix --approve` |
 | `--autonomous` | Full auto-fix with zero intervention |
+| `--dry-run` | Preview planned fixes without editing files — outputs diff previews and `fix-report.json` |
+| `--preview` | Easy alias for `--fix --dry-run` |
 | `--loop` | Iterative mode — runs until 100% queued source-file coverage **(on by default)** |
 | `--no-loop` | Disable loop mode — single-pass scan only |
 | `--deps` | Include dependency CVE scanning with reachability analysis |
 | `--threat-model` | Generate or use STRIDE threat model for targeted security analysis |
-| `--dry-run` | Preview planned fixes without editing files — outputs diff previews and `fix-report.json` |
+| `--security-review` | Run the bundled enterprise security-review workflow with threat model + CVE + validation context |
+| `--validate-security` | Force vulnerability-validation for confirmed security findings |
 
 All flags compose: `/bug-hunter --deps --threat-model --fix src/`
 
@@ -577,6 +687,8 @@ All flags compose: `/bug-hunter --deps --threat-model --fix src/`
 ## Self-Test and Validation
 
 Bug Hunter ships with a test fixture containing an Express app with **6 intentionally planted bugs** (2 Critical, 3 Medium, 1 Low):
+
+The repository also ships with **60 Node.js regression tests** covering orchestration, schemas, PR scope resolution, fix-plan validation, lock behavior, worktree lifecycle, and the bundled local security-skill routing.
 
 ```bash
 /bug-hunter test-fixture/
@@ -598,6 +710,8 @@ bug-hunter/
 ├── SKILL.md                              # Pipeline orchestration logic
 ├── README.md                             # This documentation
 ├── CHANGELOG.md                          # Version history
+├── llms.txt                              # Short LLM-facing summary
+├── llms-full.txt                         # Full LLM-facing reference
 ├── package.json                          # npm package config (@codexstar/bug-hunter)
 │
 ├── bin/
@@ -605,11 +719,15 @@ bug-hunter/
 │
 ├── docs/
 │   └── images/                           # Documentation visuals
-│       ├── hero.png                      #   Hero banner
-│       ├── pipeline-overview.png         #   8-stage pipeline diagram
-│       ├── adversarial-debate.png        #   Hunter vs Skeptic vs Referee flow
-│       ├── doc-verify-fix-plan.png       #   Documentation verification + fix planning
-│       └── security-finding-card.png     #   Enriched finding card with CVSS
+│       ├── 2026-03-12-hero-bug-hunter-overview.png   #   Product overview hero
+│       ├── 2026-03-12-pr-review-flow.png             #   PR review + security workflow
+│       ├── 2026-03-12-security-pack.png              #   Bundled local security pack
+│       ├── 2026-03-12-fix-plan-rollout.png           #   Strategic fix planning + rollout
+│       ├── 2026-03-12-machine-readable-artifacts.png #   CI/CD artifact outputs
+│       ├── pipeline-overview.png                     #   8-stage pipeline diagram
+│       ├── adversarial-debate.png                    #   Hunter vs Skeptic vs Referee flow
+│       ├── doc-verify-fix-plan.png                   #   Documentation verification + fix planning
+│       └── security-finding-card.png                 #   Enriched finding card with CVSS
 │
 ├── modes/                                # Execution strategies by codebase size
 │   ├── single-file.md                    #   1 file
@@ -635,6 +753,19 @@ bug-hunter/
 │   └── examples/                         #   Calibration few-shot examples
 │       ├── hunter-examples.md            #     3 real + 2 false positives
 │       └── skeptic-examples.md           #     2 accepted + 2 disproved + 1 review
+│
+├── schemas/                              # Canonical JSON artifact contracts
+│   ├── findings.schema.json              #   Hunter findings schema
+│   ├── skeptic.schema.json               #   Skeptic artifact schema
+│   ├── referee.schema.json               #   Referee artifact schema
+│   ├── fix-strategy.schema.json          #   Strategic remediation schema
+│   └── fix-plan.schema.json              #   Fix execution schema
+│
+├── skills/                               # Bundled local security pack
+│   ├── commit-security-scan/
+│   ├── security-review/
+│   ├── threat-model-generation/
+│   └── vulnerability-validation/
 │
 ├── scripts/                              # Node.js helpers (zero AI tokens)
 │   ├── triage.cjs                        #   File classification (<2s)

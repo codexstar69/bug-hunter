@@ -55,12 +55,14 @@ test('schema-validate validates example findings fixtures', () => {
   assert.match(`${invalid.stdout}${invalid.stderr}`, /\$\[0\]\.claim is required/);
 });
 
-test('schema-validate accepts valid skeptic, referee, and fix-report artifacts', () => {
+test('schema-validate accepts valid skeptic, referee, fix-report, fix-strategy, and fix-plan artifacts', () => {
   const sandbox = makeSandbox('schema-validate-more-');
   const validatorScript = resolveSkillScript('schema-validate.cjs');
   const skepticPath = path.join(sandbox, 'skeptic.json');
   const refereePath = path.join(sandbox, 'referee.json');
   const fixReportPath = path.join(sandbox, 'fix-report.json');
+  const fixStrategyPath = path.join(sandbox, 'fix-strategy.json');
+  const fixPlanPath = path.join(sandbox, 'fix-plan.json');
 
   writeJson(skepticPath, [
     {
@@ -122,8 +124,70 @@ test('schema-validate accepts valid skeptic, referee, and fix-report artifacts',
       partial: 0
     }
   });
+  writeJson(fixStrategyPath, {
+    version: '3.1.0',
+    generatedAt: '2026-03-12T00:00:00.000Z',
+    confidenceThreshold: 75,
+    summary: {
+      confirmed: 1,
+      safeAutofix: 1,
+      manualReview: 0,
+      largerRefactor: 0,
+      architecturalRemediation: 0,
+      canaryCandidates: 1,
+      rolloutCandidates: 0
+    },
+    clusters: [
+      {
+        clusterId: 'cluster-1',
+        strategy: 'safe-autofix',
+        executionStage: 'canary',
+        autofixEligible: true,
+        bugIds: ['BUG-1'],
+        files: ['src/a.ts'],
+        maxSeverity: 'CRITICAL',
+        summary: '1 bug(s) in src classified as safe-autofix.',
+        recommendedAction: 'Proceed through the guarded fix pipeline with canary verification and rollback safety.',
+        reasons: ['Finding is localized enough for a guarded surgical fix.']
+      }
+    ]
+  });
+  writeJson(fixPlanPath, {
+    generatedAt: '2026-03-12T00:00:00.000Z',
+    confidenceThreshold: 75,
+    canarySize: 1,
+    totals: {
+      findings: 1,
+      eligible: 1,
+      canary: 1,
+      rollout: 0,
+      manualReview: 0
+    },
+    canary: [
+      {
+        bugId: 'BUG-1',
+        severity: 'Critical',
+        category: 'logic',
+        file: 'src/a.ts',
+        lines: '10-12',
+        claim: 'x',
+        evidence: 'src/a.ts:10-12 evidence',
+        runtimeTrigger: 'Call x()',
+        crossReferences: ['Single file'],
+        confidenceScore: 95,
+        strategy: 'safe-autofix',
+        executionStage: 'canary',
+        autofixEligible: true,
+        reason: 'Finding is localized enough for a guarded surgical fix.'
+      }
+    ],
+    rollout: [],
+    manualReview: []
+  });
 
   assert.equal(runJson('node', [validatorScript, 'skeptic', skepticPath]).ok, true);
   assert.equal(runJson('node', [validatorScript, 'referee', refereePath]).ok, true);
   assert.equal(runJson('node', [validatorScript, 'fix-report', fixReportPath]).ok, true);
+  assert.equal(runJson('node', [validatorScript, 'fix-strategy', fixStrategyPath]).ok, true);
+  assert.equal(runJson('node', [validatorScript, 'fix-plan', fixPlanPath]).ok, true);
 });

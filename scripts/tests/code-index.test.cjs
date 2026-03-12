@@ -55,3 +55,18 @@ test('code-index build captures symbols, call graph, boundaries, and query scope
   assert.equal(queryResult.selected.includes(serviceFile), true);
   assert.equal(queryResult.trustBoundaryFiles.includes(routeFile), true);
 });
+
+test('code-index query-bugs cleans up temp seed files after failures', () => {
+  const sandbox = makeSandbox('code-index-query-bugs-');
+  const codeIndex = resolveSkillScript('code-index.cjs');
+  const bugsJson = path.join(sandbox, 'bugs.json');
+  const missingIndexPath = path.join(sandbox, 'missing-index.json');
+  const sourceFile = path.join(sandbox, 'src', 'feature.ts');
+  fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
+  fs.writeFileSync(sourceFile, 'export const feature = true;\n', 'utf8');
+  writeJson(bugsJson, [{ bugId: 'BUG-1', file: sourceFile }]);
+
+  const result = require('./test-utils.cjs').runRaw('node', [codeIndex, 'query-bugs', missingIndexPath, bugsJson, '1']);
+  assert.notEqual(result.status, 0);
+  assert.equal(fs.existsSync(path.join(sandbox, '.seed-files.tmp.json')), false);
+});

@@ -8,6 +8,8 @@ const SCHEMA_FILES = {
   referee: 'referee.schema.json',
   coverage: 'coverage.schema.json',
   'fix-report': 'fix-report.schema.json',
+  'fix-plan': 'fix-plan.schema.json',
+  'fix-strategy': 'fix-strategy.schema.json',
   shared: 'shared.schema.json'
 };
 

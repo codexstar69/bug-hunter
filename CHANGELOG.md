@@ -5,10 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.5] — 2026-03-11
+
+### Added
+- `agents/openai.yaml` UI metadata for skill lists and quick-invoke prompts
+
+### Changed
+- `SKILL.md` frontmatter now validates cleanly against the `skill-creator` validator
+- `evals/evals.json` now matches the current `.bug-hunter/*` JSON-first pipeline, default loop/fix behavior, and modern flags like `--deps`, `--threat-model`, `--dry-run`, and `--autonomous`
+- npm package files now include the `agents/` directory so `openai.yaml` ships with the published skill
+
 ## [Unreleased]
+
+### Highlights
+- PR review is now a first-class workflow with `--pr`, `--pr current`, `--pr recent`, `--pr 123`, `--last-pr`, and `--pr-security`.
+- Bug Hunter now emits both `fix-strategy.json` and `fix-plan.json` before fix execution so remediation stays reviewable and confidence-gated.
+- The enterprise security pack now ships inside the repository under `skills/`, making PR security review and full security audits portable.
+- Fix execution is now safer through schema-validated planning, atomic lock handling, safer worktree cleanup, stash preservation, and shell-safe templating.
 
 ### Added
 - GitHub Actions npm publish workflow on release publish or manual dispatch, with version/tag verification before `npm publish`
+- bundled local security skills under `skills/`: `commit-security-scan`, `security-review`, `threat-model-generation`, and `vulnerability-validation`
+- enterprise security entrypoints: `--pr-security`, `--security-review`, and `--validate-security`
+- regression tests and eval coverage for integrated local security-skill routing
+- `schemas/fix-plan.schema.json` plus validation coverage for canonical fix-plan artifacts
+- focused regressions for lock-token ownership, atomic lock acquisition, stale artifact clearing, shell-safe worker paths, failed-chunk fix-plan suppression, managed worktree cleanup, and stash-ref preservation
+
+### Changed
+- portable security capabilities now live inside the repository under `skills/` instead of depending on external machine-specific skill paths
+- package metadata now ships the `skills/` directory for self-contained distribution
+- main Bug Hunter orchestration now routes into the bundled local security skills for PR security review, threat-model generation, enterprise security review, and vulnerability validation
+- fix-lock now uses owner tokens for renew/release, atomic acquisition under contention, and safe recovery from corrupted lock files
+- run-bug-hunter now shell-quotes templated command arguments, clears stale artifacts before retries, validates fix-plan artifacts, and skips fix-plan emission when chunks fail
+- worktree cleanup/status now preserve unrelated directories, preserve stash metadata from defensive harvests, and avoid reporting manifest-only worktrees as dirty
+- current-PR git fallback now diffs against the discovered `origin/<default-branch>` ref when the base branch comes from `origin/HEAD`
+- README now opens with a short “New in This Update” and PR-first quick-start section
+- `llms.txt` and `llms-full.txt` now describe the PR review flow, bundled local security pack, current fix artifacts, and the current regression-test coverage
+- `skills/README.md` now explains how the bundled security skills map into Bug Hunter workflows
 
 ## [3.0.4] — 2026-03-11
 
@@ -167,7 +200,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage enforcement — partial audits produce explicit warnings
 - Large codebase strategy with domain-first tiered scanning
 
-[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.0.4...HEAD
+[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.0.5...HEAD
+[3.0.5]: https://github.com/codexstar69/bug-hunter/compare/v3.0.4...v3.0.5
 [3.0.4]: https://github.com/codexstar69/bug-hunter/compare/v3.0.3...v3.0.4
 [3.0.3]: https://github.com/codexstar69/bug-hunter/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/codexstar69/bug-hunter/compare/v3.0.1...v3.0.2

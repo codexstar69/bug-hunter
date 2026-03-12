@@ -511,6 +511,13 @@ function main() {
     }
     const state = readState(statePath);
     const fixPlan = readJson(fixPlanJsonPath);
+    const validation = validateArtifactValue({
+      artifactName: 'fix-plan',
+      value: fixPlan
+    });
+    if (!validation.ok) {
+      throw new Error(`Invalid fix-plan artifact: ${validation.errors.join('; ')}`);
+    }
     state.fixPlan = fixPlan;
     saveState(statePath, state);
     console.log(JSON.stringify({

@@ -82,6 +82,21 @@ function writeJsonFile(filePath, data) {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
+function isManagedWorktreeDir(worktreeDir) {
+  const absDir = path.resolve(worktreeDir);
+  if (readJsonFile(manifestPath(absDir))) {
+    return true;
+  }
+  const listed = gitSafe(['worktree', 'list', '--porcelain']);
+  if (!listed.ok || !listed.output) {
+    return false;
+  }
+  return listed.output
+    .split('\n')
+    .filter((line) => line.startsWith('worktree '))
+    .some((line) => path.resolve(line.slice('worktree '.length).trim()) === absDir);
+}
+
 // ---------------------------------------------------------------------------
 // prepare — create worktree on the fix branch
 // ---------------------------------------------------------------------------
@@ -96,8 +111,13 @@ function prepare(fixBranch, worktreeDir) {
     process.exit(1);
   }
 
-  // 2. If worktreeDir already exists, clean up stale worktree
+  // 2. If worktreeDir already exists, clean up stale managed worktree only
   if (fs.existsSync(absDir)) {
+    const managed = isManagedWorktreeDir(absDir);
+    if (!managed) {
+      out({ ok: false, error: 'path-not-managed-worktree', detail: `${absDir} already exists and is not a managed worktree` });
+      process.exit(1);
+    }
     gitSafe(['worktree', 'remove', absDir, '--force']);
     if (fs.existsSync(absDir)) {
       fs.rmSync(absDir, { recursive: true, force: true });
@@ -319,9 +339,21 @@ function cleanup(worktreeDir) {
     return;
   }
 
+  const managed = isManagedWorktreeDir(absDir);
+  if (!managed) {
+    out({ ok: true, removed: false, reason: 'not-managed-worktree' });
+    return;
+  }
+
+  let defensiveHarvest = readJsonFile(harvestPath(absDir));
   // If harvest hasn't run yet, run it defensively
-  if (!readJsonFile(harvestPath(absDir))) {
-    try { harvestCore(absDir); } catch (_) { /* best-effort */ }
+  if (!defensiveHarvest) {
+    try {
+      defensiveHarvest = harvestCore(absDir);
+    } catch (_) {
+      out({ ok: true, removed: false, reason: 'harvest-failed' });
+      return;
+    }
   }
 
   const manifest = readJsonFile(manifestPath(absDir));
@@ -333,11 +365,14 @@ function cleanup(worktreeDir) {
   }
 
   gitSafe(['worktree', 'prune']);
+  const removed = !fs.existsSync(absDir);
 
   out({
     ok: true,
-    removed: true,
-    detachedMainTree: manifest ? manifest.detachedMainTree : false
+    removed,
+    detachedMainTree: manifest ? manifest.detachedMainTree : false,
+    reason: removed ? undefined : 'remove-failed',
+    stashRef: defensiveHarvest && defensiveHarvest.stashRef ? defensiveHarvest.stashRef : null
   });
 }
 
@@ -367,15 +402,26 @@ function cleanupAll(parentDir) {
   for (const name of entries) {
     const wtDir = path.join(absParent, name);
     try {
+      const managed = isManagedWorktreeDir(wtDir);
+      if (!managed) {
+        results.push({ name, removed: false, reason: 'not-managed-worktree' });
+        continue;
+      }
+      let defensiveHarvest = readJsonFile(harvestPath(wtDir));
       // Defensive harvest before cleanup
-      if (!readJsonFile(harvestPath(wtDir))) {
-        try { harvestCore(wtDir); } catch (_) { /* best-effort */ }
+      if (!defensiveHarvest) {
+        try {
+          defensiveHarvest = harvestCore(wtDir);
+        } catch (_) {
+          results.push({ name, removed: false, reason: 'harvest-failed' });
+          continue;
+        }
       }
       gitSafe(['worktree', 'remove', wtDir, '--force']);
       if (fs.existsSync(wtDir)) {
         fs.rmSync(wtDir, { recursive: true, force: true });
       }
-      results.push({ name, removed: true });
+      results.push({ name, removed: true, stashRef: defensiveHarvest && defensiveHarvest.stashRef ? defensiveHarvest.stashRef : null });
     } catch (err) {
       results.push({ name, removed: false, error: err.message });
     }
@@ -410,7 +456,14 @@ function statusCmd(worktreeDir) {
   const isStale = age !== null && age > STALE_AGE_MS;
 
   const statusOutput = gitSafe(['status', '--porcelain'], absDir);
-  const hasUncommitted = statusOutput.ok && statusOutput.output.length > 0;
+  const statusLines = statusOutput.ok
+    ? statusOutput.output.split('\n').filter(Boolean)
+    : [];
+  const relevantLines = statusLines.filter(line => {
+    const fileName = line.slice(3);
+    return !META_FILES.some(mf => fileName === mf || fileName.endsWith(`/${mf}`));
+  });
+  const hasUncommitted = relevantLines.length > 0;
 
   let commitCount = 0;
   if (manifest) {

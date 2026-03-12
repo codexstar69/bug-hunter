@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bug Hunter"
+  short_description: "Find, verify, and auto-fix real code bugs"
+  default_prompt: "Use $bug-hunter to scan this codebase for confirmed runtime, logic, and security bugs."

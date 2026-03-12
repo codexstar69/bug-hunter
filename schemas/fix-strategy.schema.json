@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "fix-strategy",
+  "title": "Bug Hunter Fix Strategy Artifact",
+  "type": "object",
+  "required": [
+    "version",
+    "generatedAt",
+    "confidenceThreshold",
+    "summary",
+    "clusters"
+  ],
+  "properties": {
+    "version": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "confidenceThreshold": { "type": "integer", "minimum": 1 },
+    "summary": {
+      "type": "object",
+      "required": [
+        "confirmed",
+        "safeAutofix",
+        "manualReview",
+        "largerRefactor",
+        "architecturalRemediation",
+        "canaryCandidates",
+        "rolloutCandidates"
+      ],
+      "properties": {
+        "confirmed": { "type": "integer", "minimum": 0 },
+        "safeAutofix": { "type": "integer", "minimum": 0 },
+        "manualReview": { "type": "integer", "minimum": 0 },
+        "largerRefactor": { "type": "integer", "minimum": 0 },
+        "architecturalRemediation": { "type": "integer", "minimum": 0 },
+        "canaryCandidates": { "type": "integer", "minimum": 0 },
+        "rolloutCandidates": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "clusters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "clusterId",
+          "strategy",
+          "executionStage",
+          "autofixEligible",
+          "bugIds",
+          "files",
+          "maxSeverity",
+          "summary",
+          "recommendedAction",
+          "reasons"
+        ],
+        "properties": {
+          "clusterId": { "type": "string", "minLength": 1 },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "safe-autofix",
+              "manual-review",
+              "larger-refactor",
+              "architectural-remediation"
+            ]
+          },
+          "executionStage": {
+            "type": "string",
+            "enum": ["canary", "rollout", "manual-review", "report-only"]
+          },
+          "autofixEligible": { "type": "boolean" },
+          "bugIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "maxSeverity": {
+            "type": "string",
+            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "Critical", "High", "Medium", "Low"]
+          },
+          "summary": { "type": "string", "minLength": 1 },
+          "recommendedAction": { "type": "string", "minLength": 1 },
+          "reasons": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
