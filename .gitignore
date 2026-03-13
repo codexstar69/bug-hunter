@@ -16,6 +16,14 @@ node_modules/
 .claude/bug-hunter-coverage.md.bak
 .claude/chunks/
 
+# Autoresearch (internal experiment tooling)
+autoresearch.jsonl
+autoresearch.md
+autoresearch.ideas.md
+
+# Session artifacts
+handoff.md
+
 # Test fixture git repo (self-contained for testing)
 test-fixture/.git/
 tmp/
