@@ -40,7 +40,7 @@ const TEMPLATES = {
     bugs: [
       {
         bugId: 'BUG-1',
-        severity: 'Critical|Medium|Low',
+        severity: 'Critical|High|Medium|Low',
         file: 'src/example.ts',
         lines: '10-15',
         claim: 'One-sentence description of the bug',
@@ -74,7 +74,7 @@ const TEMPLATES = {
     bugs: [
       {
         bugId: 'BUG-1',
-        severity: 'Critical|Medium|Low',
+        severity: 'Critical|High|Medium|Low',
         file: 'src/example.ts',
         lines: '10-15',
         description: 'What is wrong',
