@@ -217,8 +217,8 @@ function harvestCore(worktreeDir) {
   // 4. Parse commits
   const commits = commitLines.map(line => {
     const spaceIdx = line.indexOf(' ');
-    const hash = line.slice(0, spaceIdx);
-    const message = line.slice(spaceIdx + 1);
+    const hash = spaceIdx >= 0 ? line.slice(0, spaceIdx) : line;
+    const message = spaceIdx >= 0 ? line.slice(spaceIdx + 1) : '';
     const bugMatch = message.match(/BUG-(\d+)/);
     return {
       hash,
