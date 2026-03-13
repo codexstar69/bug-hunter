@@ -224,11 +224,12 @@ function runCommandOnce({ command, timeoutMs }) {
     let stdout = '';
     let stderr = '';
     let timeoutHit = false;
+    let killTimer = null;
 
     const timer = setTimeout(() => {
       timeoutHit = true;
       child.kill('SIGTERM');
-      setTimeout(() => {
+      killTimer = setTimeout(() => {
         if (!child.killed) {
           child.kill('SIGKILL');
         }
@@ -243,6 +244,9 @@ function runCommandOnce({ command, timeoutMs }) {
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
       resolve({
         ok: code === 0 && !timeoutHit,
         code: code || 0,
