@@ -43,6 +43,12 @@
     "SKILL.md",
     "README.md",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "llms.txt",
+    "llms-full.txt",
+    "test-fixture/",
     "LICENSE"
   ],
   "repository": {
