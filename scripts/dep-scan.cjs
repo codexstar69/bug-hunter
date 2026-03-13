@@ -59,6 +59,7 @@ function detectEcosystems(targetDir) {
     { lockfile: 'pnpm-lock.yaml', ecosystem: 'node', manager: 'pnpm', command: 'pnpm audit --json' },
     { lockfile: 'yarn.lock', ecosystem: 'node', manager: 'yarn', command: 'yarn npm audit --json' },
     { lockfile: 'bun.lockb', ecosystem: 'node', manager: 'bun', command: 'bun audit --json' },
+    { lockfile: 'bun.lock', ecosystem: 'node', manager: 'bun', command: 'bun audit --json' },
     { lockfile: 'requirements.txt', ecosystem: 'pip', manager: 'pip', command: 'pip-audit --format json' },
     { lockfile: 'Pipfile.lock', ecosystem: 'pip', manager: 'pipenv', command: 'pip-audit --format json' },
     { lockfile: 'go.sum', ecosystem: 'go', manager: 'go', command: 'govulncheck -json ./...' },
@@ -241,7 +242,7 @@ function main() {
         {
           manager: 'none',
           lockfile: 'none',
-          reason: 'No supported lockfile found (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, requirements.txt, go.sum, Cargo.lock)',
+          reason: 'No supported lockfile found (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, bun.lock, requirements.txt, go.sum, Cargo.lock)',
         },
       ],
     };
