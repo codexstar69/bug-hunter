@@ -1,3 +1,4 @@
 {"type":"config","name":"Bug Hunter Reliability & Quality Optimization","metricName":"test_failures","metricUnit":"","bestDirection":"lower"}
 {"run":1,"commit":"c3523ca","metric":10,"metrics":{"test_pass":50,"test_duration_s":14.6},"status":"keep","description":"Baseline: 50 pass, 10 fail out of 60 tests. All failures in run-bug-hunter.test.cjs","timestamp":1773371650004,"segment":0}
 {"run":2,"commit":"28fd8e4","metric":0,"metrics":{"test_duration_s":8.5,"test_pass":60},"status":"keep","description":"Fix all 10 test failures: shell-quote literal paths in worker templates to handle spaces in directory names","timestamp":1773372344676,"segment":0}
+{"run":3,"commit":"4717c75","metric":0,"metrics":{"test_duration_s":8.9,"test_pass":60},"status":"keep","description":"Fix missing 'high' severity rank in bug-hunter-state.cjs (was ranked 0, below 'low'); add explicit parens for operator precedence clarity in classifyStrategy","timestamp":1773372476287,"segment":0}

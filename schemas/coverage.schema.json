@@ -42,7 +42,7 @@
           "bugId": { "type": "string", "minLength": 1 },
           "severity": {
             "type": "string",
-            "enum": ["Critical", "Medium", "Low"]
+            "enum": ["Critical", "High", "Medium", "Low"]
           },
           "file": { "type": "string", "minLength": 1 },
           "claim": { "type": "string", "minLength": 1 }

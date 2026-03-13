@@ -6,7 +6,7 @@
   "$defs": {
     "severity": {
       "type": "string",
-      "enum": ["Critical", "Medium", "Low"]
+      "enum": ["Critical", "High", "Medium", "Low"]
     },
     "category": {
       "type": "string",

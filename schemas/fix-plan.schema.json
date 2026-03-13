@@ -56,7 +56,7 @@
         ],
         "properties": {
           "bugId": { "type": "string", "minLength": 1 },
-          "severity": { "type": "string", "enum": ["Critical", "Medium", "Low"] },
+          "severity": { "type": "string", "enum": ["Critical", "High", "Medium", "Low"] },
           "category": { "type": "string", "minLength": 1 },
           "file": { "type": "string", "minLength": 1 },
           "lines": { "type": "string", "minLength": 1 },

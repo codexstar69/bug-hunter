@@ -23,7 +23,7 @@
       },
       "trueSeverity": {
         "type": "string",
-        "enum": ["Critical", "Medium", "Low"]
+        "enum": ["Critical", "High", "Medium", "Low"]
       },
       "confidenceScore": {
         "type": "number",

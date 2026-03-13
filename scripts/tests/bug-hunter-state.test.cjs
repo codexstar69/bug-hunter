@@ -150,3 +150,55 @@ test('bug-hunter-state rejects malformed findings artifacts', () => {
   assert.notEqual(result.status, 0);
   assert.match(`${result.stderr}${result.stdout}`, /Invalid findings artifact/);
 });
+
+test('bug-hunter-state severity ranking orders High above Medium and Low', () => {
+  const sandbox = makeSandbox('bug-hunter-state-severity-');
+  const stateScript = resolveSkillScript('bug-hunter-state.cjs');
+  const filePath = path.join(sandbox, 'a.ts');
+  fs.writeFileSync(filePath, 'const a = 1;\n', 'utf8');
+
+  const filesJson = path.join(sandbox, 'files.json');
+  writeJson(filesJson, [filePath]);
+  const statePath = path.join(sandbox, 'state.json');
+  runJson('node', [stateScript, 'init', statePath, 'extended', filesJson, '1']);
+
+  // Record a Low finding first
+  const findingsLow = path.join(sandbox, 'findings-low.json');
+  writeJson(findingsLow, [
+    {
+      bugId: 'BUG-SEV',
+      severity: 'Low',
+      category: 'logic',
+      file: 'src/a.ts',
+      lines: '1',
+      claim: 'severity test',
+      evidence: 'src/a.ts:1 evidence',
+      runtimeTrigger: 'Call a()',
+      crossReferences: ['Single file'],
+      confidenceScore: 80
+    }
+  ]);
+  runJson('node', [stateScript, 'record-findings', statePath, findingsLow, 'test']);
+
+  // Record a High finding for the same location — should upgrade
+  const findingsHigh = path.join(sandbox, 'findings-high.json');
+  writeJson(findingsHigh, [
+    {
+      bugId: 'BUG-SEV',
+      severity: 'High',
+      category: 'logic',
+      file: 'src/a.ts',
+      lines: '1',
+      claim: 'severity test',
+      evidence: 'src/a.ts:1 evidence',
+      runtimeTrigger: 'Call a()',
+      crossReferences: ['Single file'],
+      confidenceScore: 85
+    }
+  ]);
+  runJson('node', [stateScript, 'record-findings', statePath, findingsHigh, 'test']);
+
+  const state = readJson(statePath);
+  assert.equal(state.bugLedger[0].severity, 'High');
+  assert.equal(state.bugLedger[0].confidenceScore, 85);
+});
