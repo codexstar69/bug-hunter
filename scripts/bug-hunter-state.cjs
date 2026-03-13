@@ -151,7 +151,7 @@ function usage() {
   console.error('  bug-hunter-state.cjs status <statePath>');
   console.error('  bug-hunter-state.cjs next-chunk <statePath>');
   console.error('  bug-hunter-state.cjs mark-chunk <statePath> <chunkId> <pending|in_progress|done|failed> [error]');
-  console.error('  bug-hunter-state.cjs record-findings <statePath> <findingsJsonPath> [source]');
+  console.error('  bug-hunter-state.cjs record-findings <statePath> <findingsJsonPath> [source] [confidenceThreshold]');
   console.error('  bug-hunter-state.cjs hash-filter <statePath> <filesJsonPath>');
   console.error('  bug-hunter-state.cjs hash-update <statePath> <filesJsonPath> [status]');
   console.error('  bug-hunter-state.cjs append-files <statePath> <filesJsonPath>');
@@ -267,11 +267,14 @@ function main() {
   }
 
   if (command === 'record-findings') {
-    const [statePath, findingsJsonPath, source = 'unknown'] = args;
+    const [statePath, findingsJsonPath, source = 'unknown', confidenceThresholdRaw] = args;
     if (!statePath || !findingsJsonPath) {
       usage();
       process.exit(1);
     }
+    const confidenceThreshold = Number.isInteger(Number.parseInt(String(confidenceThresholdRaw || ''), 10))
+      ? Number.parseInt(confidenceThresholdRaw, 10)
+      : 75;
     const state = readState(statePath);
     const findings = readJson(findingsJsonPath);
     const validation = validateArtifactValue({
@@ -342,7 +345,7 @@ function main() {
     state.metrics.findingsTotal += findings.length;
     state.metrics.findingsUnique = state.bugLedger.length;
     state.metrics.lowConfidenceFindings = state.bugLedger.filter((entry) => {
-      return entry.confidenceScore === null || entry.confidenceScore < 75;
+      return entry.confidenceScore === null || entry.confidenceScore < confidenceThreshold;
     }).length;
     saveState(statePath, state);
     console.log(JSON.stringify({
