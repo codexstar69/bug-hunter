@@ -1002,7 +1002,8 @@ async function processPendingChunks({
   backend,
   mode,
   skillDir,
-  index
+  index,
+  confidenceThreshold
 }) {
   while (true) {
     const next = runJsonScript(stateScript, ['next-chunk', statePath]);
@@ -1088,7 +1089,7 @@ async function processPendingChunks({
     }
 
     let findings = [];
-    runJsonScript(stateScript, ['record-findings', statePath, findingsJsonPath, 'orchestrator']);
+    runJsonScript(stateScript, ['record-findings', statePath, findingsJsonPath, 'orchestrator', String(confidenceThreshold)]);
     findings = readJson(findingsJsonPath);
 
     if (fs.existsSync(factsJsonPath)) {
@@ -1261,7 +1262,8 @@ async function runPipeline(options) {
     backend,
     mode,
     skillDir,
-    index
+    index,
+    confidenceThreshold
   });
 
   if (scope.deltaMode && expandOnLowConfidence) {
@@ -1316,7 +1318,8 @@ async function runPipeline(options) {
             backend,
             mode,
             skillDir,
-            index
+            index,
+            confidenceThreshold
           });
         }
       }
