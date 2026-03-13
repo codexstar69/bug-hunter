@@ -49,11 +49,18 @@ function resolveSkillScript(...parts) {
   return path.resolve(__dirname, '..', ...parts);
 }
 
+function shellQuote(value) {
+  const s = String(value);
+  if (s.length === 0) return "''";
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 module.exports = {
   readJson,
   resolveSkillScript,
   runJson,
   runRaw,
   makeSandbox,
+  shellQuote,
   writeJson
 };

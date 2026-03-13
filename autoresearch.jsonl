@@ -1,1 +1,2 @@
 {"type":"config","name":"Bug Hunter Reliability & Quality Optimization","metricName":"test_failures","metricUnit":"","bestDirection":"lower"}
+{"run":1,"commit":"c3523ca","metric":10,"metrics":{"test_pass":50,"test_duration_s":14.6},"status":"keep","description":"Baseline: 50 pass, 10 fail out of 60 tests. All failures in run-bug-hunter.test.cjs","timestamp":1773371650004,"segment":0}

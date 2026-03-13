@@ -9,6 +9,7 @@ const {
   resolveSkillScript,
   runJson,
   runRaw,
+  shellQuote,
   writeJson
 } = require('./test-utils.cjs');
 
@@ -126,7 +127,7 @@ test('run-bug-hunter run executes chunk loop with retry and journal', () => {
   const flakyWorker = resolveSkillScript('tests', 'fixtures', 'flaky-worker.cjs');
   const workerTemplate = [
     'node',
-    flakyWorker,
+    shellQuote(flakyWorker),
     '--chunk-id',
     '{chunkId}',
     '--scan-files-json',
@@ -134,7 +135,7 @@ test('run-bug-hunter run executes chunk loop with retry and journal', () => {
     '--findings-json',
     '{findingsJson}',
     '--attempts-file',
-    attemptsFile
+    shellQuote(attemptsFile)
   ].join(' ');
 
   const result = runJson('node', [
@@ -210,7 +211,7 @@ test('run-bug-hunter integrates index+delta, fact cards, consistency pass, and f
   const worker = resolveSkillScript('tests', 'fixtures', 'low-confidence-worker.cjs');
   const workerTemplate = [
     'node',
-    worker,
+    shellQuote(worker),
     '--chunk-id',
     '{chunkId}',
     '--scan-files-json',
@@ -220,7 +221,7 @@ test('run-bug-hunter integrates index+delta, fact cards, consistency pass, and f
     '--facts-json',
     '{factsJson}',
     '--seen-files',
-    seenFilesPath,
+    shellQuote(seenFilesPath),
     '--confidence',
     '60'
   ].join(' ');
@@ -260,6 +261,10 @@ test('run-bug-hunter integrates index+delta, fact cards, consistency pass, and f
     strategyMarkdownPath,
     '--facts-path',
     factsPath,
+    '--coverage-path',
+    coveragePath,
+    '--coverage-markdown-path',
+    coverageMarkdownPath,
     '--use-index',
     'true',
     '--delta-mode',
@@ -332,7 +337,7 @@ test('run-bug-hunter builds canary fix subset from high-confidence findings', ()
   const worker = resolveSkillScript('tests', 'fixtures', 'low-confidence-worker.cjs');
   const workerTemplate = [
     'node',
-    worker,
+    shellQuote(worker),
     '--chunk-id',
     '{chunkId}',
     '--scan-files-json',
@@ -414,7 +419,7 @@ test('run-bug-hunter excludes non-autofix strategy findings from the executable 
     '--chunk-size',
     '1',
     '--worker-cmd',
-    `node ${workerPath} --chunk-id {chunkId} --scan-files-json {scanFilesJson} --findings-json {findingsJson}`,
+    `node ${shellQuote(workerPath)} --chunk-id {chunkId} --scan-files-json {scanFilesJson} --findings-json {findingsJson}`,
     '--timeout-ms',
     '5000',
     '--confidence-threshold',
@@ -474,7 +479,7 @@ test('run-bug-hunter downgrades conflicting findings to manual review before fix
     '--chunk-size',
     '1',
     '--worker-cmd',
-    `node ${workerPath} --chunk-id {chunkId} --scan-files-json {scanFilesJson} --findings-json {findingsJson}`,
+    `node ${shellQuote(workerPath)} --chunk-id {chunkId} --scan-files-json {scanFilesJson} --findings-json {findingsJson}`,
     '--timeout-ms',
     '5000',
     '--confidence-threshold',
@@ -536,7 +541,7 @@ test('run-bug-hunter respects configured delta hops during low-confidence expans
 
   const workerTemplate = [
     'node',
-    workerPath,
+    shellQuote(workerPath),
     '--chunk-id',
     '{chunkId}',
     '--scan-files-json',
@@ -544,9 +549,9 @@ test('run-bug-hunter respects configured delta hops during low-confidence expans
     '--findings-json',
     '{findingsJson}',
     '--seen-files',
-    seenFilesPath,
+    shellQuote(seenFilesPath),
     '--changed-file',
-    changedFile
+    shellQuote(changedFile)
   ].join(' ');
 
   const result = runJson('node', [
@@ -621,13 +626,13 @@ test('run-bug-hunter retries malformed findings and records schema errors in the
 
   const workerTemplate = [
     'node',
-    workerPath,
+    shellQuote(workerPath),
     '--chunk-id',
     '{chunkId}',
     '--findings-json',
     '{findingsJson}',
     '--attempts-file',
-    attemptsFile
+    shellQuote(attemptsFile)
   ].join(' ');
 
   const result = runJson('node', [
@@ -700,13 +705,13 @@ test('run-bug-hunter clears stale findings artifacts before retrying a chunk', (
 
   const workerTemplate = [
     'node',
-    workerPath,
+    shellQuote(workerPath),
     '--chunk-id',
     '{chunkId}',
     '--findings-json',
     '{findingsJson}',
     '--attempts-file',
-    attemptsFile
+    shellQuote(attemptsFile)
   ].join(' ');
 
   const result = runJson('node', [
@@ -907,16 +912,16 @@ test('run-bug-hunter phase retries invalid skeptic output and renders a markdown
 
   const workerTemplate = [
     'node',
-    workerPath,
+    shellQuote(workerPath),
     '--output-path',
     '{outputPath}',
     '--attempts-file',
-    attemptsFile
+    shellQuote(attemptsFile)
   ].join(' ');
 
   const renderTemplate = [
     'node',
-    path.join(skillDir, 'scripts', 'render-report.cjs'),
+    shellQuote(path.join(skillDir, 'scripts', 'render-report.cjs')),
     'skeptic',
     '{outputPath}',
     '>',
@@ -1059,11 +1064,11 @@ test('run-bug-hunter phase validates referee and fix-report artifacts', () => {
 
     const workerTemplate = [
       'node',
-      workerPath,
+      shellQuote(workerPath),
       '--output-path',
       '{outputPath}',
       '--attempts-file',
-      attemptsFile
+      shellQuote(attemptsFile)
     ].join(' ');
 
     const result = runJson('node', [
