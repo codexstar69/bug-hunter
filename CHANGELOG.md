@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.9] - 2026-03-13
+
+### Added
+- `scripts/experiment-loop.cjs` — autonomous experiment loop engine inspired by pi-autoresearch. Provides metric-driven iteration with baseline + delta tracking, append-only JSONL persistence, segmented sessions, and full state reconstruction from log alone.
+- `schemas/experiment.schema.json` — JSON schema for experiment JSONL entries (config, result, resume types)
+- `check-continue` command — single gateway that checks all loop conditions (stop file, iteration cap, consecutive crash breaker, resume cooldown) before each iteration
+- Hard iteration cap (default: 10, configurable via `--max-iterations`) prevents runaway loops
+- Consecutive crash breaker (3 in a row) auto-stops to prevent token waste
+- Stop-file cancellation (`experiment-loop.cjs stop` or `touch .bug-hunter/experiment.stop`) for easy user interruption
+- Auto-resume with 5-minute cooldown for graceful recovery after agent context limits
+- Secondary metric consistency enforcement — locks metric names after first result in a segment
+- Backpressure checks — optional `experiment.checks.sh` script gates keep/discard decisions
+- 40 new tests covering all experiment-loop commands, guardrails, and edge cases (including negative metrics, zero/negative max-iterations, --duration-ms)
+
+### Changed
+- **Experiment tracking is now active by default** when `LOOP_MODE=true` — no `--experiment` flag needed
+- `SKILL.md` now auto-initializes `experiment-loop.cjs` during loop setup (init + check-continue wiring)
+- `modes/loop.md` updated with full experiment tracking integration, per-iteration workflow, and documentation of all stop mechanisms (user-initiated vs automatic)
+- `scripts/schema-runtime.cjs` registers the new `experiment` schema
+- `schemas/experiment.schema.json` cleaned: removed unused `command` and `passed` fields, added `maxIterations` field
+- `scripts/experiment-loop.cjs` `log` command now accepts `--duration-ms` flag to persist actual iteration duration (was hardcoded to 0)
+- `llms.txt` and `llms-full.txt` updated with experiment loop capabilities
+- Test suite expanded from 61 to **101 tests** (0 failures)
+
 ## [3.0.8] - 2026-03-13
 
 ### Highlights
@@ -239,7 +263,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage enforcement - partial audits produce explicit warnings
 - Large codebase strategy with domain-first tiered scanning
 
-[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.0.8...HEAD
+[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.0.9...HEAD
+[3.0.9]: https://github.com/codexstar69/bug-hunter/compare/v3.0.8...v3.0.9
 [3.0.8]: https://github.com/codexstar69/bug-hunter/compare/v3.0.7...v3.0.8
 [3.0.7]: https://github.com/codexstar69/bug-hunter/compare/v3.0.5...v3.0.7
 [3.0.5]: https://github.com/codexstar69/bug-hunter/compare/v3.0.4...v3.0.5

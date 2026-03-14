@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "experiment",
+  "title": "Bug Hunter Experiment Log Entry",
+  "description": "Schema for individual JSONL experiment log entries. Config headers and result entries share this envelope.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["config", "result", "resume"]
+    },
+    "segment": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestamp": {
+      "type": "number"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metric": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string" },
+        "direction": { "type": "string", "enum": ["lower", "higher"] }
+      },
+      "required": ["name", "direction"]
+    },
+    "value": {
+      "type": "number"
+    },
+    "secondaryMetrics": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["keep", "discard", "crash", "checks_failed"]
+    },
+    "description": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "durationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "maxIterations": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

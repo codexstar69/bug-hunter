@@ -7,6 +7,7 @@ const SCHEMA_FILES = {
   skeptic: 'skeptic.schema.json',
   referee: 'referee.schema.json',
   coverage: 'coverage.schema.json',
+  experiment: 'experiment.schema.json',
   'fix-report': 'fix-report.schema.json',
   'fix-plan': 'fix-plan.schema.json',
   'fix-strategy': 'fix-strategy.schema.json',

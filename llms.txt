@@ -13,6 +13,7 @@ Bug Hunter is an automated adversarial code auditing skill for AI coding agents.
 - Security classification: STRIDE threat categories, CWE weakness IDs, CVSS 3.1 scoring
 - Documentation verification: checks claims against official library docs via Context Hub + Context7
 - Safe auto-fix: git-branched fixes with worktree isolation, canary rollout, test verification, and automatic rollback
+- Experiment loop: autonomous iteration with metric tracking, hard iteration caps, stop-file cancellation, and auto-resume on context limits
 - Dependency CVE scanning: lockfile-aware audits for npm, pnpm, yarn, bun (including Bun 1.2+ text-format lockfiles)
 - PR review: first-class `--pr` workflow for reviewing current, recent, or numbered PRs
 - Enterprise security pack: bundled STRIDE threat modeling, vulnerability validation, and security review skills

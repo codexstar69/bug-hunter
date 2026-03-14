@@ -110,6 +110,7 @@ Critical and High security findings receive CVSS 3.1 base scores with attack vec
 | `--deps` | Include dependency CVE scan |
 | `--autonomous` | No-intervention auto-fix run |
 | `--no-loop` | Single pass (disable iterative coverage) |
+| `--max-iterations <n>` | Hard cap on loop iterations (default: 10) |
 
 ## Output Files
 
@@ -127,6 +128,7 @@ Critical and High security findings receive CVSS 3.1 base scores with attack vec
 | `.bug-hunter/fix-report.json` | Fix results |
 | `.bug-hunter/coverage.json` | Loop coverage state |
 | `.bug-hunter/coverage.md` | Coverage summary |
+| `.bug-hunter/experiment.jsonl` | Experiment loop log (append-only, metric tracking) |
 | `.bug-hunter/threat-model.md` | STRIDE threat model |
 | `.bug-hunter/dep-findings.json` | Dependency CVE results |
 
@@ -162,11 +164,12 @@ bug-hunter/
 ├── prompts/examples/      # Calibration examples for Hunter/Skeptic
 ├── schemas/               # JSON Schema contracts for all artifacts
 ├── scripts/               # Node.js helpers (zero AI tokens)
-│   ├── run-bug-hunter.cjs # Main orchestrator script
-│   ├── doc-lookup.cjs     # Context Hub + Context7 doc lookup
-│   ├── context7-api.cjs   # Context7 standalone fallback
-│   ├── prepublish-guard.cjs # Publish safety net
-│   └── tests/             # Test suite (61 tests)
+│   ├── run-bug-hunter.cjs    # Main orchestrator script
+│   ├── experiment-loop.cjs   # Autonomous experiment loop with metrics + stop-file
+│   ├── doc-lookup.cjs        # Context Hub + Context7 doc lookup
+│   ├── context7-api.cjs      # Context7 standalone fallback
+│   ├── prepublish-guard.cjs  # Publish safety net
+│   └── tests/                # Test suite (101 tests)
 ├── templates/             # Subagent launch template
 └── test-fixture/          # 6 planted bugs for validation
 ```

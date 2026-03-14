@@ -471,9 +471,27 @@ Read the corresponding mode file using `STRATEGY` from the triage JSON:
 
 **Backend override for local-sequential:** If `AGENT_BACKEND = "local-sequential"`, read `SKILL_DIR/modes/local-sequential.md` instead of the size-based mode file. The local-sequential mode handles all sizes internally with its own chunking logic.
 
-If LOOP_MODE=true, also read:
+If LOOP_MODE=true, also read (loop.md includes experiment tracking with iteration caps, stop-file safety, and auto-resume):
 - `SKILL_DIR/modes/fix-loop.md` when FIX_MODE=true
 - `SKILL_DIR/modes/loop.md` otherwise
+
+**CRITICAL — experiment tracking initialization:** When `LOOP_MODE=true`, initialize experiment tracking BEFORE the first pipeline iteration by running:
+```bash
+node "$SKILL_DIR/scripts/experiment-loop.cjs" init \
+  .bug-hunter/experiment.jsonl \
+  "bug-hunt-$(date +%Y%m%d)" \
+  bugs_confirmed \
+  higher \
+  count \
+  --max-iterations "$MAX_LOOP_ITERATIONS"
+```
+Then before each iteration, call `check-continue`:
+```bash
+node "$SKILL_DIR/scripts/experiment-loop.cjs" check-continue \
+  .bug-hunter/experiment.jsonl \
+  --stop-file .bug-hunter/experiment.stop
+```
+If `continue` is false, stop the loop immediately. After each iteration, log the result with `log`. This is active by default — no `--experiment` flag needed.
 
 **CRITICAL — ralph-loop integration:** When `LOOP_MODE=true`, you MUST call the `ralph_start` tool before running the first pipeline iteration. The loop mode files (`loop.md` / `fix-loop.md`) contain the exact `ralph_start` call to make, including the `taskContent` and `maxIterations` parameters. Without calling `ralph_start`, the loop will NOT iterate — it will run once and stop. After each iteration, call `ralph_done` to continue, or output `<promise>COMPLETE</promise>` when done.
 
