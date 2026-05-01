@@ -55,6 +55,10 @@ git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hun
 
 ---
 
+<p align="center">
+  <img src="docs/images/2026-03-12-pr-review-flow.png" alt="Bug Hunter PR review workflow — pull request scope analysis, security checks, threat-model context, and final verdict" width="100%">
+</p>
+
 ## Quick Start
 
 ```bash
@@ -89,6 +93,10 @@ Triage  → Recon → Hunter → Skeptic → Referee → Fix Plan → Fixer → 
 Claims are verified against official library documentation via [Context Hub](https://github.com/andrewyng/context-hub) + [Context7](https://context7.com) before any agent asserts framework behavior.
 
 <p align="center">
+  <img src="docs/images/doc-verify-fix-plan.png" alt="Bug Hunter documentation verification — agents check official library docs via Context Hub and Context7 API before making claims about framework behavior" width="100%">
+</p>
+
+<p align="center">
   <img src="docs/images/adversarial-debate.png" alt="Adversarial AI code review debate — Hunter finds bugs, Skeptic challenges with counter-evidence, Referee delivers independent verdict" width="100%">
 </p>
 
@@ -113,6 +121,10 @@ Claims are verified against official library documentation via [Context Hub](htt
 
 Every security finding gets **STRIDE classification**, **CWE ID**, and **CVSS 3.1 scoring** with proof-of-concept payloads.
 
+<p align="center">
+  <img src="docs/images/security-finding-card.png" alt="Bug Hunter security finding card — bug ID, severity badge, STRIDE and CWE classification, CVSS 3.1 score, reachability rating, and proof of concept payload" width="100%">
+</p>
+
 ### Supported Languages and Frameworks
 
 **Languages:** TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, Ruby, PHP
@@ -122,6 +134,10 @@ Every security finding gets **STRIDE classification**, **CWE ID**, and **CVSS 3.
 ---
 
 ## Safe Auto-Fix with Canary Rollout
+
+<p align="center">
+  <img src="docs/images/2026-03-12-fix-plan-rollout.png" alt="Bug Hunter strategic fix planning — confidence gating, canary rollout, per-fix verification, and automatic rollback safety" width="100%">
+</p>
 
 When bugs are confirmed, the Fixer engineers patches — not just edits:
 
@@ -138,6 +154,10 @@ When bugs are confirmed, the Fixer engineers patches — not just edits:
 ---
 
 ## Security Scanning Features
+
+<p align="center">
+  <img src="docs/images/2026-03-12-security-pack.png" alt="Bug Hunter bundled security pack — commit security scan, enterprise security review, STRIDE threat model generation, and vulnerability validation" width="100%">
+</p>
 
 | Flag | Capability |
 |------|-----------|
@@ -174,6 +194,10 @@ All flags compose: `/bug-hunter --deps --threat-model --fix src/`
 ---
 
 ## Output Files
+
+<p align="center">
+  <img src="docs/images/2026-03-12-machine-readable-artifacts.png" alt="Bug Hunter machine-readable output — findings JSON, skeptic challenges, referee verdicts, fix strategy, fix plan, and CI/CD automation" width="100%">
+</p>
 
 Every run creates `.bug-hunter/` (add to `.gitignore`):
 
