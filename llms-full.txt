@@ -169,7 +169,7 @@ bug-hunter/
 │   ├── doc-lookup.cjs        # Context Hub + Context7 doc lookup
 │   ├── context7-api.cjs      # Context7 standalone fallback
 │   ├── prepublish-guard.cjs  # Publish safety net
-│   └── tests/                # Test suite (101 tests)
+│   └── tests/                # Test suite (113 tests)
 ├── templates/             # Subagent launch template
 └── test-fixture/          # 6 planted bugs for validation
 ```
@@ -180,7 +180,7 @@ bug-hunter/
 npm install -g @codexstar/bug-hunter && bug-hunter install
 ```
 
-Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot.
+Requirements: Node.js 18+ recommended (core pipeline works without it). Works with Claude Code, Cursor, Codex CLI, Windsurf, Kiro, Copilot, Opencode, Pi — or any AI agent that can read files and run shell commands.
 
 ## License
 

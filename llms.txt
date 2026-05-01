@@ -64,7 +64,7 @@ git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hun
 npm install -g @aisuite/chub
 ```
 
-Requirements: Node.js 18+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot.
+Requirements: Node.js 18+ recommended (core pipeline works without it). Works with Claude Code, Cursor, Codex CLI, Windsurf, Kiro, Copilot, Opencode, Pi — or any AI agent that can read files and run shell commands.
 
 ## Documentation
 
