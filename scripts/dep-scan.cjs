@@ -185,15 +185,23 @@ function extractFindingsByEcosystem({ ecosystem, manager, rawOutput }) {
 function searchReachability({ targetDir, packageName }) {
   const escapedPackage = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const importPattern = `(require\\(|from\\s+)['"]${escapedPackage}`;
-  const result = spawnSync('rg', [
-    '-l', importPattern, targetDir,
-    '--type-add', 'src:*.{js,ts,jsx,tsx,py,go,rs}',
-    '-t', 'src'
-  ], {
-    cwd: targetDir,
-    encoding: 'utf8',
-    timeout: 20000,
-  });
+  let result;
+  try {
+    result = spawnSync('rg', [
+      '-l', importPattern, targetDir,
+      '--type-add', 'src:*.{js,ts,jsx,tsx,py,go,rs}',
+      '-t', 'src'
+    ], {
+      cwd: targetDir,
+      encoding: 'utf8',
+      timeout: 20000,
+    });
+  } catch {
+    return { reachability: 'NOT_REACHABLE', evidence: 'Search tool (rg) not available' };
+  }
+  if (result.error) {
+    return { reachability: 'NOT_REACHABLE', evidence: 'Search tool (rg) not available' };
+  }
   const searchResult = {
     ok: result.status === 0,
     stdout: (result.stdout || '').trim(),
