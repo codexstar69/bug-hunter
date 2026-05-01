@@ -86,7 +86,13 @@ function saveState(statePath, state) {
   writeJson(statePath, state);
 }
 
+const MAX_HASH_BYTES = 10 * 1024 * 1024;
+
 function hashFile(filePath) {
+  const stat = fs.statSync(filePath);
+  if (stat.size > MAX_HASH_BYTES) {
+    return `size-${stat.size}-mtime-${stat.mtimeMs}`;
+  }
   const data = fs.readFileSync(filePath);
   return crypto.createHash('sha256').update(data).digest('hex');
 }

@@ -105,8 +105,12 @@ function resolveRef(rootSchema, ref) {
     .slice(2)
     .split('/')
     .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'));
+  const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
   let current = rootSchema;
   for (const part of parts) {
+    if (BLOCKED_KEYS.has(part)) {
+      throw new Error(`Unsafe schema ref segment: ${part}`);
+    }
     if (!current || typeof current !== 'object' || !(part in current)) {
       throw new Error(`Unable to resolve schema ref: ${ref}`);
     }

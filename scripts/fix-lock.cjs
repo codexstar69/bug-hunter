@@ -102,9 +102,7 @@ function renew(lockPath, ownerToken) {
 function acquire(lockPath, ttlSeconds) {
   const existing = readLock(lockPath);
   if (!existing) {
-    if (fs.existsSync(lockPath)) {
-      fs.unlinkSync(lockPath);
-    }
+    try { fs.unlinkSync(lockPath); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     try {
       const lockData = writeLock(lockPath);
       console.log(JSON.stringify({ ok: true, acquired: true, lock: lockData }, null, 2));
@@ -140,7 +138,7 @@ function acquire(lockPath, ttlSeconds) {
     process.exit(1);
   }
 
-  fs.unlinkSync(lockPath);
+  try { fs.unlinkSync(lockPath); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   try {
     const lockData = writeLock(lockPath);
     console.log(JSON.stringify({

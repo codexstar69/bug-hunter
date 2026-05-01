@@ -82,19 +82,22 @@ function writeJsonFile(filePath, data) {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
-function isManagedWorktreeDir(worktreeDir) {
-  const absDir = path.resolve(worktreeDir);
-  if (readJsonFile(manifestPath(absDir))) {
-    return true;
-  }
+function isGitWorktree(absDir) {
   const listed = gitSafe(['worktree', 'list', '--porcelain']);
-  if (!listed.ok || !listed.output) {
-    return false;
-  }
+  if (!listed.ok || !listed.output) return false;
   return listed.output
     .split('\n')
     .filter((line) => line.startsWith('worktree '))
     .some((line) => path.resolve(line.slice('worktree '.length).trim()) === absDir);
+}
+
+function isManagedWorktreeDir(worktreeDir) {
+  const absDir = path.resolve(worktreeDir);
+  const manifest = readJsonFile(manifestPath(absDir));
+  if (manifest) {
+    return isGitWorktree(absDir);
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

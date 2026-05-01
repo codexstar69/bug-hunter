@@ -220,8 +220,11 @@ function computeFileBudget(files) {
   let totalLines = 0;
   let sampled = 0;
 
+  const MAX_SAMPLE_BYTES = 5 * 1024 * 1024;
   for (let i = 0; i < files.length && sampled < sampleSize; i += step) {
     try {
+      const stat = fs.statSync(files[i]);
+      if (stat.size > MAX_SAMPLE_BYTES) continue;
       const content = fs.readFileSync(files[i], 'utf8');
       totalLines += content.split('\n').length;
       sampled += 1;

@@ -184,18 +184,27 @@ function extractFindingsByEcosystem({ ecosystem, manager, rawOutput }) {
 
 function searchReachability({ targetDir, packageName }) {
   const escapedPackage = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const importPattern = `(require\\(|from\\s+)['\"]${escapedPackage}`;
-  const result = runCommand({
-    command: `rg -l "${importPattern}" "${targetDir}" --type-add "src:*.{js,ts,jsx,tsx,py,go,rs}" -t src`,
+  const importPattern = `(require\\(|from\\s+)['"]${escapedPackage}`;
+  const result = spawnSync('rg', [
+    '-l', importPattern, targetDir,
+    '--type-add', 'src:*.{js,ts,jsx,tsx,py,go,rs}',
+    '-t', 'src'
+  ], {
     cwd: targetDir,
+    encoding: 'utf8',
     timeout: 20000,
   });
+  const searchResult = {
+    ok: result.status === 0,
+    stdout: (result.stdout || '').trim(),
+    stderr: (result.stderr || '').trim(),
+  };
 
-  if (!result.ok || !result.stdout) {
+  if (!searchResult.ok || !searchResult.stdout) {
     return { reachability: 'NOT_REACHABLE', evidence: 'No imports found in source files' };
   }
 
-  const files = result.stdout.split('\n').filter(Boolean);
+  const files = searchResult.stdout.split('\n').filter(Boolean);
   const nonTestFiles = files.filter((filePath) => {
     return !filePath.includes('.test.') && !filePath.includes('.spec.') && !filePath.includes('__tests__');
   });
