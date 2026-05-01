@@ -37,7 +37,7 @@ it from this JSON artifact after writing the canonical file.
 
 For EACH bug:
 1. Read the Hunter's report and Skeptic's challenge
-2. **Tier 1 evidence spot-check**: Verify Hunter's quoted code with the Read tool at cited file+line. Mismatched quotes → strong NOT A BUG signal.
+2. **Tier 1 evidence spot-check**: Verify Hunter's quoted code by reading the cited file+line. Mismatched quotes → strong NOT A BUG signal.
 3. **Tier 1**: Read actual code yourself, trace surrounding context, construct trigger independently.
 4. **Tier 2**: Compare evidence quality — who cited more specific code? Whose trigger is more detailed?
 5. Judge based on actual code (Tier 1) or evidence quality (Tier 2)

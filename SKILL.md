@@ -111,7 +111,7 @@ The raw arguments are: $ARGUMENTS
    - Use `changedFiles` from the JSON output as the scan target (scan full file contents, not just the diff).
 
 2. If arguments contain `--staged`: this is **staged file mode**.
-   - Run `git diff --cached --name-only` using the Bash tool to get the list of staged files.
+   - Run `git diff --cached --name-only` via a shell command to get the list of staged files.
    - If the command fails, report the error to the user and stop.
    - If no files are staged, tell the user there are no staged changes to scan and stop.
    - The scan target is the list of staged files (scan their full contents, not just the diff).
@@ -119,7 +119,7 @@ The raw arguments are: $ARGUMENTS
 3. If arguments contain `-b <branch>`: this is **branch diff mode**.
    - Extract the branch name after `-b`.
    - If `--base <base-branch>` is also present, use that as the base branch. Otherwise default to `main`.
-   - Run `git diff --name-only <base>...<branch>` using the Bash tool to get the list of changed files.
+   - Run `git diff --name-only <base>...<branch>` via a shell command to get the list of changed files.
    - If the command fails (e.g. branch not found), report the error to the user and stop.
    - If no files changed, tell the user there are no changes to scan and stop.
    - The scan target is the list of changed files (scan their full contents, not just the diff).
@@ -179,12 +179,16 @@ Before doing anything else, verify the environment:
 
 1. **Resolve skill directory**: Determine `SKILL_DIR` dynamically.
    - Preferred: derive it from the absolute path of the current `SKILL.md` (`dirname` of this file).
-   - Fallback probe order: `$HOME/.agents/skills/bug-hunter`, `$HOME/.claude/skills/bug-hunter`, `$HOME/.codex/skills/bug-hunter`.
-   - Use this path for ALL Read tool calls and shell commands.
+   - Fallback probe order: `$HOME/.agents/skills/bug-hunter`, `$HOME/.claude/skills/bug-hunter`, `$HOME/.codex/skills/bug-hunter`, `$HOME/.cursor/skills/bug-hunter`, `$HOME/.kiro/skills/bug-hunter`, `$HOME/.copilot/skills/bug-hunter`, `$HOME/.windsurf/skills/bug-hunter`, `$HOME/.opencode/skills/bug-hunter`.
+   - Use this path for ALL file reads and shell commands.
 
 2. **Verify skill files exist**: Run `ls "$SKILL_DIR/skills/hunter/SKILL.md"` via Bash. If this fails, stop and tell the user: "Bug Hunter skill files not found. Reinstall the skill and retry."
 
-3. **Node.js available**: Run `node --version` via Bash. If it fails, stop and tell the user: "Node.js is required for doc verification. Please install Node.js to continue."
+3. **Node.js availability**: Run `node --version` via a shell command.
+   - If available: set `NODEJS_AVAILABLE=true`. Full pipeline features enabled.
+   - If NOT available: set `NODEJS_AVAILABLE=false`. Warn the user:
+     "Node.js is not available. Schema validation, triage, doc-lookup, and experiment tracking will be skipped. The core pipeline (Recon -> Hunter -> Skeptic -> Referee) still works."
+   - Continue the pipeline — the core analysis is LLM-driven and does not require Node.js.
 
 3b. **Create output directory**:
     ```bash
@@ -264,6 +268,12 @@ Before doing anything else, verify the environment:
        mode: "dispatch"
      })
      ```
+
+   **Option C2 — Native agent dispatch (Cursor, Copilot, Windsurf, Kiro):**
+   - If your runtime provides its own agent or tool dispatch mechanism (e.g., Cursor Composer agents, Copilot workspace tools, Kiro agent hooks), adapt the subagent-wrapper template to use your native dispatch.
+   - Set `AGENT_BACKEND = "native-dispatch"`
+   - The key contract: dispatch a task with the filled template as prompt, wait for completion, read the output file.
+   - If unsure how to dispatch, fall through to Option D.
 
    **Option D — `local-sequential` (default — always works):**
    - Set `AGENT_BACKEND = "local-sequential"`
@@ -380,7 +390,7 @@ If `.bug-hunter/dep-findings.json` exists with REACHABLE findings, include them 
 - If `SECURITY_REVIEW_MODE=true`, read `SKILL_DIR/skills/security-review/SKILL.md` before the broader security audit flow.
 - If `VALIDATE_SECURITY_MODE=true`, read `SKILL_DIR/skills/vulnerability-validation/SKILL.md` before finalizing confirmed security findings.
 
-**MANDATORY**: You MUST read prompt files using the Read tool before passing them to subagents or executing them yourself. Do NOT skip this or act from memory. Use the absolute SKILL_DIR path resolved in Step 0.
+**MANDATORY**: You MUST read prompt files before passing them to subagents or executing them yourself. Do NOT skip this or act from memory. Use the absolute SKILL_DIR path resolved in Step 0.
 
 **Load only what you need for each phase — do NOT read all files upfront:**
 
@@ -406,7 +416,7 @@ If `.bug-hunter/dep-findings.json` exists with REACHABLE findings, include them 
 read({ path: "$SKILL_DIR/skills/hunter/SKILL.md" })
 
 # 2. You now have the Hunter's full instructions. Execute them yourself:
-#    - Read each file in risk-map order using the Read tool
+#    - Read each file in risk-map order
 #    - Apply the security checklist sweep
 #    - Write each finding in BUG-N format
 
@@ -493,7 +503,11 @@ node "$SKILL_DIR/scripts/experiment-loop.cjs" check-continue \
 ```
 If `continue` is false, stop the loop immediately. After each iteration, log the result with `log`. This is active by default — no `--experiment` flag needed.
 
-**CRITICAL — ralph-loop integration:** When `LOOP_MODE=true`, you MUST call the `ralph_start` tool before running the first pipeline iteration. The loop mode files (`loop.md` / `fix-loop.md`) contain the exact `ralph_start` call to make, including the `taskContent` and `maxIterations` parameters. Without calling `ralph_start`, the loop will NOT iterate — it will run once and stop. After each iteration, call `ralph_done` to continue, or output `<promise>COMPLETE</promise>` when done.
+**CRITICAL — loop driver selection:** When `LOOP_MODE=true`:
+1. **Test for ralph-loop**: Try calling `ralph_start`. If it works, use ralph-loop as described in `modes/loop.md` (or `modes/fix-loop.md` for fix mode).
+2. **Fallback — self-driven loop**: If `ralph_start` is not available (tool does not exist in your runtime), read `SKILL_DIR/modes/loop-generic.md`. You will drive the loop yourself using `experiment-loop.cjs` for state tracking and stop-file safety.
+
+The experiment tracking (`experiment-loop.cjs`) runs in BOTH cases. The difference is who drives iteration: ralph-loop (external, Claude Code) or the agent itself (self-driven, all other runtimes).
 
 Report the chosen mode to the user.
 

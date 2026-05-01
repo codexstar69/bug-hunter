@@ -1,5 +1,9 @@
 # Ralph-Loop Mode (`--loop`)
 
+> **Cross-harness note:** This file describes the ralph-loop driver specific to
+> Claude Code. If your runtime does not have `ralph_start`/`ralph_done`, read
+> `modes/loop-generic.md` instead.
+
 When `--loop` is present, the bug-hunter wraps itself in a ralph-loop that keeps iterating until the audit achieves full queued coverage. This is for thorough, autonomous audits where you want every queued scannable source file examined unless the user interrupts.
 
 ## CRITICAL: Starting the ralph-loop

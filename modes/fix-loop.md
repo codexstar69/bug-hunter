@@ -1,5 +1,10 @@
 # Fix Loop Mode (`--loop --fix`)
 
+> **Cross-harness note:** This file uses ralph-loop (Claude Code). If your
+> runtime does not have `ralph_start`/`ralph_done`, use the generic loop
+> pattern from `modes/loop-generic.md` and add the fix pipeline (Phase 2)
+> to each iteration.
+
 When both `--loop` and `--fix` are set, the ralph-loop wraps the ENTIRE pipeline (find + fix). Each iteration:
 
 1. **Phase 1**: Find bugs (or read from previous coverage file for remaining bugs)

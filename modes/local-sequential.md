@@ -21,7 +21,7 @@ All state files go in `.bug-hunter/` relative to the working directory.
 - Built a priority-ordered scanOrder for Hunters
 - Determined the execution strategy
 
-1. Read `SKILL_DIR/prompts/recon.md` with the Read tool — do NOT act from memory.
+1. Read `SKILL_DIR/skills/recon/SKILL.md` — do NOT act from memory.
 
 2. **If `.bug-hunter/triage.json` exists:**
    - Read it. Use `triage.riskMap` as the initial risk map (skip file discovery + classification).
@@ -45,12 +45,12 @@ All state files go in `.bug-hunter/` relative to the working directory.
 
 ## Phase B: Hunter (deep scan for bugs)
 
-1. Read `SKILL_DIR/prompts/hunter.md` with the Read tool.
-2. Read `SKILL_DIR/prompts/doc-lookup.md` with the Read tool.
+1. Read `SKILL_DIR/skills/hunter/SKILL.md`.
+2. Read `SKILL_DIR/skills/doc-lookup/SKILL.md`.
 3. **Switch mindset**: you are now a Bug Hunter. Your ONLY job is to find behavioral bugs.
 4. Execute the Hunter instructions yourself:
    - Read files in risk-map order: CRITICAL → HIGH → MEDIUM → LOW.
-   - For each file, use the Read tool. Do NOT rely on memory from earlier phases.
+   - For each file, read the file directly. Do NOT rely on memory from earlier phases.
    - Apply the mandatory security checklist sweep (Phase 3 in hunter.md) on every CRITICAL and HIGH file.
    - Track which files you actually read — be honest about coverage.
    - For each bug found, record it in the exact BUG-N format specified in hunter.md.
@@ -102,12 +102,12 @@ If TOTAL FINDINGS: 0, skip Phases C and D. Go directly to Step 7 (Final Report) 
 
 ## Phase C: Skeptic (challenge your own findings)
 
-1. Read `SKILL_DIR/prompts/skeptic.md` with the Read tool.
-2. Read `SKILL_DIR/prompts/doc-lookup.md` with the Read tool.
+1. Read `SKILL_DIR/skills/skeptic/SKILL.md`.
+2. Read `SKILL_DIR/skills/doc-lookup/SKILL.md`.
 3. **Switch mindset completely**: you are now the Skeptic. Your job is to DISPROVE false positives. Forget the pride of finding them — you want to kill weak claims.
 4. Read `.bug-hunter/findings.json` to get the findings list.
 5. For EACH finding:
-   - Re-read the actual code at the reported file and line with the Read tool. This is MANDATORY — do not evaluate from memory.
+   - Re-read the actual code at the reported file and line directly. This is MANDATORY — do not evaluate from memory.
    - Read all cross-referenced files.
    - Mentally trace the runtime trigger: does the code actually behave the way the Hunter claimed?
    - Check framework/middleware protections the Hunter may have missed.
@@ -124,11 +124,11 @@ If TOTAL FINDINGS: 0, skip Phases C and D. Go directly to Step 7 (Final Report) 
 
 ## Phase D: Referee (final verdicts)
 
-1. Read `SKILL_DIR/prompts/referee.md` with the Read tool.
+1. Read `SKILL_DIR/skills/referee/SKILL.md`.
 2. **Switch mindset**: you are the impartial Referee. You trust neither the Hunter nor the Skeptic.
 3. Read both `.bug-hunter/findings.json` and `.bug-hunter/skeptic.json`.
 4. For each finding:
-   - **Tier 1 (all Critical + top 15 by severity):** Re-read the actual code yourself a THIRD time using the Read tool. Construct the runtime trigger independently. Make your own judgment.
+   - **Tier 1 (all Critical + top 15 by severity):** Re-read the actual code yourself a THIRD time by reading the file. Construct the runtime trigger independently. Make your own judgment.
    - **Tier 2 (remaining):** Evaluate evidence quality. Whose code quotes are more specific? Whose runtime trigger is more concrete?
 5. Make final REAL BUG / NOT A BUG verdicts with severity calibration.
 6. Write the final Referee verdicts to `.bug-hunter/referee.json`.
@@ -164,4 +164,4 @@ After Phase D, check coverage:
 - If any queued scannable files were skipped:
   - If `--loop` mode: the ralph-loop must iterate and cover the remaining queue next.
   - If not `--loop`: include a coverage WARNING in the Final Report and recommend loop mode.
-- Do NOT claim "full coverage" or "audit complete" unless every queued scannable source file was actually read with the Read tool and has status DONE.
+- Do NOT claim "full coverage" or "audit complete" unless every queued scannable source file was actually read directly and has status DONE.

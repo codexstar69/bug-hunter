@@ -53,7 +53,7 @@ Format: `DISPROVE (Hard exclusion #N: [rule name])`
 ### Standard analysis (for findings not matching hard exclusions)
 
 For EACH reported bug:
-1. Read the actual code at the reported file and line number using the Read tool — this is mandatory, no exceptions
+1. Read the actual code at the reported file and line number — this is mandatory, no exceptions
 2. Read surrounding context (the full function, callers, related modules) to understand the real behavior
 3. If the bug has **cross-references** to other files, you MUST read those files too — cross-file bugs require cross-file verification
 4. **Reproduce the runtime trigger mentally**: walk through the exact scenario the Hunter described. Does the code actually behave the way they claim? Trace the execution path step by step.

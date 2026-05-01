@@ -19,12 +19,16 @@ const SKILL_SRC = path.resolve(__dirname, '..');
 const SKILL_NAME = 'bug-hunter';
 
 // Agent skill directories in priority order
+const homedir = require('os').homedir();
 const AGENT_DIRS = [
-  { agent: 'claude-code', dir: path.join(require('os').homedir(), '.claude', 'skills', SKILL_NAME) },
-  { agent: 'codex', dir: path.join(require('os').homedir(), '.codex', 'skills', SKILL_NAME) },
-  { agent: 'agents', dir: path.join(require('os').homedir(), '.agents', 'skills', SKILL_NAME) },
-  { agent: 'cursor', dir: path.join(require('os').homedir(), '.cursor', 'skills', SKILL_NAME) },
-  { agent: 'kiro', dir: path.join(require('os').homedir(), '.kiro', 'skills', SKILL_NAME) },
+  { agent: 'claude-code', dir: path.join(homedir, '.claude', 'skills', SKILL_NAME) },
+  { agent: 'codex', dir: path.join(homedir, '.codex', 'skills', SKILL_NAME) },
+  { agent: 'agents', dir: path.join(homedir, '.agents', 'skills', SKILL_NAME) },
+  { agent: 'cursor', dir: path.join(homedir, '.cursor', 'skills', SKILL_NAME) },
+  { agent: 'kiro', dir: path.join(homedir, '.kiro', 'skills', SKILL_NAME) },
+  { agent: 'copilot', dir: path.join(homedir, '.copilot', 'skills', SKILL_NAME) },
+  { agent: 'windsurf', dir: path.join(homedir, '.windsurf', 'skills', SKILL_NAME) },
+  { agent: 'opencode', dir: path.join(homedir, '.opencode', 'skills', SKILL_NAME) },
 ];
 
 function usage() {
@@ -37,7 +41,7 @@ function usage() {
     info                                       Show skill metadata
 
   Options:
-    --agent <name>    Target agent: claude-code, codex, cursor, kiro, agents
+    --agent <name>    Target agent: claude-code, codex, cursor, kiro, copilot, windsurf, opencode, agents
     --path <dir>      Custom install directory (overrides --agent)
 
   Examples:

@@ -33,7 +33,7 @@ JSON artifact exists.
 ### Phase 1: Read and understand (before ANY edits)
 
 For EACH bug in your assigned list:
-1. Read the exact file and line range using the Read tool — mandatory, no exceptions
+1. Read the exact file and line range — mandatory, no exceptions
 2. Read surrounding context: the full function, callers, related imports, types
 3. If the bug has cross-references to other files, read those too
 4. Understand what the code SHOULD do vs what it DOES
@@ -49,7 +49,7 @@ For each bug, determine:
 
 ### Phase 3: Implement fixes
 
-Apply fixes using the Edit tool. Rules:
+Apply fixes by editing the files. Rules:
 
 1. **Minimal changes only** — fix the bug, nothing else. Do not refactor surrounding code, add comments to unchanged code, rename variables, or "improve" anything beyond the bug.
 2. **One bug at a time** — fix BUG-N, then move to BUG-N+1. Exception: if two bugs touch adjacent lines in the same file, fix them together in one edit to avoid conflicts.

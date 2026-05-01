@@ -40,8 +40,8 @@ If no threat model is available, use default security heuristics from the checkl
 ## How to work
 
 ### Phase 1: Read and understand (do NOT report yet)
-1. If a risk map was provided, use its scan order. Otherwise, use Glob to discover source files and apply skip rules.
-2. Read each file using the Read tool. As you read, build a mental model of:
+1. If a risk map was provided, use its scan order. Otherwise, list/find source files and apply skip rules.
+2. Read each file directly. As you read, build a mental model of:
    - What each function does and what it assumes about its inputs
    - How data flows between functions and across files
    - Where external input enters and how far it travels before being validated
@@ -162,7 +162,7 @@ After all findings, output:
 
 **TOTAL FINDINGS:** [count]
 **TOTAL POINTS:** [sum of points]
-**FILES SCANNED:** [list every file you actually read with the Read tool — this is verified by the orchestrator]
+**FILES SCANNED:** [list every file you actually read — this is verified by the orchestrator]
 **FILES SKIPPED:** [list files you were assigned but did NOT read, with reason: "context limit" / "filtered by scope rules"]
 **SCAN COVERAGE:** [CRITICAL: X/Y files | HIGH: X/Y files | MEDIUM: X/Y files] (based on risk map tiers)
 **UNTRACED CROSS-REFS:** [list any cross-references you noted but could NOT trace because the file was outside your assigned partition. Format: "BUG-N → path/to/file.ts:line (not in my partition)". Write "None" if all cross-references were fully traced. The orchestrator uses this to run a cross-partition reconciliation pass.]

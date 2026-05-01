@@ -40,12 +40,12 @@ fd -e ts -e js -e tsx -e jsx -e py -e go -e rs -e java -e rb -e php . <target>
 find <target> -type f \( -name '*.ts' -o -name '*.js' -o -name '*.py' -o -name '*.go' -o -name '*.rs' -o -name '*.java' -o -name '*.rb' -o -name '*.php' \)
 ```
 
-**If you have Glob tool (Claude Code, some IDEs):**
+**If your runtime has a file-listing/glob capability:**
 ```
 Glob("**/*.{ts,js,py,go,rs,java,rb,php}")
 ```
 
-**If you only have `ls` and Read tool:**
+**If you only have `ls` and file reading:**
 ```bash
 ls -R <target> | head -500
 ```
@@ -68,12 +68,12 @@ rg -l "jwt|jsonwebtoken|bcrypt|crypto" <target>
 grep -rl "app\.\(get\|post\|put\|delete\)" <target>
 ```
 
-**If you have Grep tool (Claude Code):**
+**If your runtime has a search/grep capability:**
 ```
 Grep("app.get|app.post|router.", <target>)
 ```
 
-**If you only have the Read tool:** Read entry point files (index.ts, app.ts, main.py, etc.) and follow imports to discover the architecture manually. This is slower but works on every runtime.
+**If you only have file reading:** Read entry point files (index.ts, app.ts, main.py, etc.) and follow imports to discover the architecture manually. This is slower but works on every runtime.
 
 ### Measuring file sizes
 
@@ -82,7 +82,7 @@ Grep("app.get|app.post|router.", <target>)
 fd -e ts -e js . <target> | xargs wc -l | tail -1
 ```
 
-**If you only have Read tool:** Read 5-10 representative files. Note line counts from the Read tool output. Extrapolate the average.
+**If you only have file reading:** Read 5-10 representative files. Note line counts from the output. Extrapolate the average.
 
 The goal is to compute `average_lines_per_file` — the method doesn't matter as long as you get a reasonable estimate.
 

@@ -3,7 +3,7 @@
 This phase takes the Referee's confirmed bug report and implements fixes. It runs when `FIX_MODE=true` and the Referee confirmed at least one real bug.
 All Fixer launches in this file must use `AGENT_BACKEND` selected during SKILL preflight.
 
-**If `DRY_RUN_MODE=true`:** execute Steps 8a–8d only (no git branch, no edits, no lock). The Fixer reads code and outputs planned changes as unified diff previews without calling the Edit tool. Skip to Step 12 after producing the dry-run report.
+**If `DRY_RUN_MODE=true`:** execute Steps 8a–8d only (no git branch, no edits, no lock). The Fixer reads code and outputs planned changes as unified diff previews without editing any files. Skip to Step 12 after producing the dry-run report.
 
 ### Step 8: Prepare for fixing (single-writer model)
 
@@ -37,7 +37,7 @@ If `AGENT_BACKEND` is `subagent` or `teams` and `worktree-harvest.cjs` exists:
 If `AGENT_BACKEND` is `local-sequential` or `interactive_shell`, or `worktree-harvest.cjs` is missing:
 - Set `WORKTREE_MODE=false`. No worktree setup needed — Fixer edits directly.
 
-**IMPORTANT:** Do NOT use the Agent tool's built-in `isolation: "worktree"` parameter for Fixer dispatch. That creates an ephemeral branch and auto-cleans on exit, losing commits. We manage our own worktrees via `worktree-harvest.cjs` which keeps the Fixer on the same fix branch.
+**IMPORTANT:** Do NOT use your runtime's built-in isolation parameters (e.g., `isolation: "worktree"`) for Fixer dispatch. Built-in isolation creates ephemeral branches and auto-cleans on exit, losing commits. Bug-hunter manages its own worktrees via `worktree-harvest.cjs` which keeps the Fixer on the same fix branch.
 
 Acquire single-writer lock before edits (skip if `DRY_RUN_MODE=true`):
 
@@ -160,7 +160,7 @@ For each batch in order:
 3. Permission mode:
    - `APPROVE_MODE=true` → `mode: "default"`
    - `APPROVE_MODE=false` → `mode: "auto"`
-   - `DRY_RUN_MODE=true` → Fixer reads code and outputs planned diff only, no Edit tool calls
+   - `DRY_RUN_MODE=true` → Fixer reads code and outputs planned diff only, no file edits
 
 **Path A — Worktree mode (`WORKTREE_MODE=true`):**
 
@@ -175,10 +175,10 @@ For each batch in order:
    - In the Fixer task instructions, include:
      - `"Your working directory is: $WORKTREE_ABS"`
      - `"You MUST git add + git commit each fix: fix(bug-hunter): BUG-N — [description]"`
-     - `"Do NOT use EnterWorktree/ExitWorktree — you are already in an isolated worktree"`
+     - `"Do NOT use your runtime's built-in worktree or isolation tools — you are already in an isolated worktree managed by bug-hunter"`
      - `"Do NOT switch branches or run git checkout"`
-   - Do NOT set `isolation: "worktree"` on the Agent tool — we manage worktrees ourselves.
-   - Launch one Fixer with: `prompts/fixer.md`, batch bug subset, recon tech stack context.
+   - Do NOT use your runtime's built-in isolation — bug-hunter manages worktrees itself.
+   - Launch one Fixer with: `skills/fixer/SKILL.md`, batch bug subset, recon tech stack context.
 
 6a. After Fixer completes (or crashes), harvest commits:
    ```
@@ -203,7 +203,7 @@ For each batch in order:
 **Path B — Direct mode (`WORKTREE_MODE=false`):**
 
 4b. Launch one Fixer with:
-   - `prompts/fixer.md`
+   - `skills/fixer/SKILL.md`
    - Batch bug subset (max `MAX_BUGS_PER_FIXER` bugs)
    - Recon tech stack context
 5b. Apply returned changes (skip if dry-run).
