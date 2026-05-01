@@ -38,6 +38,7 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
   fs.mkdirSync(schemasDir, { recursive: true });
 
   for (const fileName of [
+    'shared.cjs',
     'run-bug-hunter.cjs',
     'bug-hunter-state.cjs',
     'payload-guard.cjs',
