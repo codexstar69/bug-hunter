@@ -44,7 +44,7 @@ const SKIP_DIRS = new Set([
   '.next', 'coverage', '.cache', 'tmp', '.tmp', '.idea', '.vscode',
   '.svn', 'target', 'out', '.output', '.nuxt', '.turbo', '.parcel-cache',
   'bower_components', 'jspm_packages', '.yarn', '.pnp',
-  'venv', '.venv', 'env', '.env', 'virtualenv',
+  'venv', '.venv', 'virtualenv',
   'Pods', '.gradle', '.mvn', 'bin', 'obj',
   'artifacts', 'logs', '.terraform'
 ]);

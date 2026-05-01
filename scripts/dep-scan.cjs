@@ -32,7 +32,7 @@ function parseArgs(argv) {
 }
 
 function runCommand({ command, cwd, timeout = 90000 }) {
-  const result = spawnSync('bash', ['-lc', command], {
+  const result = spawnSync('bash', ['-c', command], {
     cwd,
     encoding: 'utf8',
     timeout,
