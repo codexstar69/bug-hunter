@@ -170,8 +170,6 @@ function main() {
     }
     const output = JSON.stringify(template, null, 2);
     if (payloadJsonPath) {
-      const fs = require('fs');
-      const path = require('path');
       const dir = path.dirname(payloadJsonPath);
       if (dir && !fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });

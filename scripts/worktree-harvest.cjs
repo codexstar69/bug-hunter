@@ -185,9 +185,9 @@ function harvestCore(worktreeDir) {
   // 1. Read manifest
   const manifest = readJsonFile(manifestPath(absDir));
   if (!manifest) {
-    throw new Error(JSON.stringify({
+    return {
       ok: false, error: 'no-manifest', detail: `${manifestPath(absDir)} not found`
-    }));
+    };
   }
 
   const { preHarvestHead, fixBranch } = manifest;
@@ -275,14 +275,11 @@ function harvest(worktreeDir) {
   try {
     const result = harvestCore(worktreeDir);
     out(result);
-  } catch (err) {
-    // Error from harvestCore is a JSON string
-    try {
-      const parsed = JSON.parse(err.message);
-      out(parsed);
-    } catch (_) {
-      out({ ok: false, error: 'harvest-failed', detail: err.message });
+    if (!result.ok) {
+      process.exit(1);
     }
+  } catch (err) {
+    out({ ok: false, error: 'harvest-failed', detail: err instanceof Error ? err.message : String(err) });
     process.exit(1);
   }
 }
@@ -350,6 +347,10 @@ function cleanup(worktreeDir) {
   if (!defensiveHarvest) {
     try {
       defensiveHarvest = harvestCore(absDir);
+      if (!defensiveHarvest.ok) {
+        out({ ok: true, removed: false, reason: 'harvest-failed' });
+        return;
+      }
     } catch (_) {
       out({ ok: true, removed: false, reason: 'harvest-failed' });
       return;
@@ -412,6 +413,10 @@ function cleanupAll(parentDir) {
       if (!defensiveHarvest) {
         try {
           defensiveHarvest = harvestCore(wtDir);
+          if (!defensiveHarvest.ok) {
+            results.push({ name, removed: false, reason: 'harvest-failed' });
+            continue;
+          }
         } catch (_) {
           results.push({ name, removed: false, reason: 'harvest-failed' });
           continue;

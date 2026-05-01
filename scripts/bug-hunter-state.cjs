@@ -2,28 +2,11 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
-const path = require('path');
 const { validateArtifactValue } = require('./schema-runtime.cjs');
+const { nowIso, readJson, writeJson, severityRank } = require('./shared.cjs');
 
 const VALID_CHUNK_STATUS = new Set(['pending', 'in_progress', 'done', 'failed']);
 const DEFAULT_CHUNK_SIZE = 30;
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function ensureDir(filePath) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-}
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
-function writeJson(filePath, value) {
-  ensureDir(filePath);
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
 
 function splitChunks(files, chunkSize) {
   const chunks = [];
@@ -126,23 +109,6 @@ function summarize(state) {
       failed
     }
   };
-}
-
-function severityRank(severity) {
-  const normalized = String(severity || '').toLowerCase();
-  if (normalized === 'critical') {
-    return 3;
-  }
-  if (normalized === 'high') {
-    return 2;
-  }
-  if (normalized === 'medium') {
-    return 1;
-  }
-  if (normalized === 'low') {
-    return 0;
-  }
-  return -1;
 }
 
 function usage() {

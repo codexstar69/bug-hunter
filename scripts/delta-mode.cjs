@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, toPositiveInt } = require('./shared.cjs');
 
 function usage() {
   console.error('Usage:');
@@ -9,22 +9,10 @@ function usage() {
   console.error('  delta-mode.cjs expand <indexPath> <seedFilesJsonPath> <alreadySelectedFilesJsonPath> [hops]');
 }
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
 function assertArray(value, label) {
   if (!Array.isArray(value)) {
     throw new Error(`${label} must be an array`);
   }
-}
-
-function toPositiveInt(value, fallback) {
-  const parsed = Number.parseInt(String(value || ''), 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return fallback;
-  }
-  return parsed;
 }
 
 function normalizeFile(filePath) {

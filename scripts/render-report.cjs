@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
 const path = require('path');
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
+const { readJson, toArray } = require('./shared.cjs');
 
 function usage() {
   console.error('Usage:');
@@ -15,10 +11,6 @@ function usage() {
   console.error('  render-report.cjs referee <referee-json>');
   console.error('  render-report.cjs fix-report <fix-report-json>');
   console.error('  render-report.cjs fix-strategy <fix-strategy-json>');
-}
-
-function toArray(value) {
-  return Array.isArray(value) ? value : [];
 }
 
 function renderReport({ findingsPath, refereePath }) {

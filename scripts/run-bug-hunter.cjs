@@ -4,6 +4,10 @@ const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { validateArtifactFile, validateArtifactValue } = require('./schema-runtime.cjs');
+const {
+  nowIso, ensureDir, readJson, writeJson, toArray,
+  toPositiveInt, toBoolean, severityRank, shellQuote
+} = require('./shared.cjs');
 
 const BACKEND_PRIORITY = ['spawn_agent', 'subagent', 'teams', 'local-sequential'];
 const DEFAULT_TIMEOUT_MS = 120000;
@@ -21,14 +25,6 @@ function usage() {
   console.error('  run-bug-hunter.cjs run --files-json <path> [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--worker-cmd <template>] [--timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
   console.error('  run-bug-hunter.cjs phase --artifact <name> --output-path <path> --worker-cmd <template> [--phase-name <name>] [--skill-dir <path>] [--journal-path <path>] [--render-cmd <template>] [--render-output-path <path>] [--timeout-ms <n>] [--render-timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>]');
   console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--plan-path <path>]');
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
 }
 
 function parseArgs(argv) {
@@ -52,28 +48,6 @@ function parseArgs(argv) {
     index += 2;
   }
   return { command, options };
-}
-
-function toPositiveInt(value, fallback) {
-  const parsed = Number.parseInt(String(value || ''), 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return fallback;
-  }
-  return parsed;
-}
-
-function toBoolean(value, fallback) {
-  if (value === undefined) {
-    return fallback;
-  }
-  const normalized = String(value).toLowerCase();
-  if (normalized === 'true') {
-    return true;
-  }
-  if (normalized === 'false') {
-    return false;
-  }
-  return fallback;
 }
 
 function resolveSkillDir(options) {
@@ -194,14 +168,6 @@ function appendJournal(logPath, event) {
   fs.appendFileSync(logPath, `${line}\n`, 'utf8');
 }
 
-function shellQuote(value) {
-  const stringValue = String(value);
-  if (stringValue.length === 0) {
-    return "''";
-  }
-  return `'${stringValue.replace(/'/g, `'\\''`)}'`;
-}
-
 function fillTemplate(template, variables) {
   return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
     if (!(key in variables)) {
@@ -218,7 +184,7 @@ function sleep(ms) {
 function runCommandOnce({ command, timeoutMs }) {
   return new Promise((resolve) => {
     const shell = process.env.SHELL || '/bin/bash';
-    const child = childProcess.spawn(shell, ['-lc', command], {
+    const child = childProcess.spawn(shell, ['-c', command], {
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = '';
@@ -339,36 +305,6 @@ async function runWithRetry({
     result: lastResult,
     attemptsUsed: attempts
   };
-}
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
-function writeJson(filePath, value) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
-function toArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function severityRank(severity) {
-  const normalized = String(severity || '').toLowerCase();
-  if (normalized === 'critical') {
-    return 3;
-  }
-  if (normalized === 'high') {
-    return 2;
-  }
-  if (normalized === 'medium') {
-    return 1;
-  }
-  if (normalized === 'low') {
-    return 0;
-  }
-  return -1;
 }
 
 function buildHeuristicFactCard({ chunkId, scanFiles, findings, index }) {
