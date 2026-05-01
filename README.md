@@ -1,17 +1,31 @@
 <p align="center">
-  <img src="docs/images/hero.png" alt="Bug Hunter — Adversarial Bug Finding for Coding Agents" width="720">
+  <img src="docs/images/hero.png" alt="Bug Hunter — AI-powered adversarial code review and security vulnerability scanner for Claude Code, Cursor, Codex, Copilot, Windsurf, and Kiro" width="720">
 </p>
 
 <h1 align="center">Bug Hunter</h1>
-<p align="center"><strong>Three AI agents argue about your code. Only bugs that survive all three make the report.</strong></p>
+<p align="center"><strong>AI code review that argues with itself — adversarial multi-agent bug finding, security scanning, and auto-fix for any coding agent.</strong></p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@codexstar/bug-hunter"><img src="https://img.shields.io/npm/v/@codexstar/bug-hunter" alt="npm version"></a>
+  <a href="https://github.com/codexstar69/bug-hunter/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@codexstar/bug-hunter" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/tests-113%20passing-brightgreen" alt="113 tests passing">
+  <img src="https://img.shields.io/badge/node-%3E%3D18-blue" alt="Node.js >= 18">
+</p>
+
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#usage">Usage</a> ·
-  <a href="#how-it-works">How It Works</a> ·
-  <a href="#what-it-finds">What It Finds</a> ·
-  <a href="#auto-fix-pipeline">Auto-Fix</a> ·
-  <a href="#cli-reference">CLI Reference</a>
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#how-adversarial-ai-code-review-works">How It Works</a> ·
+  <a href="#bugs-and-vulnerabilities-detected">What It Finds</a> ·
+  <a href="#safe-auto-fix-with-canary-rollout">Auto-Fix</a> ·
+  <a href="#cli-flags">CLI Reference</a>
 </p>
+
+---
+
+Bug Hunter is an open-source AI code review and security vulnerability scanner that works as a skill/plugin for AI coding agents. Three AI agents — a Hunter, a Skeptic, and a Referee — independently analyze your code in an adversarial pipeline. The Hunter finds bugs. The Skeptic tries to disprove them. The Referee delivers the final verdict. Only bugs that survive all three stages make the report, eliminating the false positive overload that plagues other AI code review tools.
+
+It then auto-fixes confirmed bugs with a safe canary rollout pipeline — git branching, test baselines, per-fix commits, automatic rollback on failure, and post-fix re-scanning.
 
 ---
 
@@ -29,7 +43,7 @@ bug-hunter install     # auto-detects your IDE/agent
 bug-hunter doctor      # verify environment
 ```
 
-Or clone manually:
+Or clone:
 
 ```bash
 git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
@@ -37,28 +51,27 @@ git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hun
 
 > **Requirements:** Node.js 18+ recommended. Core pipeline works without it.
 >
-> **Works with:** Claude Code, Cursor, Codex CLI, Windsurf, Kiro, Copilot, Opencode, [Pi](https://github.com/mariozechner/pi-coding-agent) — or any AI agent that can read files and run shell commands.
+> **Compatible with:** Claude Code, Cursor, Codex CLI, Windsurf, Kiro, Copilot, Opencode, [Pi](https://github.com/mariozechner/pi-coding-agent) — or any AI agent that can read files and run shell commands.
 
 ---
 
-## Usage
+## Quick Start
 
 ```bash
 /bug-hunter                      # scan project, auto-fix confirmed bugs
 /bug-hunter src/                 # scan a specific directory
 /bug-hunter --scan-only src/     # report only, no code changes
-/bug-hunter --pr                 # review the current PR
+/bug-hunter --pr                 # review the current pull request
 /bug-hunter --pr-security        # PR security review + threat model + CVEs
-/bug-hunter -b feature-xyz       # scan files changed in branch vs main
-/bug-hunter --deps --threat-model # full audit: CVEs + STRIDE threat model
+/bug-hunter --deps --threat-model # full security audit
 ```
 
 ---
 
-## How It Works
+## How Adversarial AI Code Review Works
 
 <p align="center">
-  <img src="docs/images/pipeline-overview.png" alt="Bug Hunter pipeline" width="100%">
+  <img src="docs/images/pipeline-overview.png" alt="Bug Hunter adversarial AI code review pipeline — triage, recon, deep scan, skeptic challenge, referee verdict, auto-fix with canary rollout" width="100%">
 </p>
 
 ```
@@ -66,121 +79,125 @@ Triage  → Recon → Hunter → Skeptic → Referee → Fix Plan → Fixer → 
   (<2s)              ↕ doc verify    ↕ doc verify
 ```
 
-1. **Triage** classifies every file by risk in <2 seconds (zero AI cost)
-2. **Recon** maps the tech stack and attack surfaces
-3. **Hunter** deep-scans for logic errors, security holes, race conditions
-4. **Skeptic** tries to *disprove* every finding with counter-evidence
-5. **Referee** re-reads the code independently and delivers final verdicts
-6. **Fixer** applies canary-first patches with per-fix rollback
+1. **Triage** — classifies every file by risk in <2 seconds, zero AI tokens
+2. **Recon** — maps tech stack, auth mechanisms, attack surfaces
+3. **Hunter** — deep behavioral scan for logic errors, security vulnerabilities, race conditions
+4. **Skeptic** — adversarial review that tries to *disprove* every finding with counter-evidence
+5. **Referee** — independent final judge, re-reads code, delivers CVSS-scored verdicts
+6. **Fixer** — applies canary-first patches with per-fix rollback safety
 
-The adversarial debate between Hunter, Skeptic, and Referee eliminates false positives. The canary rollout with auto-revert prevents regressions from fixes.
+Claims are verified against official library documentation via [Context Hub](https://github.com/andrewyng/context-hub) + [Context7](https://context7.com) before any agent asserts framework behavior.
 
 <p align="center">
-  <img src="docs/images/adversarial-debate.png" alt="Hunter vs Skeptic vs Referee" width="100%">
+  <img src="docs/images/adversarial-debate.png" alt="Adversarial AI code review debate — Hunter finds bugs, Skeptic challenges with counter-evidence, Referee delivers independent verdict" width="100%">
 </p>
 
-| Agent | Earns Points For | Loses Points For |
-|-------|-----------------|-----------------|
-| **Hunter** | Reporting real bugs | False positives |
-| **Skeptic** | Disproving false positives | Dismissing real bugs (2x penalty) |
-| **Referee** | Accurate verdicts | Blind trust in either side |
+| Agent | Rewarded For | Penalized For |
+|-------|-------------|--------------|
+| **Hunter** | Confirmed real bugs | False positives |
+| **Skeptic** | Disproving false positives | Missing real bugs (2x penalty) |
+| **Referee** | Accurate independent verdicts | Blind trust in either side |
 
 ---
 
-## What It Finds
+## Bugs and Vulnerabilities Detected
 
 **Runtime behavioral bugs only** — not style, naming, or TODOs:
 
-- Logic errors, off-by-one, inverted conditions
-- SQL injection, XSS, path traversal, IDOR, auth bypass, SSRF
-- Race conditions, TOCTOU, deadlocks
-- Swallowed exceptions, unhandled rejections
-- Data integrity issues, resource leaks, API contract violations
+- **Security** — SQL injection, XSS, command injection, path traversal, IDOR, auth bypass, SSRF
+- **Logic** — wrong comparisons, off-by-one, inverted conditions, unreachable branches
+- **Concurrency** — race conditions, TOCTOU, deadlocks
+- **Error handling** — swallowed exceptions, unhandled promise rejections
+- **Data integrity** — silent truncation, encoding corruption, resource leaks
+- **API contracts** — type mismatches, incorrect callback signatures
 
-Every security finding gets **STRIDE classification**, **CWE ID**, and **CVSS 3.1 scoring** with proof-of-concept payloads for Critical/High findings.
+Every security finding gets **STRIDE classification**, **CWE ID**, and **CVSS 3.1 scoring** with proof-of-concept payloads.
+
+### Supported Languages and Frameworks
 
 **Languages:** TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, Ruby, PHP
 
-**Frameworks:** Express, Next.js, Django, Flask, FastAPI, Gin, Spring Boot, Rails, Laravel, and anything indexed by Context7 for doc verification.
+**Frameworks:** Express, Next.js, Django, Flask, FastAPI, Gin, Spring Boot, Rails, Laravel — and any framework with docs in Context7.
 
 ---
 
-## Auto-Fix Pipeline
+## Safe Auto-Fix with Canary Rollout
 
-When bugs are confirmed, the Fixer doesn't just edit files — it engineers patches:
+When bugs are confirmed, the Fixer engineers patches — not just edits:
 
-1. **Git branch** — dedicated `bug-hunter-fix-*` branch with restore point
+1. **Git branch** — dedicated fix branch with restore point
 2. **Test baseline** — captures passing tests before any edits
-3. **Strategy classification** — clusters bugs into safe-autofix / manual-review / larger-refactor / architectural
-4. **Confidence gate** — only fixes bugs the Referee confirmed at >=75% confidence
-5. **Canary rollout** — top 1-3 Critical bugs fixed first; if they break tests, pipeline halts
-6. **Per-fix checkpoint** — each fix is committed individually; failures auto-revert
-7. **Post-fix re-scan** — checks if the Fixer introduced new bugs
+3. **Strategy** — classifies each bug: safe-autofix / manual-review / larger-refactor / architectural
+4. **Confidence gate** — only auto-fixes bugs confirmed at >=75% confidence
+5. **Canary rollout** — top 1-3 Critical bugs fixed first; if tests break, pipeline halts
+6. **Per-fix checkpoint** — each fix committed individually; failures auto-revert
+7. **Post-fix re-scan** — catches bugs the Fixer itself introduced
 
-Use `--plan-only` to see the strategy without executing fixes. Use `--dry-run` to preview diffs.
+`--plan-only` to see the strategy. `--dry-run` to preview diffs. `--safe` to approve each fix.
 
 ---
 
-## Security Features
+## Security Scanning Features
 
-- `--threat-model` — generates STRIDE threat model saved to `.bug-hunter/threat-model.md`
-- `--deps` — scans npm/pip/go/cargo/bun lockfiles for HIGH/CRITICAL CVEs with reachability analysis
-- `--pr-security` — PR-scoped security review with threat model + dependency context
-- `--security-review` — enterprise security workflow with full validation pipeline
+| Flag | Capability |
+|------|-----------|
+| `--threat-model` | STRIDE threat model generation |
+| `--deps` | Dependency CVE scanning (npm, pip, go, cargo, bun) with reachability analysis |
+| `--pr-security` | PR-scoped security review with threat model + CVE context |
+| `--security-review` | Enterprise security audit workflow |
+| `--validate-security` | Exploitability validation with CVSS scoring |
 
 Bundled security skills: `commit-security-scan`, `security-review`, `threat-model-generation`, `vulnerability-validation`.
 
 ---
 
-## CLI Reference
+## CLI Flags
 
 | Flag | Behavior |
 |------|----------|
 | *(no flags)* | Scan + auto-fix confirmed bugs |
 | `src/` or `file.ts` | Scan specific path |
 | `--scan-only` / `--review` | Report only, no edits |
-| `--fix --approve` / `--safe` | Ask before each fix |
-| `--plan-only` / `--plan` | Generate fix strategy, don't edit |
+| `--fix --approve` / `--safe` | Approve each fix interactively |
+| `--plan-only` / `--plan` | Generate fix strategy without editing |
 | `--dry-run` / `--preview` | Preview fixes as diffs |
 | `-b branch` | Scan branch diff vs main |
-| `--pr` / `--pr 123` / `--pr recent` | Review a PR |
-| `--pr-security` | PR security review |
-| `--staged` | Scan staged files (pre-commit) |
+| `--pr` / `--pr 123` / `--pr recent` | Review a pull request |
+| `--staged` | Scan staged files (pre-commit hook) |
 | `--deps` | Dependency CVE scan |
 | `--threat-model` | STRIDE threat model |
-| `--security-review` | Enterprise security workflow |
-| `--no-loop` | Single-pass (loop is on by default) |
+| `--no-loop` | Single-pass scan (loop is on by default) |
 | `--autonomous` | Zero-intervention auto-fix |
 
 All flags compose: `/bug-hunter --deps --threat-model --fix src/`
 
 ---
 
-## Output
+## Output Files
 
 Every run creates `.bug-hunter/` (add to `.gitignore`):
 
-| File | Contents |
-|------|----------|
-| `findings.json` | Machine-readable findings for CI/CD |
+| File | Purpose |
+|------|---------|
+| `findings.json` | Machine-readable findings (CI/CD gating, dashboards) |
 | `report.md` | Human-readable report |
-| `referee.json` | Final verdicts with CVSS scores |
-| `fix-strategy.json` | Remediation plan (safe-autofix vs manual-review vs refactor) |
-| `fix-plan.json` | Execution plan with canary rollout |
-| `fix-report.json` | Fix results for CI/CD gating |
-| `triage.json` | File classification and risk map |
-| `threat-model.md` | STRIDE threat model (if `--threat-model`) |
-| `dep-findings.json` | Dependency CVEs (if `--deps`) |
+| `referee.json` | Final verdicts with CVSS scores and PoC payloads |
+| `fix-strategy.json` | Remediation classification |
+| `fix-plan.json` | Canary rollout execution plan |
+| `fix-report.json` | Fix results |
+| `triage.json` | File risk classification |
+| `threat-model.md` | STRIDE threat model |
+| `dep-findings.json` | Dependency CVE results |
 
 ---
 
 ## Self-Test
 
-Ships with 6 planted bugs in `test-fixture/` and **113 regression tests**:
+Ships with 6 planted bugs and **113 regression tests**:
 
 ```bash
-/bug-hunter test-fixture/     # validate pipeline finds all 6 bugs
-npm test                      # run regression suite
+/bug-hunter test-fixture/     # validate pipeline
+npm test                      # run test suite
 ```
 
 ---
@@ -189,16 +206,14 @@ npm test                      # run regression suite
 
 ```
 bug-hunter/
-├── SKILL.md                    # Pipeline orchestration logic
-├── bin/bug-hunter              # CLI (install, doctor, info)
-├── skills/                     # Agent skills (hunter, skeptic, referee, fixer, recon, + 4 security)
-├── modes/                      # Execution strategies (single-file → large-codebase, loop, fix)
-├── schemas/                    # JSON artifact contracts
-├── scripts/                    # Node.js helpers (triage, state, locking, worktrees, experiments)
-│   ├── shared.cjs              #   Shared utilities
-│   └── tests/                  #   113 tests
-├── templates/                  # Subagent dispatch template
-└── test-fixture/               # 6 planted bugs for validation
+├── SKILL.md              # Pipeline orchestration
+├── bin/bug-hunter         # CLI installer
+├── skills/                # 10 agent skills (hunter, skeptic, referee, fixer, recon, + 5 more)
+├── modes/                 # Execution strategies (single-file → large-codebase)
+├── schemas/               # JSON artifact contracts
+├── scripts/               # Node.js helpers + 113 tests
+├── templates/             # Subagent dispatch template
+└── test-fixture/          # 6 planted bugs for validation
 ```
 
 ---
