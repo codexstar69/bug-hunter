@@ -185,11 +185,16 @@ const META_FILES = [MANIFEST_NAME, HARVEST_NAME];
 function harvestCore(worktreeDir) {
   const absDir = path.resolve(worktreeDir);
 
-  // 1. Read manifest
+  // 1. Read and validate manifest
   const manifest = readJsonFile(manifestPath(absDir));
   if (!manifest) {
     return {
       ok: false, error: 'no-manifest', detail: `${manifestPath(absDir)} not found`
+    };
+  }
+  if (!manifest.fixBranch || manifest.worktreeDir !== absDir) {
+    return {
+      ok: false, error: 'invalid-manifest', detail: `Manifest missing fixBranch or worktreeDir mismatch (expected ${absDir})`
     };
   }
 

@@ -31,8 +31,8 @@ function parseArgs(argv) {
   return args;
 }
 
-function runCommand({ command, cwd, timeout = 90000 }) {
-  const result = spawnSync('bash', ['-c', command], {
+function runCommand({ bin, args, cwd, timeout = 90000 }) {
+  const result = spawnSync(bin, args, {
     cwd,
     encoding: 'utf8',
     timeout,
@@ -55,15 +55,15 @@ function runCommand({ command, cwd, timeout = 90000 }) {
 
 function detectEcosystems(targetDir) {
   const checks = [
-    { lockfile: 'package-lock.json', ecosystem: 'node', manager: 'npm', command: 'npm audit --json' },
-    { lockfile: 'pnpm-lock.yaml', ecosystem: 'node', manager: 'pnpm', command: 'pnpm audit --json' },
-    { lockfile: 'yarn.lock', ecosystem: 'node', manager: 'yarn', command: 'yarn npm audit --json' },
-    { lockfile: 'bun.lockb', ecosystem: 'node', manager: 'bun', command: 'bun audit --json' },
-    { lockfile: 'bun.lock', ecosystem: 'node', manager: 'bun', command: 'bun audit --json' },
-    { lockfile: 'requirements.txt', ecosystem: 'pip', manager: 'pip', command: 'pip-audit --format json' },
-    { lockfile: 'Pipfile.lock', ecosystem: 'pip', manager: 'pipenv', command: 'pip-audit --format json' },
-    { lockfile: 'go.sum', ecosystem: 'go', manager: 'go', command: 'govulncheck -json ./...' },
-    { lockfile: 'Cargo.lock', ecosystem: 'rust', manager: 'cargo', command: 'cargo audit --json' },
+    { lockfile: 'package-lock.json', ecosystem: 'node', manager: 'npm', bin: 'npm', args: ['audit', '--json'] },
+    { lockfile: 'pnpm-lock.yaml', ecosystem: 'node', manager: 'pnpm', bin: 'pnpm', args: ['audit', '--json'] },
+    { lockfile: 'yarn.lock', ecosystem: 'node', manager: 'yarn', bin: 'yarn', args: ['npm', 'audit', '--json'] },
+    { lockfile: 'bun.lockb', ecosystem: 'node', manager: 'bun', bin: 'bun', args: ['audit', '--json'] },
+    { lockfile: 'bun.lock', ecosystem: 'node', manager: 'bun', bin: 'bun', args: ['audit', '--json'] },
+    { lockfile: 'requirements.txt', ecosystem: 'pip', manager: 'pip', bin: 'pip-audit', args: ['--format', 'json'] },
+    { lockfile: 'Pipfile.lock', ecosystem: 'pip', manager: 'pipenv', bin: 'pip-audit', args: ['--format', 'json'] },
+    { lockfile: 'go.sum', ecosystem: 'go', manager: 'go', bin: 'govulncheck', args: ['-json', './...'] },
+    { lockfile: 'Cargo.lock', ecosystem: 'rust', manager: 'cargo', bin: 'cargo', args: ['audit', '--json'] },
   ];
 
   return checks.filter((check) => {
@@ -273,8 +273,8 @@ function main() {
   const allFindings = [];
 
   ecosystems.forEach((eco) => {
-    console.log(`dep-scan: Running ${eco.command} in ${targetDir}...`);
-    const runResult = runCommand({ command: eco.command, cwd: targetDir });
+    console.log(`dep-scan: Running ${eco.bin} ${eco.args.join(' ')} in ${targetDir}...`);
+    const runResult = runCommand({ bin: eco.bin, args: eco.args, cwd: targetDir });
 
     const combinedOutput = [runResult.stdout, runResult.stderr].filter(Boolean).join('\n');
 

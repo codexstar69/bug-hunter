@@ -111,7 +111,7 @@ function resolveRef(rootSchema, ref) {
     if (BLOCKED_KEYS.has(part)) {
       throw new Error(`Unsafe schema ref segment: ${part}`);
     }
-    if (!current || typeof current !== 'object' || !(part in current)) {
+    if (!current || typeof current !== 'object' || !Object.prototype.hasOwnProperty.call(current, part)) {
       throw new Error(`Unable to resolve schema ref: ${ref}`);
     }
     current = current[part];
