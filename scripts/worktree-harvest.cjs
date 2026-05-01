@@ -94,10 +94,10 @@ function isGitWorktree(absDir) {
 function isManagedWorktreeDir(worktreeDir) {
   const absDir = path.resolve(worktreeDir);
   const manifest = readJsonFile(manifestPath(absDir));
-  if (manifest) {
-    return isGitWorktree(absDir);
+  if (manifest && manifest.fixBranch && manifest.worktreeDir === absDir) {
+    return true;
   }
-  return false;
+  return isGitWorktree(absDir);
 }
 
 // ---------------------------------------------------------------------------
