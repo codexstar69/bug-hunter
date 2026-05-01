@@ -43,23 +43,24 @@ git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hun
 npm install -g @aisuite/chub
 ```
 
-> **Requirements:** Node.js 18+. No other dependencies.
+> **Requirements:** Node.js 18+ recommended (enables triage, schema validation, and experiment tracking). Core pipeline works without Node.js in degraded mode.
 >
-> **Works with:** [Pi](https://github.com/mariozechner/pi-coding-agent), Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot — or any AI agent that can read files and run shell commands.
+> **Works with:** [Pi](https://github.com/mariozechner/pi-coding-agent), Claude Code, Codex CLI, Cursor, Windsurf, Kiro, Copilot, Opencode — or any AI agent that can read files and run shell commands.
 
 ---
 
 ## New in This Update
 
-This release is a reliability hardening pass — 11 bugs fixed, 10 previously-failing tests now pass, and the full pipeline is more robust end-to-end.
+This release is a security hardening + cross-harness compatibility pass — 8 security fixes, shared utility extraction, and full multi-agent compatibility.
 
-- **`High` severity works everywhere.** All JSON schemas, severity ranking, and payload-guard templates now recognize `High` — previously only `Critical`, `Medium`, and `Low` were accepted, silently dropping valid findings.
-- **Confidence threshold is fully wired.** `--confidence-threshold` now propagates from the CLI through the orchestrator to `record-findings`. Previously the flag was parsed but never forwarded, always defaulting to 75.
-- **Shell injection fixed in doc-lookup.** Library names passed to `chub` CLI are now properly shell-quoted — prevents command injection via crafted library names.
-- **SIGKILL timer leak fixed.** The failsafe kill timer in `runCommandOnce` is now cleared on normal exit — previously it could fire after the child had already exited.
-- **Modern Bun lockfile support.** `dep-scan.cjs` now detects `bun.lock` (text format, Bun 1.2+) alongside the legacy `bun.lockb` binary format.
-- **Worktree commit parsing hardened.** Edge case where `git log` lines with no space separator caused truncated hashes and wrong messages is now handled.
-- **61 tests, 0 failures.** Up from 50 passing / 10 failing — the test suite now covers severity ranking, schema validation, confidence threshold propagation, and shell-safe worker templating.
+- **Command injection eliminated in dep-scan.** All shell commands now use `spawnSync` with explicit argv arrays — no more `bash -c` with interpolated strings.
+- **TOCTOU race fixed in fix-lock.** Concurrent agents no longer crash on stale lock cleanup.
+- **Prototype pollution blocked in schema validator.** `resolveRef()` blocks `__proto__`/`constructor`/`prototype` and uses `hasOwnProperty` for safe traversal.
+- **OOM guards added.** Files >5MB are skipped during triage sampling; files >10MB use size+mtime fingerprints instead of SHA-256.
+- **Worktree manifest validation hardened.** Both `isManagedWorktreeDir` and `harvestCore` now verify `fixBranch` and `worktreeDir` match before operating.
+- **Cross-harness compatibility.** Tool-specific references ("Read tool", "Bash tool") replaced with functional phrasing. Loop mode works without `ralph_start` via generic self-driven loop. Installer now supports 8 agents.
+- **Shared utilities module.** 18+ duplicate functions extracted into `scripts/shared.cjs`, reducing maintenance burden.
+- **113 tests, 0 failures.**
 
 <p align="center">
   <img src="docs/images/2026-03-12-pr-review-flow.png" alt="PR review workflow banner — pull request scope, security checks, threat-model context, and final verdict in a clean product-style UI" width="100%">
@@ -67,19 +68,11 @@ This release is a reliability hardening pass — 11 bugs fixed, 10 previously-fa
 
 ## Start Here
 
-If you're evaluating the new PR flow, start with one of these:
-
 ```bash
+/bug-hunter                      # scan entire project, auto-fix confirmed bugs
 /bug-hunter --pr                 # review the current PR end to end
-/bug-hunter --pr-security        # PR-focused security review without editing code
-/bug-hunter --last-pr --review   # review the most recent PR without fixes
-/bug-hunter --plan src/          # build fix-strategy.json + fix-plan.json only
-```
-
-If you just want the default repo audit:
-
-```bash
-/bug-hunter
+/bug-hunter --pr-security        # PR-focused security review
+/bug-hunter --scan-only src/     # report only, no code changes
 ```
 
 ---
@@ -207,8 +200,6 @@ Each agent independently reads the source code. No agent trusts another's analys
 | ⚖️ **Referee** | Accurate, well-reasoned final verdicts | Blind trust in either Hunter or Skeptic |
 
 This scoring creates a **self-correcting equilibrium**. The Hunter doesn't flood the report with low-quality findings because false positives reduce its score. The Skeptic doesn't dismiss everything because missing a real bug incurs a double penalty. The Referee can't rubber-stamp — it must independently verify.
-
----
 
 ---
 
@@ -690,7 +681,7 @@ All flags compose: `/bug-hunter --deps --threat-model --fix src/`
 
 Bug Hunter ships with a test fixture containing an Express app with **6 intentionally planted bugs** (2 Critical, 3 Medium, 1 Low):
 
-The repository also ships with **61 Node.js regression tests** covering orchestration, schemas, PR scope resolution, fix-plan validation, lock behavior, worktree lifecycle, severity ranking, and the bundled local security-skill routing.
+The repository also ships with **113 Node.js regression tests** covering orchestration, schemas, PR scope resolution, fix-plan validation, lock behavior, worktree lifecycle, severity ranking, experiment loop, and the bundled local security-skill routing.
 
 ```bash
 /bug-hunter test-fixture/
@@ -739,19 +730,13 @@ bug-hunter/
 │   ├── scaled.md                         #   State-driven chunks with resume
 │   ├── large-codebase.md                 #   Domain-scoped pipelines
 │   ├── local-sequential.md               #   Single-agent execution
-│   ├── loop.md                           #   Iterative coverage loop
+│   ├── loop.md                           #   Iterative coverage loop (ralph-loop)
+│   ├── loop-generic.md                   #   Iterative coverage loop (any agent)
 │   ├── fix-pipeline.md                   #   Auto-fix orchestration (with worktree isolation)
 │   ├── fix-loop.md                       #   Fix + re-scan loop
 │   └── _dispatch.md                      #   Shared dispatch patterns + worktree lifecycle
 │
-├── prompts/                              # Agent system prompts
-│   ├── recon.md                          #   Reconnaissance agent
-│   ├── hunter.md                         #   Bug hunting agent
-│   ├── skeptic.md                        #   Adversarial reviewer
-│   ├── referee.md                        #   Final verdict judge
-│   ├── fixer.md                          #   Auto-fix agent
-│   ├── doc-lookup.md                     #   Documentation verification
-│   ├── threat-model.md                   #   STRIDE threat model generator
+├── prompts/                              # Legacy agent prompts (redirects to skills/)
 │   └── examples/                         #   Calibration few-shot examples
 │       ├── hunter-examples.md            #     3 real + 2 false positives
 │       └── skeptic-examples.md           #     2 accepted + 2 disproved + 1 review
@@ -767,31 +752,32 @@ bug-hunter/
 │   ├── recon.schema.json                 #   Recon artifact schema
 │   └── shared.schema.json                #   Shared definitions
 │
-├── skills/                               # Bundled local security pack
-│   ├── commit-security-scan/
-│   ├── security-review/
-│   ├── threat-model-generation/
-│   └── vulnerability-validation/
+├── skills/                               # Bundled agent skills (canonical source)
+│   ├── hunter/                           #   Deep behavioral code analysis
+│   ├── skeptic/                          #   Adversarial code reviewer
+│   ├── referee/                          #   Final verdict judge
+│   ├── fixer/                            #   Surgical code repair
+│   ├── recon/                            #   Codebase reconnaissance
+│   ├── doc-lookup/                       #   Documentation verification
+│   ├── commit-security-scan/             #   PR security scanning
+│   ├── security-review/                  #   Enterprise security workflow
+│   ├── threat-model-generation/          #   STRIDE threat model generator
+│   └── vulnerability-validation/         #   Exploitability validation
 │
 ├── scripts/                              # Node.js helpers (zero AI tokens)
+│   ├── shared.cjs                        #   Shared utilities (deduped across scripts)
 │   ├── triage.cjs                        #   File classification (<2s)
 │   ├── dep-scan.cjs                      #   Dependency CVE scanner
 │   ├── doc-lookup.cjs                    #   Documentation lookup (chub + Context7 fallback)
-│   ├── context7-api.cjs                  #   Context7 API fallback
 │   ├── run-bug-hunter.cjs                #   Chunk orchestrator
 │   ├── bug-hunter-state.cjs              #   Persistent state for resume
+│   ├── experiment-loop.cjs               #   Autonomous experiment loop
+│   ├── schema-runtime.cjs               #   JSON schema validator
 │   ├── delta-mode.cjs                    #   Changed-file scope reduction
 │   ├── payload-guard.cjs                 #   Subagent payload validation
 │   ├── fix-lock.cjs                      #   Concurrent fixer prevention
 │   ├── worktree-harvest.cjs              #   Worktree isolation for Fixer subagents
-│   ├── code-index.cjs                    #   Cross-domain analysis (optional)
-│   └── tests/                            #   Test suite (node --test)
-│       ├── run-bug-hunter.test.cjs       #     Orchestrator tests
-│       ├── bug-hunter-state.test.cjs     #     State management tests
-│       ├── code-index.test.cjs           #     Code index tests
-│       ├── delta-mode.test.cjs           #     Delta mode tests
-│       ├── pr-scope.test.cjs             #     PR scope resolution tests
-│       └── worktree-harvest.test.cjs     #     Worktree lifecycle tests
+│   └── tests/                            #   113 tests (node --test)
 │
 ├── templates/
 │   └── subagent-wrapper.md               # Subagent launch template (with worktree rules)

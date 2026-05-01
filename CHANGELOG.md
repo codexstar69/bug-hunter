@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-05-01
+
+### Security
+- **CRITICAL**: `dep-scan.cjs` — eliminated all `bash -c` shell execution. Audit commands and reachability search now use `spawnSync` with explicit argv arrays, preventing command injection via `targetDir` or `packageName`
+- **MEDIUM**: `fix-lock.cjs` — TOCTOU race in `acquire()` fixed by wrapping `unlinkSync` in try-catch (ignores `ENOENT` only, re-throws permission errors)
+- **MEDIUM**: `worktree-harvest.cjs` — `isManagedWorktreeDir` now requires both a valid manifest (`fixBranch` + matching `worktreeDir`) AND git worktree list confirmation. `harvestCore` also validates manifest before operating
+- **LOW**: `schema-runtime.cjs` — `resolveRef()` blocks `__proto__`, `constructor`, `prototype` path segments and uses `hasOwnProperty` instead of `in` operator
+- **LOW**: `triage.cjs` — files >5MB skipped during line-count sampling to prevent OOM
+- **LOW**: `bug-hunter-state.cjs` — files >10MB use size+mtime fingerprint instead of SHA-256 hash to prevent OOM
+- **LOW**: `dep-scan.cjs` — graceful fallback when `rg` (ripgrep) is not installed
+
+### Added
+- `scripts/shared.cjs` — shared utility module extracting `nowIso`, `readJson`, `writeJson`, `ensureDir`, `toArray`, `toPositiveInt`, `toBoolean`, `severityRank`, `shellQuote` from 4 scripts (eliminated 18+ duplicate definitions)
+- `modes/loop-generic.md` — harness-agnostic loop mode using `experiment-loop.cjs` for agents without `ralph_start`/`ralph_done`
+- Installer support for Copilot, Windsurf, and Opencode agents in `bin/bug-hunter`
+- Option C2 (native-dispatch) in SKILL.md for Cursor, Copilot, Windsurf, Kiro agent backends
+- Node.js graceful degradation — core pipeline continues with reduced features when Node.js is unavailable
+
+### Changed
+- **Cross-harness compatibility**: 25+ Claude-specific tool name references ("Read tool", "Bash tool", "Edit tool") replaced with functional phrasing ("read the file", "run a shell command", "edit the file") across all skill files, modes, and templates
+- `modes/local-sequential.md` now reads from `skills/*/SKILL.md` (canonical) instead of `prompts/*.md`
+- `modes/fix-pipeline.md` references updated from `prompts/fixer.md` to `skills/fixer/SKILL.md`
+- `EnterWorktree`/`ExitWorktree` references generalized to "your runtime's built-in isolation tools"
+- `modes/loop.md` and `modes/fix-loop.md` now include cross-harness notes directing non-Claude agents to `loop-generic.md`
+- Login shell overhead eliminated — worker dispatch changed from `bash -lc` to `bash -c` in `run-bug-hunter.cjs` and `dep-scan.cjs`
+- `worktree-harvest.cjs` `harvestCore` returns `{ ok: false }` for expected errors instead of throwing JSON strings
+- `payload-guard.cjs` removed redundant `require('fs')` and `require('path')` inside `generate()`
+- `triage.cjs` removed false-positive `env` and `.env` from SKIP_DIRS
+- Refactored `run-bug-hunter.cjs`, `bug-hunter-state.cjs`, `render-report.cjs`, `delta-mode.cjs` to use `shared.cjs`
+- SKILL.md fallback probe order expanded to 8 agent directories
+- Test suite: **113 tests**, 0 failures
+
 ## [3.0.10] - 2026-03-14
 
 ### Fixed
@@ -283,7 +315,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage enforcement - partial audits produce explicit warnings
 - Large codebase strategy with domain-first tiered scanning
 
-[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.0.9...HEAD
+[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/codexstar69/bug-hunter/compare/v3.0.10...v3.1.0
+[3.0.10]: https://github.com/codexstar69/bug-hunter/compare/v3.0.9...v3.0.10
 [3.0.9]: https://github.com/codexstar69/bug-hunter/compare/v3.0.8...v3.0.9
 [3.0.8]: https://github.com/codexstar69/bug-hunter/compare/v3.0.7...v3.0.8
 [3.0.7]: https://github.com/codexstar69/bug-hunter/compare/v3.0.5...v3.0.7

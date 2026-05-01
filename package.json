@@ -1,6 +1,6 @@
 {
   "name": "@codexstar/bug-hunter",
-  "version": "3.0.10",
+  "version": "3.1.0",
   "description": "Adversarial AI bug hunter — multi-agent pipeline finds security vulnerabilities, logic errors, and runtime bugs, then fixes them autonomously. Works with Claude Code, Cursor, Codex CLI, Copilot, Kiro, and more.",
   "license": "MIT",
   "main": "bin/bug-hunter",
