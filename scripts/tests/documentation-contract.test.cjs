@@ -25,7 +25,7 @@ function markdownFiles(directoryPath) {
   });
 }
 
-test('runtime markdown references tracked internal files', () => {
+test('runtime markdown references existing internal files', () => {
   const documentPaths = [
     path.join(projectRoot, 'SKILL.md'),
     path.join(projectRoot, 'README.md'),
@@ -114,7 +114,104 @@ test('README keeps terminal, agent, safety, and capability boundaries accurate',
   assert.doesNotMatch(readme, /\b\d+\s+tests?\s+pass(?:ing|ed)?\b/i);
 });
 
-test('focused onboarding guides ship in the runtime package', () => {
+test('README preserves substantial product and security topic coverage', () => {
+  const readme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+  const skepticSkill = fs.readFileSync(
+    path.join(projectRoot, 'skills', 'skeptic', 'SKILL.md'),
+    'utf8'
+  );
+  const requiredHeadings = [
+    '## Why adversarial AI code review',
+    '## How the code-audit pipeline works',
+    '## Hunter, Skeptic, and Referee',
+    '## Core code-analysis capabilities',
+    '## Security vulnerability classification',
+    '## STRIDE threat modeling',
+    '## Dependency CVE scanning',
+    '## Pull-request and changed-code review',
+    '## Strategic fix planning and safe remediation',
+    '## Structured JSON for CI/CD',
+    '## Output files',
+    '## Supported languages and frameworks',
+    '## Skill argument reference',
+    '## Project architecture'
+  ];
+  const requiredImages = [
+    'hero.png',
+    'pipeline-overview.png',
+    'adversarial-debate.png',
+    'doc-verify-fix-plan.png',
+    'security-finding-card.png',
+    '2026-03-12-security-pack.png',
+    '2026-03-12-fix-plan-rollout.png',
+    '2026-03-12-machine-readable-artifacts.png',
+    '2026-03-12-pr-review-flow.png'
+  ];
+  const missingHeadings = requiredHeadings.filter((heading) => {
+    return !readme.includes(heading);
+  });
+  const imageElements = [...readme.matchAll(
+    /<img\s+[^>]*src="([^"]+)"[^>]*alt="([^"]+)"[^>]*>/g
+  )].map((match) => {
+    return { source: match[1], alt: match[2] };
+  });
+  const documentationImages = imageElements.flatMap((imageElement) => {
+    const pathMatch = imageElement.source.match(/\/docs\/images\/([^?#]+)$/);
+    if (!pathMatch) {
+      return [];
+    }
+    return [{
+      ...imageElement,
+      imageName: pathMatch[1]
+    }];
+  });
+  const missingImages = requiredImages.filter((imageName) => {
+    return !documentationImages.some((imageElement) => {
+      return imageElement.imageName === imageName &&
+        imageElement.alt.trim().length > 0 &&
+        fs.existsSync(path.join(projectRoot, 'docs', 'images', imageName));
+    });
+  });
+  const mutableDocumentationImages = documentationImages.filter((imageElement) => {
+    return !/\/[a-f0-9]{40}\/docs\/images\//.test(imageElement.source);
+  });
+  const restorationWordCount = readme.trim().split(/\s+/).length;
+  const hardExclusionSection = skepticSkill.match(
+    /### Hard exclusions[\s\S]*?(?=\nFormat:)/
+  );
+  assert.notEqual(hardExclusionSection, null);
+  const hardExclusionCount = [
+    ...hardExclusionSection[0].matchAll(/^\d+\.\s/gm)
+  ].length;
+
+  assert.deepEqual(missingHeadings, []);
+  assert.deepEqual(missingImages, []);
+  assert.deepEqual(mutableDocumentationImages, []);
+  assert.equal(restorationWordCount >= 4000, true);
+  assert.match(readme, new RegExp(`${String(hardExclusionCount)} hard exclusions`));
+  assert.match(readme, /CVSS 3\.1/);
+  assert.match(readme, /Context Hub[\s\S]*Context7/);
+  assert.match(readme, /security code scanner/);
+  assert.match(readme, /static-analysis assistant/);
+  assert.match(readme, /npm, pnpm, Yarn, or Bun lockfiles/);
+  assert.doesNotMatch(
+    readme,
+    /dependency (?:audit|CVE scanning)[\s\S]{0,160}(?:pip|cargo|govulncheck)/i
+  );
+
+  const scanReportExample = readme.match(
+    /## Structured JSON for CI\/CD[\s\S]*?```json\n(\{[\s\S]*?\})\n```/
+  );
+  assert.notEqual(scanReportExample, null);
+  const validation = validateArtifactValue({
+    artifactName: 'scan-report',
+    value: JSON.parse(scanReportExample[1])
+  });
+  assert.deepEqual(validation.errors, []);
+  assert.equal(validation.ok, true);
+});
+
+test('focused onboarding guides are declared in the runtime allowlist', () => {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')
   );
@@ -127,6 +224,33 @@ test('focused onboarding guides ship in the runtime package', () => {
     }),
     []
   );
+});
+
+test('current-source commands and canonical Hunter output stay accurate', () => {
+  const commandDocuments = [
+    'README.md',
+    'docs/getting-started.md',
+    'docs/agent-installation.md',
+    'docs/troubleshooting.md',
+    'llms.txt'
+  ];
+  const staleCommands = commandDocuments.filter((relativePath) => {
+    const content = fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
+    return /npx --yes @codexstar\/bug-hunter/.test(content);
+  });
+  const hunterSkill = fs.readFileSync(
+    path.join(projectRoot, 'skills', 'hunter', 'SKILL.md'),
+    'utf8'
+  );
+  const readme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+
+  assert.deepEqual(staleCommands, []);
+  assert.match(readme, /## TL;DR/);
+  assert.match(readme, /## Choose your agent/);
+  assert.match(readme, /main\.tar\.gz install --agent codex/);
+  assert.match(readme, /main\.tar\.gz doctor --agent codex/);
+  assert.doesNotMatch(hunterSkill, /\*\*TOTAL FINDINGS:/);
+  assert.doesNotMatch(hunterSkill, /\*\*FILES SCANNED:/);
 });
 
 test('every delegated mode uses the tracked dispatch contract', () => {

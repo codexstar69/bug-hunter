@@ -6,6 +6,8 @@ prompt: |
   can we do that so everything is end to end seamless and anyone and
   specially agents can understand easily how to use it all properly
 
+  you removed a lot of content that helped rank it om google - bring it back
+
   Use @bin/bug-hunter, @SKILL.md, @README.md, and
   @docs/agent-installation.md as source material.
 ---
@@ -69,17 +71,17 @@ These arguments are interpreted by the installed skill:
 | `--staged` | Scan staged files |
 | `--pr [current\|recent\|N]` | Review a pull request |
 | `--pr-security` | Review pull-request security context |
-| `--scan-only` | Force report-only behavior |
+| `--scan-only` | Request report-only behavior |
 | `--review` | Alias for `--scan-only` |
 | `--plan-only` | Build strategy and plan, then stop |
 | `--plan` | Alias for `--plan-only` |
 | `--fix` | Permit the reviewed fix phase |
-| `--approve` | Require approval for every fix |
+| `--approve` | Request the host's reviewed/default permission mode |
 | `--safe` | Alias for `--fix --approve` |
-| `--dry-run` | Render proposed patches without applying them |
+| `--dry-run` | Build strategy and fix-plan output without source edits |
 | `--preview` | Alias for `--fix --dry-run` |
 | `--autonomous` | Permit unattended fixing |
-| `--auto-commit` | Permit scoped commits during a fix run |
+| `--auto-commit` | Grant commit permission for an authorized fix plan |
 | `--loop` | Continue until queued coverage is complete |
 | `--no-loop` | Keep the default single pass |
 | `--deps` | Add supported Node.js dependency auditing |
@@ -95,6 +97,10 @@ Flags compose:
 /bug-hunter --fix --approve src/auth
 /bug-hunter --autonomous --auto-commit src/
 ```
+
+Do not combine `--scan-only` or `--review` with `--fix`, `--approve`, `--safe`,
+or `--autonomous`. Conflicting read-only and mutation flags are not currently
+rejected.
 
 The skill's canonical argument parser and behavior contract live in
 [`SKILL.md`](../SKILL.md).

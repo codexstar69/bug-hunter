@@ -7,6 +7,8 @@ prompt: |
   can we do that so everything is end to end seamless and anyone and
   specially agents can understand easily how to use it all properly
 
+  you removed a lot of content that helped rank it om google - bring it back
+
   Use @README.md, @bin/bug-hunter, @SKILL.md,
   @docs/agent-installation.md, @docs/usage-guide.md,
   @docs/how-it-works.md, and @docs/troubleshooting.md as source material.
@@ -30,15 +32,15 @@ The default workflow does not edit source files.
 This example installs Bug Hunter for Codex:
 
 ```bash
-npx --yes @codexstar/bug-hunter install --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 ```
 
 Use another target when needed:
 
 ```bash
-npx --yes @codexstar/bug-hunter install --agent claude-code
-npx --yes @codexstar/bug-hunter install --agent cursor
-npx --yes @codexstar/bug-hunter install --agent copilot
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent claude-code
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent cursor
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent copilot
 ```
 
 See [agent installation](agent-installation.md) for every supported target.
@@ -48,13 +50,13 @@ See [agent installation](agent-installation.md) for every supported target.
 Use the same target you installed:
 
 ```bash
-npx --yes @codexstar/bug-hunter doctor --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
 A complete check includes:
 
 ```text
-[ok] Bug Hunter runtime v3.1.1 is current and complete
+[ok] Bug Hunter runtime v<current-version> is current and complete
 Ready to hunt bugs.
 ```
 
@@ -129,6 +131,10 @@ Slash form:
 ```text
 /bug-hunter --fix --approve
 ```
+
+`--approve` requests the host's reviewed/default permission mode. Approval
+prompts depend on the coding agent. Use `--plan` or `--preview` when source
+edits must be impossible.
 
 Do not grant autonomous fixing or commit permission unless that behavior is
 intended.

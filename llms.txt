@@ -8,8 +8,8 @@ run scans and reports without editing files.
 Install and verify for the intended agent:
 
 ```bash
-npx --yes @codexstar/bug-hunter install --agent codex
-npx --yes @codexstar/bug-hunter doctor --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
 Then ask the coding agent:
@@ -26,10 +26,10 @@ requested inside the coding agent. There is no `bug-hunter scan` shell command.
 
 - No flags means scan-only.
 - `--plan` builds a remediation plan without edits.
-- `--fix --approve` asks before every edit.
-- `--preview` renders proposed patches without applying them.
+- `--fix --approve` requests the host's reviewed/default permission mode.
+- `--preview` builds strategy and fix-plan output without source edits.
 - `--autonomous` explicitly permits unattended edits.
-- `--auto-commit` separately permits approved-path commits.
+- `--auto-commit` separately grants commit permission for the approved plan.
 - Referee or preservation failure disables fixing for the affected scope.
 
 ## Pipeline

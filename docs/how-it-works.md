@@ -7,6 +7,8 @@ prompt: |
   can we do that so everything is end to end seamless and anyone and
   specially agents can understand easily how to use it all properly
 
+  you removed a lot of content that helped rank it om google - bring it back
+
   Use @SKILL.md, @modes/dispatch.md, @modes/fix-pipeline.md,
   @schemas/scan-report.schema.json, @schemas/fix-plan.schema.json,
   @schemas/fixer-scope.schema.json, @scripts/dep-scan.cjs, and
@@ -29,8 +31,9 @@ prompt: |
 8. An optional strategy and fix plan classify safe and unsafe remediation.
 9. An optional Fixer applies only authorized changes and runs verification.
 
-Each phase exchanges schema-validated JSON. A malformed phase result is a
-failure, not a successful clean scan.
+Role, report, coverage, and fix phases exchange schema-validated JSON. Triage
+JSON is deterministic pipeline input. A malformed required canonical artifact
+is a failure, not a successful clean scan.
 
 ## Roles
 
@@ -41,7 +44,7 @@ failure, not a successful clean scan.
 | Skeptic | Challenge Hunter claims | Final verdicts or edits |
 | Referee | Decide findings from evidence | Files outside the reviewed scope |
 | Fix planner | Classify and order remediation | Unapproved bug IDs |
-| Fixer | Apply the approved plan | New findings, wider files, or wider ranges |
+| Fixer | Apply the approved plan | New findings or wider files |
 
 The Referee-only verdict boundary prevents the agent that found a bug from
 declaring its own claim confirmed.
@@ -58,25 +61,25 @@ features, and requested scope:
 - large-codebase for domain-scoped execution
 - local-sequential when subagents are unavailable
 
-All delegated modes use the same dispatch contract. State includes the run ID,
-target fingerprint, queue, attempts, and artifact paths so an interrupted run
-does not silently resume against a different target.
+Most delegated modes use the canonical dispatch contract. Large-codebase mode
+currently uses per-domain variants before its final merge. State records queue
+and chunk progress; a sibling identity file stores run and target identity so
+an interrupted run does not silently resume against a different target.
 
 ## Mutation boundaries
 
 Scan-only is the default.
 
-Fixing requires an explicit fixing mode. The plan binds:
+Fixing requires an explicit fixing mode. The plan records:
 
 - approved bug IDs
 - allowed files
-- allowed line ranges
+- claimed line ranges for review context
 - remediation class
 - canary and rollout stages
-- required checks
-
-The Fixer must reject work outside that scope. `--auto-commit` is a separate
-permission and only permits approved paths.
+The validated Fixer scope binds repository root, base commit, bug IDs, and file
+paths before dispatch. It does not independently prove line-range or committed
+path compliance after a patch. `--auto-commit` is a separate permission.
 
 Worktree-based fixing uses verified worktree identity and a fresh preservation
 check before cleanup. If safe removal cannot be proven, cleanup stops and
@@ -98,16 +101,16 @@ Artifacts live in `.bug-hunter/`.
 | File | Generated when | Meaning |
 |---|---|---|
 | `triage.json` | every scan | Risk map and selected strategy |
-| `recon.json` | every scan | Stack and attack-surface map |
+| `recon.json` | multi-file scan | Prioritized risk tiers and Recon notes |
 | `hunter-findings.json` | every scan | Canonical Hunter claims |
 | `skeptic.json` | findings exist | Challenges and counter-evidence |
 | `referee.json` | findings exist | Final verdicts |
 | `scan-report.json` | completed scan | Joined counts and verdicts |
 | `report.md` | completed scan | Human-readable report |
-| `coverage.json` | coverage loop | Recorded file outcomes |
+| `coverage.json` | coverage loop | Per-file entries derived from chunk progress |
 | `fix-strategy.json` | planning or fixing | Remediation classes |
 | `fix-plan.json` | planning or fixing | Authorized execution plan |
-| `fix-report.json` | fix run | Patch and verification results |
+| `fix-report.json` | fix run | Verification and final-status results |
 | `threat-model.md` | threat-model run | STRIDE boundaries and flows |
 | `dep-findings.json` | dependency run | Supported audit results |
 

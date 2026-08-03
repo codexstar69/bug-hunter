@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Agent-neutral natural-language requests lead the README and installer output;
   slash commands are documented as an optional agent interface.
+- README restores detailed adversarial review, security classification, threat
+  modeling, dependency scanning, fix safety, CI/CD, language, framework, and
+  architecture coverage while keeping fast onboarding above the fold.
+- Current-source installation examples use the GitHub source archive until npm
+  `latest` reaches `3.1.1`.
+- Approval, preview, scope, canary, commit, and rollback documentation states
+  the limits of the current runtime instead of promising unenforced behavior.
 - Package installation has no lifecycle script; setup starts only when the
   user runs the explicit install command.
 - Explicit agent selection is the recommended installation path.
@@ -41,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parser and reports other ecosystems as `scanner-unsupported`.
 - Source-only fixture guidance no longer implies that the npm package contains
   development fixtures.
+- Hunter output instructions no longer request trailing prose after the
+  canonical JSON array.
 
 ## [3.1.0] - 2026-08-03
 

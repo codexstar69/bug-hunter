@@ -636,8 +636,8 @@ function info() {
     console.log('');
   }
 
-  console.log('  Install:  npx --yes @codexstar/bug-hunter install --agent <name>');
-  console.log('  Verify:   npx --yes @codexstar/bug-hunter doctor --agent <name>');
+  console.log('  Install:  npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent <name>');
+  console.log('  Verify:   npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent <name>');
   console.log('  Repo:     https://github.com/codexstar69/bug-hunter');
   console.log('');
 }

@@ -7,6 +7,8 @@ prompt: |
   can we do that so everything is end to end seamless and anyone and
   specially agents can understand easily how to use it all properly
 
+  you removed a lot of content that helped rank it om google - bring it back
+
   Use @README.md, @SKILL.md, @docs/getting-started.md,
   @docs/cli-reference.md, and @docs/how-it-works.md as source material.
 ---
@@ -140,13 +142,16 @@ This produces strategy and plan artifacts, then stops before the Fixer.
 ## Preview changes
 
 ```text
-Use the bug-hunter skill to preview fixes for confirmed findings.
-Do not apply the patches.
+Use the bug-hunter skill to build a remediation strategy and fix plan.
+Do not edit files.
 ```
 
 ```text
 /bug-hunter --preview
 ```
+
+Current preview mode produces strategy and plan output without source edits.
+It does not yet produce a schema-backed patch diff.
 
 ## Apply fixes with approval
 
@@ -159,6 +164,9 @@ Do not commit.
 ```text
 /bug-hunter --fix --approve
 ```
+
+`--approve` requests the host's reviewed/default permission mode. Approval
+prompts depend on the coding agent.
 
 `--safe` is an alias:
 
@@ -185,8 +193,9 @@ Commit permission is separate:
 /bug-hunter --autonomous --auto-commit
 ```
 
-The commit flag only allows scoped commits from the approved fix plan. It does
-not authorize unrelated files.
+The commit flag grants commit permission for the approved plan. Review the
+harvested commit paths before merging; current validation does not independently
+enforce every committed path after a Fixer creates a commit.
 
 ## Ask the agent to prove completion
 

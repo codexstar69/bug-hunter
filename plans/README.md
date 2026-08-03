@@ -45,6 +45,11 @@ onboarding and release plan. It covers explicit agent installation, installed
 runtime verification, focused packaged guides, accurate capability boundaries,
 and the npm Trusted Publisher gate.
 
+@plans/009-readme-discoverability-restoration.md corrects the overly aggressive
+README compression from plan 008. It keeps fast onboarding above the fold while
+restoring accurate long-form product, security, ecosystem, and workflow
+coverage.
+
 ## Execution rules
 
 - Do not start implementation until the user approves the relevant plan.

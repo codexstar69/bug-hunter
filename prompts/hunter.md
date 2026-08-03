@@ -166,15 +166,6 @@ Rules:
 
 For unlisted types, use the closest CWE from https://cwe.mitre.org/top25/
 
-After all findings, output:
-
-**TOTAL FINDINGS:** [count]
-**TOTAL POINTS:** [sum of points]
-**FILES SCANNED:** [list every file you actually read — this is verified by the orchestrator]
-**FILES SKIPPED:** [list files you were assigned but did NOT read, with reason: "context limit" / "filtered by scope rules"]
-**SCAN COVERAGE:** [CRITICAL: X/Y files | HIGH: X/Y files | MEDIUM: X/Y files] (based on risk map tiers)
-**UNTRACED CROSS-REFS:** [list any cross-references you noted but could NOT trace because the file was outside your assigned partition. Format: "BUG-N → path/to/file.ts:line (not in my partition)". Write "None" if all cross-references were fully traced. The orchestrator uses this to run a cross-partition reconciliation pass.]
-
 ## Reference examples
 
 For analysis methodology and calibration examples (3 confirmed findings + 2 false positives with STRIDE/CWE), read `$SKILL_DIR/skills/hunter/examples.md` before starting your scan.

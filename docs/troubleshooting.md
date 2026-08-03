@@ -7,6 +7,8 @@ prompt: |
   can we do that so everything is end to end seamless and anyone and
   specially agents can understand easily how to use it all properly
 
+  you removed a lot of content that helped rank it om google - bring it back
+
   Use @bin/bug-hunter, @README.md, @docs/agent-installation.md,
   @docs/getting-started.md, @SKILL.md, and @SECURITY.md as source material.
 ---
@@ -18,7 +20,7 @@ prompt: |
 Verify the same target used during installation:
 
 ```bash
-npx --yes @codexstar/bug-hunter doctor --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
 Then:
@@ -36,8 +38,8 @@ If the agent uses a nonstandard skill directory, reinstall and verify with
 Run installation and verification with the same package source:
 
 ```bash
-npx --yes @codexstar/bug-hunter install --agent codex
-npx --yes @codexstar/bug-hunter doctor --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
 If a global `bug-hunter` command reports another version, check:

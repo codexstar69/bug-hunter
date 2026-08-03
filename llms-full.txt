@@ -66,14 +66,14 @@ Use an explicit target. Verify with `doctor --agent <target>`.
 | `--staged` | Review staged files |
 | `--pr [current\|recent\|N]` | Review a pull request |
 | `--pr-security` | Pull-request security workflow |
-| `--scan-only`, `--review` | Force report-only behavior |
+| `--scan-only`, `--review` | Request report-only behavior; do not combine with mutation flags |
 | `--plan-only`, `--plan` | Build strategy and plan, then stop |
 | `--fix` | Permit reviewed fixes |
-| `--approve` | Require approval per fix |
+| `--approve` | Request the host's reviewed/default permission mode |
 | `--safe` | Alias for `--fix --approve` |
-| `--dry-run`, `--preview` | Render patches without applying them |
+| `--dry-run`, `--preview` | Build strategy and plan without source edits |
 | `--autonomous` | Permit unattended fixing |
-| `--auto-commit` | Permit scoped commits during fixing |
+| `--auto-commit` | Grant commit permission during authorized fixing |
 | `--loop` | Continue until queued coverage is complete |
 | `--deps` | Audit supported Node.js dependencies |
 | `--threat-model` | Generate or load a STRIDE threat model |
@@ -87,7 +87,8 @@ Internal script options such as `--worker-cmd`, `--max-iterations`, and
 
 - Scan-only is the default.
 - Only Referee-confirmed bug IDs can enter a fix plan.
-- Fixer scope binds repository root, base commit, files, and ranges.
+- Fixer scope binds repository root, base commit, bug IDs, and file paths.
+- Claimed line ranges remain review context in the fix plan.
 - Referee timeout or invalid output marks findings unreviewed and disables
   fixing for them.
 - Git safety failure stops Phase 2.

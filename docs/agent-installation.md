@@ -7,19 +7,25 @@ prompt: |
   can we do that so everything is end to end seamless and anyone and
   specially agents can understand easily how to use it all properly
 
+  you removed a lot of content that helped rank it om google - bring it back
+
   Use @README.md, @bin/bug-hunter, @package.json,
   @docs/getting-started.md, and @docs/troubleshooting.md as source material.
 ---
 
 # Agent installation
 
-## Install from npm
+## Install the current GitHub source
 
 Pass the target explicitly:
 
 ```bash
-npx --yes @codexstar/bug-hunter install --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 ```
+
+The npm `latest` tag still points to an older release while `3.1.1` publishing
+is pending. After npm catches up, `@codexstar/bug-hunter` can replace the
+GitHub package specifier.
 
 The installer copies the complete managed runtime and writes
 `.bug-hunter-install-manifest.json`. Repeating the command performs an atomic
@@ -44,7 +50,7 @@ Install into several targets by running the command once for each target.
 ## Verify a target
 
 ```bash
-npx --yes @codexstar/bug-hunter doctor --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
 Target verification checks:
@@ -62,16 +68,16 @@ The check ignores user-owned files that are outside the managed manifest.
 Use `--path` when an agent reads skills from another directory:
 
 ```bash
-npx --yes @codexstar/bug-hunter install \
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install \
   --path "$HOME/my-agent/skills/bug-hunter"
 
-npx --yes @codexstar/bug-hunter doctor \
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor \
   --path "$HOME/my-agent/skills/bug-hunter"
 ```
 
 `--path` takes precedence if both `--path` and `--agent` are present.
 
-## Install the current GitHub source
+## Install from a cloned source checkout
 
 Use this path when testing an unreleased commit:
 
@@ -87,11 +93,11 @@ The doctor command considers the source checkout's package version current.
 
 ## Update
 
-Run the npm install command again:
+Run the same GitHub-source command again:
 
 ```bash
-npx --yes @codexstar/bug-hunter install --agent codex
-npx --yes @codexstar/bug-hunter doctor --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
 Restart the coding agent after the update if it caches skill definitions.
@@ -101,7 +107,7 @@ Restart the coding agent after the update if it caches skill definitions.
 A global CLI is optional:
 
 ```bash
-npm install -g @codexstar/bug-hunter
+npm install -g https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz
 bug-hunter install --agent codex
 bug-hunter doctor --agent codex
 ```
