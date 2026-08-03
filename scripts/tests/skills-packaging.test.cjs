@@ -9,6 +9,7 @@ test('package.json ships the bundled local security skills', () => {
   const packageJson = require(resolveSkillScript('..', 'package.json'));
   assert.equal(Array.isArray(packageJson.files), true);
   assert.equal(packageJson.files.includes('skills/'), true);
+  assert.equal(packageJson.scripts.postinstall, undefined);
 });
 
 test('bundled local security skills exist with SKILL.md entrypoints', () => {
@@ -39,13 +40,17 @@ test('CI uses supported Node releases and installs the locked toolchain', () => 
   assert.doesNotMatch(workflow, /node-version: \[(?:18|20)/);
 });
 
-test('publish workflow is release-only and requests npm provenance', () => {
+test('publish workflow is release-only and uses npm trusted publishing', () => {
   const workflow = fs.readFileSync(
     resolveSkillScript('..', '.github', 'workflows', 'publish.yml'),
     'utf8'
   );
   assert.doesNotMatch(workflow, /workflow_dispatch/);
   assert.match(workflow, /node scripts\/prepublish-guard\.cjs/);
-  assert.match(workflow, /npm publish --access public --provenance/);
+  assert.match(workflow, /npm publish --access public/);
   assert.match(workflow, /id-token: write/);
+  assert.match(workflow, /actions\/checkout@v6/);
+  assert.match(workflow, /actions\/setup-node@v6/);
+  assert.match(workflow, /refs\/remotes\/origin\/main/);
+  assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN/);
 });

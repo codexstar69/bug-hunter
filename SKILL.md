@@ -543,11 +543,19 @@ Then apply hash-based skip filtering before each chunk:
 node "$SKILL_DIR/scripts/bug-hunter-state.cjs" hash-filter ".bug-hunter/state.json" "<chunk-files-json-path>"
 ```
 
-For full autonomous chunk orchestration with timeouts, retries, and journaling, extended/scaled modes can use:
+For full autonomous chunk orchestration with timeouts, retries, and
+journaling, extended/scaled modes can use the composition runner only after
+the selected backend provides an executable worker command template:
 ```
-node "$SKILL_DIR/scripts/run-bug-hunter.cjs" run --skill-dir "$SKILL_DIR" --files-json "<files-json-path>" --mode "<mode>"
+node "$SKILL_DIR/scripts/run-bug-hunter.cjs" run \
+  --skill-dir "$SKILL_DIR" \
+  --files-json "<files-json-path>" \
+  --worker-cmd "<backend worker command template>" \
+  --mode "<mode>"
 ```
-See `run-bug-hunter.cjs --help` for all options (delta-mode, canary-size, expand-on-low-confidence, etc.).
+The template must write the requested canonical output and use the placeholders
+described by `run-bug-hunter.cjs --help`. Do not call `run` without
+`--worker-cmd`; there is no no-op worker.
 
 ---
 
@@ -729,18 +737,18 @@ repository first. Never run fixture mutations against the parent checkout.
 | Gap-fill Hunter | timeout/error | Note missed files, continue |
 | Payload guard | validation fails | Do not launch subagent; fix payload and retry |
 | Chunk orchestrator | timeout/error | Retry with exponential backoff, then mark chunk failed |
-| Skeptic | timeout/error | Use single Skeptic or accept all findings as-is |
-| Referee | timeout/error | Use Skeptic's accepted list as final result |
-| Git safety (Step 8a) | not a git repo | Warn user, skip branching |
-| Git safety (Step 8a) | stash/branch fails | Warn, continue without safety net |
+| Skeptic | timeout/error | Retry once; otherwise mark affected findings `unreviewed` and disable fixing for them |
+| Referee | timeout/error | Mark affected findings `unreviewed`; disable fixing and report scan-only partial results |
+| Git safety (Step 8a) | not a git repo | Stop Phase 2; keep the scan and plan available without edits |
+| Git safety (Step 8a) | stash/branch fails | Stop Phase 2; preserve the current tree and report recovery steps |
 | Fix lock | lock held | Stop Phase 2, report concurrent fixer run |
 | Test baseline (Step 8c) | timeout/not found | Set BASELINE=null, skip test verification |
 | Fixer | timeout/error | Mark unfixed bugs as SKIPPED |
 | Post-fix tests | new failures | Auto-revert failed fix commit, mark FIX_REVERTED |
 | Post-fix re-scan | timeout/error | Skip re-scan, note "fixer output not re-verified" |
-| Worktree prepare | `git worktree add` fails | Fall back to `WORKTREE_MODE=false` (direct edit mode) for this run |
+| Worktree prepare | `git worktree add` fails | Stop that fix batch; do not fall back to direct edits |
 | Worktree harvest | no commits found, dirty | Stash uncommitted work, mark bugs as `FIX_FAILED` (reason: fixer-did-not-commit) |
 | Worktree harvest | branch switched | Mark all bugs in batch as `FIX_FAILED` (reason: branch-switched) |
-| Worktree cleanup | `git worktree remove` fails | Force-remove directory, run `git worktree prune` |
-| Stale worktrees | from previous crash | `cleanup-all` at Step 8a-wt removes them before starting |
+| Worktree cleanup | `git worktree remove` fails | Preserve the directory and report the exact recovery path |
+| Stale worktrees | from previous crash | Verify and harvest each worktree; stop if safe cleanup cannot be proven |
 | Fix lock release | release fails | Warn user to clear `.bug-hunter/fix.lock` manually |

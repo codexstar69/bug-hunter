@@ -1,6 +1,6 @@
 {
   "name": "@codexstar/bug-hunter",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Adversarial AI bug hunter — verifies security, logic, and runtime bugs, with explicit reviewed or autonomous fixing modes.",
   "license": "MIT",
   "main": "bin/bug-hunter",
@@ -72,6 +72,12 @@
     "modes/",
     "agents/",
     "skills/",
+    "docs/getting-started.md",
+    "docs/agent-installation.md",
+    "docs/usage-guide.md",
+    "docs/cli-reference.md",
+    "docs/how-it-works.md",
+    "docs/troubleshooting.md",
     "SKILL.md",
     "README.md",
     "CHANGELOG.md",
@@ -104,8 +110,7 @@
     "check:compat-prompts": "node scripts/generate-compat-prompts.cjs --check",
     "check:generated": "pnpm check:schema-validators && pnpm check:compat-prompts",
     "verify:package": "node scripts/verify-package-inventory.cjs",
-    "doctor": "node bin/bug-hunter doctor",
-    "postinstall": "node -e \"console.log('\\n  Run: bug-hunter install    to set up the skill\\n  Run: bug-hunter doctor     to check your environment\\n')\""
+    "doctor": "node bin/bug-hunter doctor"
   },
   "devDependencies": {
     "ajv": "^8.20.0",

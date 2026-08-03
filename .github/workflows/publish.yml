@@ -12,7 +12,7 @@ jobs:
   publish-npm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -20,29 +20,34 @@ jobs:
         with:
           version: 10.28.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: pnpm
+          package-manager-cache: false
 
-      - name: Bind checkout to release source
+      - name: Bind checkout to the release tag and main
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          TARGET_BRANCH: ${{ github.event.release.target_commitish }}
         run: |
-          git check-ref-format --branch "$TARGET_BRANCH"
-          git show-ref --verify "refs/remotes/origin/$TARGET_BRANCH"
-          git switch --force-create release-source --track "origin/$TARGET_BRANCH"
-
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           if [ "$RELEASE_TAG" != "v$PACKAGE_VERSION" ]; then
             echo "package.json version $PACKAGE_VERSION does not match release tag $RELEASE_TAG"
             exit 1
           fi
+
           git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}"
           test "$(git rev-parse HEAD^{commit})" = \
             "$(git rev-parse refs/tags/$RELEASE_TAG^{commit})"
+          git show-ref --verify refs/remotes/origin/main
+          test "$(git rev-parse HEAD^{commit})" = \
+            "$(git rev-parse refs/remotes/origin/main^{commit})"
+          git switch --force-create release-source --track origin/main
+
+      - name: Use an OIDC-capable npm CLI
+        run: |
+          npm install --global npm@12.0.2
+          npm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -54,6 +59,4 @@ jobs:
         run: node scripts/prepublish-guard.cjs
 
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public

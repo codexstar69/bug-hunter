@@ -1,3 +1,13 @@
+---
+title: Contributing to Bug Hunter
+description: >
+  Set up the source checkout, change runtime or prompt contracts, and validate
+  a pull request.
+prompt: |
+  Keep contributor setup aligned with @package.json,
+  @.github/workflows/ci.yml, @scripts/tests/, and @SKILL.md.
+---
+
 # Contributing to Bug Hunter
 
 Thanks for your interest in contributing. Bug Hunter is an open-source adversarial code auditing skill for AI coding agents.
@@ -15,12 +25,17 @@ Thanks for your interest in contributing. Bug Hunter is an open-source adversari
 ```bash
 git clone https://github.com/codexstar69/bug-hunter.git
 cd bug-hunter
+pnpm install --frozen-lockfile
 
-# Run the test suite (25 tests)
-node --test scripts/tests/*.test.cjs
+# Verify generated runtime files and run the suite
+pnpm check:generated
+pnpm test
 
-# Run the self-test against the test fixture
+# Run the runtime preflight
 node scripts/run-bug-hunter.cjs preflight --skill-dir .
+
+# Inspect the npm package allowlist
+pnpm verify:package
 
 # Optional: install Context Hub CLI for doc verification testing
 npm install -g @aisuite/chub
@@ -31,14 +46,15 @@ npm install -g @aisuite/chub
 1. Keep PRs focused — one concern per PR
 2. Test your changes against the `test-fixture/` directory
 3. If modifying agent prompts, explain the reasoning and expected impact on false positive / true positive rates
-4. Run `node --test scripts/tests/*.test.cjs` to verify all tests pass
+4. Run `pnpm check:generated` and `pnpm test`
 5. Run `node scripts/run-bug-hunter.cjs preflight --skill-dir .` to verify preflight checks
 6. Update `CHANGELOG.md` with your changes
 
 ## Code Style
 
 - Scripts use CommonJS (`.cjs`) for maximum compatibility across agent runtimes
-- No external dependencies in scripts — Node.js built-ins only
+- Runtime scripts use Node.js built-ins; generation and validation commands
+  use the development dependencies declared in `package.json`
 - Prompts are markdown — keep them concise and structured
 
 ## Prompt Changes

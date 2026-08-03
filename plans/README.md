@@ -40,6 +40,11 @@ map. Its corrections are integrated into @plans/007-complete-fix-plan.md,
 including the corrected safe-test selection and the separate 1b, 4a, and 4b
 gates.
 
+@plans/008-seamless-onboarding-and-agent-usage.md is the post-remediation
+onboarding and release plan. It covers explicit agent installation, installed
+runtime verification, focused packaged guides, accurate capability boundaries,
+and the npm Trusted Publisher gate.
+
 ## Execution rules
 
 - Do not start implementation until the user approves the relevant plan.

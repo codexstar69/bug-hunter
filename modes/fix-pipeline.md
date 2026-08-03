@@ -14,7 +14,8 @@ report.
 
 Before touching code:
 1. Run `git rev-parse --is-inside-work-tree`:
-   - If not a git repo, warn and continue without rollback features.
+   - If not a git repo, stop Phase 2. Keep the scan report and fix plan, but do
+     not edit source files.
 2. If in git (skip branching and stash if `DRY_RUN_MODE=true`):
    - Capture `ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)`
    - Capture `FIX_BASE_COMMIT=$(git rev-parse HEAD)` (used later for exact post-fix diff)
@@ -22,6 +23,9 @@ Before touching code:
    - If dirty working tree, run `git stash push -m "bug-hunter-pre-fix-$(date +%s)"` and record `STASH_CREATED=true`
    - Create fix branch: `git checkout -b bug-hunter-fix-$(date +%Y%m%d-%H%M%S)`
    - Record `FIX_BRANCH` = the branch name
+
+If status inspection, stash, base-ref capture, or branch creation fails, stop
+Phase 2. Do not continue without the rollback boundary.
 
 Report:
 - Fix branch name
@@ -38,6 +42,11 @@ If `AUTO_COMMIT=true`, `AGENT_BACKEND` is `subagent` or `teams`, and
    node "$SKILL_DIR/scripts/worktree-harvest.cjs" cleanup-all ".bug-hunter/worktrees"
    ```
 2. Set `WORKTREE_MODE=true`.
+
+If stale cleanup, worktree preparation, identity verification, harvest, or
+cleanup fails, stop the affected fix batch. Preserve the worktree and report
+its path. Never fall back to direct edits after a requested worktree boundary
+fails.
 
 If `AUTO_COMMIT=false`, `AGENT_BACKEND` is `local-sequential` or
 `interactive_shell`, or `worktree-harvest.cjs` is missing:

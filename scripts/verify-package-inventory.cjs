@@ -6,7 +6,8 @@ const path = require('path');
 const MAX_TARBALL_BYTES = 2 * 1024 * 1024;
 const MAX_UNPACKED_BYTES = 5 * 1024 * 1024;
 const FORBIDDEN_PREFIXES = [
-  'docs/',
+  'docs/images/',
+  'docs/plans/',
   'evals/',
   'plans/',
   'scripts/tests/',

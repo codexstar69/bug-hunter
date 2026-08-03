@@ -170,14 +170,10 @@ Each iteration follows the **check-continue → run → log** pattern:
 
    **If `continue` is false, the loop MUST stop.** Do not override.
 
-2. **Run experiment** — execute the pipeline and measure:
-   ```bash
-   node scripts/experiment-loop.cjs run \
-     .bug-hunter/experiment.jsonl \
-     "node scripts/run-bug-hunter.cjs run --files-json .bug-hunter/triage-files.json" \
-     --stop-file .bug-hunter/experiment.stop \
-     --checks-script .bug-hunter/experiment.checks.sh
-   ```
+2. **Run experiment** — execute the selected mode's complete Recon, Hunter,
+   Skeptic, and Referee pipeline and measure it. If the backend uses
+   `run-bug-hunter.cjs run`, it must provide the required `--worker-cmd`
+   template. Do not use a no-op or omitted worker command.
 
    The run command:
    - Checks the stop file before executing (GUARDRAIL)
@@ -190,15 +186,17 @@ Each iteration follows the **check-continue → run → log** pattern:
    ```bash
    node scripts/experiment-loop.cjs log \
      .bug-hunter/experiment.jsonl \
-     keep \          # or: discard, crash, checks_failed
-     12 \            # primary metric value (e.g., bugs confirmed)
+     keep \
+     12 \
      --description "Iteration 3: scanned auth + payments modules" \
-     --secondary '{"false_positives":2,"files_scanned":15,"fix_success_rate":85}'
+     --secondary '{"false_positives":2,"files_scanned":15,"fix_success_rate":85}' \
+     --auto-commit false
    ```
 
    The log command:
    - Validates secondary metric consistency (GUARDRAIL — rejects missing/new metrics unless `--force true`)
-   - Auto-commits on `keep` status (configurable via `--auto-commit false`)
+   - Does not commit unless `--auto-commit true` is explicitly provided with
+     approved `--allowed-path` values
    - Computes delta from baseline (% improvement)
    - Returns whether this is the new best result
 

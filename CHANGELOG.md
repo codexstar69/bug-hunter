@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [3.1.1] - 2026-08-04
+
+### Added
+
+- Focused getting-started, agent-installation, usage, CLI, architecture, and
+  troubleshooting guides that ship with the npm runtime.
+- `bug-hunter doctor --agent <name>` and `doctor --path <dir>` checks for the
+  installed manifest, package version, managed inventory, and runtime files.
+- Onboarding contract tests for local links, interface boundaries, capability
+  claims, packaged guides, installed-copy verification, and upgrade failures.
+
+### Changed
+
+- Agent-neutral natural-language requests lead the README and installer output;
+  slash commands are documented as an optional agent interface.
+- Package installation has no lifecycle script; setup starts only when the
+  user runs the explicit install command.
+- Explicit agent selection is the recommended installation path.
+- LLM-facing references separate terminal installer commands from in-agent
+  scan arguments and link to focused guides.
+- Contributor setup follows the generated-file, test, preflight, and package
+  checks used in CI.
+
+### Fixed
+
+- Referee, Git-safety, and worktree-preparation failures disable fixing instead
+  of accepting unreviewed findings or falling back to unsafe direct edits.
+- Loop examples provide required worker context, use valid shell syntax, and
+  state that experiment commits are opt-in.
+- Dependency documentation matches the implemented JavaScript and TypeScript
+  parser and reports other ecosystems as `scanner-unsupported`.
+- Source-only fixture guidance no longer implies that the npm package contains
+  development fixtures.
+
 ## [3.1.0] - 2026-08-03
 
 ### Security
@@ -157,8 +193,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SKILL.md` frontmatter now validates cleanly against the `skill-creator` validator
 - `evals/evals.json` now matches the current `.bug-hunter/*` JSON-first pipeline, default loop/fix behavior, and modern flags like `--deps`, `--threat-model`, `--dry-run`, and `--autonomous`
 - npm package files now include the `agents/` directory so `openai.yaml` ships with the published skill
-
-## [Unreleased]
 
 ## [3.0.4] - 2026-03-11
 
@@ -317,7 +351,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage enforcement - partial audits produce explicit warnings
 - Large codebase strategy with domain-first tiered scanning
 
-[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.0.9...HEAD
+[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.1.1...HEAD
+[3.1.1]: https://github.com/codexstar69/bug-hunter/compare/v3.1.0...v3.1.1
+[3.1.0]: https://github.com/codexstar69/bug-hunter/compare/v3.0.10...v3.1.0
+[3.0.10]: https://github.com/codexstar69/bug-hunter/compare/v3.0.9...v3.0.10
 [3.0.9]: https://github.com/codexstar69/bug-hunter/compare/v3.0.8...v3.0.9
 [3.0.8]: https://github.com/codexstar69/bug-hunter/compare/v3.0.7...v3.0.8
 [3.0.7]: https://github.com/codexstar69/bug-hunter/compare/v3.0.5...v3.0.7

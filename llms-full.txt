@@ -1,190 +1,150 @@
-# Bug Hunter — Full Reference
+# Bug Hunter agent reference
 
-> AI-powered adversarial bug finding that argues with itself to surface real vulnerabilities — and auto-fixes them safely.
+## Purpose
 
-## Overview
+Bug Hunter is a file-based skill for AI coding agents. It audits code through
+adversarial review:
 
-Bug Hunter is an automated adversarial code auditing skill for AI coding agents. Instead of a single AI scanning code and flooding you with false alarms, it runs an adversarial multi-agent pipeline: one agent hunts for bugs, a second agent tries to disprove them, and a third agent delivers an independent final verdict.
+1. Triage classifies file risk.
+2. Recon maps architecture and trust boundaries.
+3. Hunter records evidence-backed bug claims.
+4. Documentation lookup checks version-sensitive behavior.
+5. Skeptic tries to disprove each claim.
+6. Referee issues final verdicts.
+7. The pipeline writes canonical JSON and a human-readable report.
+8. Fix planning and fixing run only when explicitly requested.
 
-## Skills-First Architecture
+## Interface boundary
 
-All pipeline agents are bundled as first-class skills with frontmatter under `skills/`. The orchestrator (`SKILL.md`) reads agent skills at each phase:
+Terminal CLI:
 
-```
-Recon (skills/recon/)
-  → Hunter (skills/hunter/) + doc-lookup (skills/doc-lookup/)
-    → Skeptic (skills/skeptic/) + doc-lookup
-      → Referee (skills/referee/)
-        → Fix Strategy + Fix Plan
-          → Fixer (skills/fixer/) + doc-lookup
-```
-
-### Core Agent Skills
-
-| Skill | Purpose |
-|-------|---------|
-| `skills/hunter/SKILL.md` | Deep behavioral code analysis — logic errors, security vulns, race conditions |
-| `skills/skeptic/SKILL.md` | Adversarial reviewer — challenges every finding, kills false positives |
-| `skills/referee/SKILL.md` | Independent arbiter — delivers verdicts with CVSS scoring and PoC |
-| `skills/fixer/SKILL.md` | Surgical code repair — minimal fixes respecting strategy classifications |
-| `skills/recon/SKILL.md` | Codebase reconnaissance — maps architecture, trust boundaries, risk priorities |
-| `skills/doc-lookup/SKILL.md` | Documentation access — Context Hub (chub) primary, Context7 fallback |
-
-### Security Skills
-
-| Skill | Purpose | Trigger |
-|-------|---------|---------|
-| `skills/commit-security-scan/SKILL.md` | Diff-scoped PR/commit security review | `--pr-security` |
-| `skills/security-review/SKILL.md` | Full security workflow (threat model + code + deps + validation) | `--security-review` |
-| `skills/threat-model-generation/SKILL.md` | STRIDE threat model bootstrap/refresh | `--threat-model` |
-| `skills/vulnerability-validation/SKILL.md` | Exploitability/reachability/CVSS/PoC validation | `--validate-security` |
-
-## Pipeline Architecture
-
-### Phase 1: Triage (0 tokens, <2s)
-`scripts/triage.cjs` classifies every file by risk tier (CRITICAL/HIGH/MEDIUM/LOW/SKIP) using filename patterns, directory structure, and file size heuristics. Outputs `.bug-hunter/triage.json`.
-
-### Phase 2: Recon
-`skills/recon/SKILL.md` — maps the tech stack, auth mechanisms, database layer, and key dependencies. Produces a risk map.
-
-### Phase 3: Hunt
-`skills/hunter/SKILL.md` — scans files in risk-map order (CRITICAL → HIGH → MEDIUM). Reports behavioral bugs with exact code evidence, runtime triggers, and cross-file references. Verifies claims against official documentation via `scripts/doc-lookup.cjs`.
-
-### Phase 4: Skeptic Challenge
-`skills/skeptic/SKILL.md` — re-reads actual source code for every finding and attempts to disprove it. Applies 15 hard exclusion rules. Uses risk calculations (EV = confidence × points - (1-confidence) × 2×points) to decide ACCEPT vs DISPROVE.
-
-### Phase 5: Referee Verdict
-`skills/referee/SKILL.md` — reads original code, Hunter findings, and Skeptic challenges. Delivers final verdicts. Enriches security findings with STRIDE, CWE, CVSS 3.1, reachability analysis, and proof-of-concept blocks.
-
-### Phase 6: Fix Strategy + Plan
-`buildFixStrategy()` classifies confirmed bugs into: `safe-autofix`, `manual-review`, `larger-refactor`, or `architectural-remediation`. `buildFixPlan()` gates execution by `autofixEligible` flag, splits into canary/rollout batches.
-
-### Phase 7: Fix (optional)
-`skills/fixer/SKILL.md` — surgical auto-fix with git branching, worktree isolation, test baseline capture, canary rollout, per-bug commits, automatic rollback on test regression, and post-fix re-scan.
-
-## Documentation Verification
-
-Bug Hunter verifies claims against official library documentation before any agent asserts framework behavior. Uses a hybrid approach:
-
-1. **Context Hub (chub)** — curated, versioned, annotatable docs (primary)
-2. **Context7 API** — broad coverage fallback when chub doesn't have the library
-
-```bash
-# Primary: doc-lookup.cjs (tries chub first, falls back to Context7)
-node scripts/doc-lookup.cjs search "express" "middleware error handling"
-node scripts/doc-lookup.cjs get "prisma/orm" "parameterized queries" --lang js
-
-# Fallback: context7-api.cjs (Context7 only)
-node scripts/context7-api.cjs search "express" "middleware"
-node scripts/context7-api.cjs context "/expressjs/express" "error handling"
+```text
+bug-hunter install [--agent <name>] [--path <dir>] [--skip-doctor]
+bug-hunter doctor [--agent <name>] [--path <dir>]
+bug-hunter info
+bug-hunter --version
+bug-hunter --help
 ```
 
-## Security Classification
+The terminal CLI does not scan repositories.
 
-### STRIDE Threat Categories
-Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege
+Agent request:
 
-### CWE Mapping
-SQL Injection (CWE-89), Command Injection (CWE-78), XSS (CWE-79), Path Traversal (CWE-22), IDOR (CWE-639), Missing Auth (CWE-306/862), Hardcoded Credentials (CWE-798), SSRF (CWE-918), and more.
-
-### CVSS 3.1 Scoring
-Critical and High security findings receive CVSS 3.1 base scores with attack vector, complexity, privileges required, and impact metrics.
-
-## CLI Flags
-
-| Flag | Description |
-|------|-------------|
-| (default) | Single-pass scan, no code changes |
-| `--scan-only` / `--review` | Explicit report-only alias |
-| `--fix` | Enable reviewed fixing |
-| `--fix --approve` / `--safe` | Fix with human approval per edit |
-| `--plan-only` / `--plan` | Build strategy + plan, stop before edits |
-| `--dry-run` / `--preview` | Preview fixes as unified diffs |
-| `-b <branch>` | Scan files changed vs branch |
-| `--staged` | Scan git-staged files |
-| `--pr [current\|recent\|N]` | PR review workflow |
-| `--pr-security` | PR security review (threat model + CVEs) |
-| `--security-review` | Enterprise security audit |
-| `--threat-model` | Generate STRIDE threat model |
-| `--validate-security` | Force vulnerability validation |
-| `--deps` | Include dependency CVE scan |
-| `--autonomous` | No-intervention auto-fix run |
-| `--auto-commit` | Allow scoped commits during an explicit fix run |
-| `--loop` | Iterate until queued coverage is complete |
-| `--no-loop` | Compatibility alias for the default single pass |
-| `--max-iterations <n>` | Hard cap on loop iterations (default: 10) |
-
-## Output Files
-
-| File | Description |
-|------|-------------|
-| `.bug-hunter/triage.json` | File classification and scan strategy |
-| `.bug-hunter/recon.json` | Canonical tech stack and risk map |
-| `.bug-hunter/hunter-findings.json` | Canonical Hunter findings |
-| `.bug-hunter/skeptic.json` | Canonical Skeptic challenges |
-| `.bug-hunter/referee.json` | Canonical Referee verdicts |
-| `.bug-hunter/scan-report.json` | Joined final report with run metadata |
-| `.bug-hunter/report.md` | Final human-readable report |
-| `.bug-hunter/fix-strategy.json` | Fix classification (safe-autofix/manual-review/etc) |
-| `.bug-hunter/fix-strategy.md` | Human-readable strategy |
-| `.bug-hunter/fix-plan.json` | Executable fix plan (canary/rollout) |
-| `.bug-hunter/fix-report.json` | Fix results |
-| `.bug-hunter/coverage.json` | Loop coverage state |
-| `.bug-hunter/coverage.md` | Coverage summary |
-| `.bug-hunter/experiment.jsonl` | Experiment loop log (append-only, metric tracking) |
-| `.bug-hunter/threat-model.md` | STRIDE threat model |
-| `.bug-hunter/dep-findings.json` | Dependency CVE results |
-
-## Supported Languages
-
-JavaScript, TypeScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, C/C++
-
-## Supported Frameworks
-
-Express, Fastify, Next.js, Django, Flask, FastAPI, Gin, Echo, Actix, Spring Boot, Rails, Laravel — and any framework with docs in Context Hub or Context7.
-
-## Project Structure
-
-```
-bug-hunter/
-├── SKILL.md               # Orchestrator — routes to skills/
-├── README.md              # Full documentation
-├── CHANGELOG.md           # Version history
-├── package.json           # npm package (@codexstar/bug-hunter)
-├── bin/bug-hunter         # CLI entry point
-├── skills/                # All agent skills (core + security)
-│   ├── hunter/            # Bug finding
-│   ├── skeptic/           # False positive elimination
-│   ├── referee/           # Final verdicts
-│   ├── fixer/             # Surgical fixes
-│   ├── recon/             # Codebase mapping
-│   ├── doc-lookup/        # Documentation verification
-│   ├── commit-security-scan/
-│   ├── security-review/
-│   ├── threat-model-generation/
-│   └── vulnerability-validation/
-├── modes/                 # Execution strategies by codebase size
-├── prompts/               # Generated compatibility copies of role skills
-├── schemas/               # JSON Schema contracts for all artifacts
-├── scripts/               # Node.js helpers (zero AI tokens)
-│   ├── run-bug-hunter.cjs    # Main orchestrator script
-│   ├── experiment-loop.cjs   # Autonomous experiment loop with metrics + stop-file
-│   ├── doc-lookup.cjs        # Context Hub + Context7 doc lookup
-│   ├── context7-api.cjs      # Context7 standalone fallback
-│   ├── prepublish-guard.cjs  # Publish safety net
-│   └── tests/                # Executable regression suite
-├── templates/             # Subagent launch template
-└── test-fixture/          # 6 planted bugs for validation
+```text
+Use the bug-hunter skill to scan this repository. Do not edit files.
 ```
 
-## Install
+Optional slash form:
 
-```bash
-npm install -g @codexstar/bug-hunter && bug-hunter install
+```text
+/bug-hunter
 ```
 
-Requirements: Node.js 22+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot.
+## Install targets
 
-## License
+| Agent | Target |
+|---|---|
+| Claude Code | `claude-code` |
+| Codex | `codex` |
+| Generic skills | `agents` |
+| Cursor | `cursor` |
+| Kiro | `kiro` |
+| GitHub Copilot | `copilot` |
+| Windsurf | `windsurf` |
+| OpenCode | `opencode` |
 
-MIT
+Use an explicit target. Verify with `doctor --agent <target>`.
+
+## Skill arguments
+
+| Argument | Behavior |
+|---|---|
+| no arguments | Scan current repository without edits |
+| `<path>` | Scan one path |
+| `-b <branch>` | Scan a branch diff |
+| `--base <branch>` | Select branch-diff base |
+| `--staged` | Review staged files |
+| `--pr [current\|recent\|N]` | Review a pull request |
+| `--pr-security` | Pull-request security workflow |
+| `--scan-only`, `--review` | Force report-only behavior |
+| `--plan-only`, `--plan` | Build strategy and plan, then stop |
+| `--fix` | Permit reviewed fixes |
+| `--approve` | Require approval per fix |
+| `--safe` | Alias for `--fix --approve` |
+| `--dry-run`, `--preview` | Render patches without applying them |
+| `--autonomous` | Permit unattended fixing |
+| `--auto-commit` | Permit scoped commits during fixing |
+| `--loop` | Continue until queued coverage is complete |
+| `--deps` | Audit supported Node.js dependencies |
+| `--threat-model` | Generate or load a STRIDE threat model |
+| `--security-review` | Full bundled security workflow |
+| `--validate-security` | Force security-finding validation |
+
+Internal script options such as `--worker-cmd`, `--max-iterations`, and
+`--confidence-threshold` are not top-level skill arguments.
+
+## Safety contract
+
+- Scan-only is the default.
+- Only Referee-confirmed bug IDs can enter a fix plan.
+- Fixer scope binds repository root, base commit, files, and ranges.
+- Referee timeout or invalid output marks findings unreviewed and disables
+  fixing for them.
+- Git safety failure stops Phase 2.
+- Requested worktree isolation never falls back to direct edits.
+- Cleanup preserves a worktree when safe removal cannot be proven.
+- Commit permission is independent from edit permission.
+
+## Output contract
+
+Canonical files under `.bug-hunter/`:
+
+| File | Meaning |
+|---|---|
+| `triage.json` | Risk classification |
+| `recon.json` | Stack and attack surface |
+| `hunter-findings.json` | Hunter claims |
+| `skeptic.json` | Challenges |
+| `referee.json` | Final verdicts |
+| `scan-report.json` | Joined final result |
+| `coverage.json` | Coverage state |
+| `fix-strategy.json` | Remediation classes |
+| `fix-plan.json` | Authorized fix stages |
+| `fixer-scope.json` | Mutation boundary |
+| `fix-report.json` | Patch and check results |
+| `report.md` | Human-readable final report |
+
+JSON files are canonical. Markdown files are rendered views.
+
+## Result rules
+
+- `confirmed`: Referee accepted the finding.
+- `dismissed`: evidence disproved the finding.
+- `manual-review`: automatic remediation is not authorized.
+- `unreviewed`: adversarial review did not complete.
+- `scanner-unsupported`: the requested dependency scanner is not implemented
+  for the ecosystem.
+
+Do not report a clean result when manual-review or unreviewed items remain.
+
+## Language and dependency scope
+
+Agent source analysis supports common JavaScript, TypeScript, Python, Go, Rust,
+Java, Kotlin, Ruby, PHP, C#, Swift, C, and C++ repositories.
+
+Bundled dependency parsing and reachability support JavaScript and TypeScript
+projects using npm, pnpm, Yarn, or Bun lockfiles. Python, Go, and Rust
+dependency ecosystems return `scanner-unsupported`.
+
+## Canonical references
+
+- `SKILL.md`: parser and orchestration contract
+- `modes/dispatch.md`: delegated backend contract
+- `modes/fix-pipeline.md`: mutation workflow
+- `schemas/*.schema.json`: artifact contracts
+- `docs/getting-started.md`: first run
+- `docs/agent-installation.md`: install and verify
+- `docs/usage-guide.md`: prompts and workflows
+- `docs/cli-reference.md`: public interfaces
+- `docs/how-it-works.md`: model and outputs
+- `docs/troubleshooting.md`: recovery

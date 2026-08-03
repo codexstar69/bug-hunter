@@ -41,7 +41,7 @@ function usage() {
 
   Commands:
     install [--agent <name>] [--path <dir>]   Install skill into agent directory
-    doctor                                     Check environment readiness
+    doctor [--agent <name>] [--path <dir>]    Check environment and installation
     info                                       Show skill metadata
 
   Options:
@@ -55,6 +55,8 @@ function usage() {
     bug-hunter install --agent claude-code
     bug-hunter install --path ~/my-skills/bug-hunter
     bug-hunter doctor
+    bug-hunter doctor --agent codex
+    bug-hunter doctor --path ~/my-skills/bug-hunter
   `.trim());
 }
 
@@ -182,10 +184,14 @@ function copyEntry({ sourcePath, targetPath, allowSymbolicLink }) {
   fs.chmodSync(targetPath, stat.mode);
 }
 
-function readPreviousManagedFiles(targetDir) {
+function readInstallManifest(targetDir) {
   const manifestPath = path.join(targetDir, INSTALL_MANIFEST);
   if (!fs.existsSync(manifestPath)) {
-    return new Set();
+    return null;
+  }
+  const manifestStat = fs.lstatSync(manifestPath);
+  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+    throw new Error(`Install manifest must be a regular file: ${manifestPath}`);
   }
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -197,9 +203,22 @@ function readPreviousManagedFiles(targetDir) {
     throw new Error(`Invalid managed install manifest: ${manifestPath}`);
   }
 
-  return new Set(manifest.managedFiles.map((relativePath) => {
+  const managedFiles = manifest.managedFiles.map((relativePath) => {
     return normalizeRelativePath(relativePath);
-  }));
+  });
+  if (new Set(managedFiles).size !== managedFiles.length) {
+    throw new Error(`Install manifest contains duplicate managed files: ${manifestPath}`);
+  }
+
+  return { ...manifest, managedFiles };
+}
+
+function readPreviousManagedFiles(targetDir) {
+  const manifest = readInstallManifest(targetDir);
+  if (!manifest) {
+    return new Set();
+  }
+  return new Set(manifest.managedFiles);
 }
 
 function preserveUserFiles({ targetDir, stagingDir, previousManagedFiles }) {
@@ -334,6 +353,34 @@ function parseInstallArgs(args) {
   return { agentName, skipDoctor, targetDir };
 }
 
+function parseDoctorArgs(args) {
+  let targetDir = null;
+  let agentName = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === '--path') {
+      if (!args[index + 1]) {
+        throw new Error('--path requires a directory');
+      }
+      targetDir = path.resolve(args[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (argument === '--agent') {
+      if (!args[index + 1]) {
+        throw new Error('--agent requires a name');
+      }
+      agentName = args[index + 1];
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown doctor option: ${argument}`);
+  }
+
+  return { agentName, targetDir };
+}
+
 function resolveTarget({ agentName, requestedTargetDir }) {
   if (requestedTargetDir) {
     return { agentName, targetDir: requestedTargetDir };
@@ -407,12 +454,15 @@ function install(args) {
   }
 
   console.log('\n  Installed successfully.\n');
-  console.log('  Usage: /bug-hunter src/');
-  console.log('  Docs:  https://github.com/codexstar69/bug-hunter');
+  console.log('  Ask your agent:');
+  console.log('    Use the bug-hunter skill to scan this repository. Do not edit files.');
+  console.log('');
+  console.log('  Slash command, when supported: /bug-hunter');
+  console.log('  Docs: https://github.com/codexstar69/bug-hunter');
 
   if (!parsedArgs.skipDoctor) {
     console.log('');
-    doctor();
+    doctor(['--path', targetDir]);
   }
 }
 
@@ -426,7 +476,76 @@ function getMinimumNodeMajor() {
   return Number.parseInt(match[1], 10);
 }
 
-function doctor() {
+function verifyInstalledRuntime(targetDir) {
+  if (!fs.existsSync(targetDir)) {
+    throw new Error(`Bug Hunter is not installed at ${targetDir}`);
+  }
+  const targetStat = fs.lstatSync(targetDir);
+  if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) {
+    throw new Error(`Install target must be a real directory: ${targetDir}`);
+  }
+
+  const manifest = readInstallManifest(targetDir);
+  if (!manifest) {
+    throw new Error(`Install manifest is missing: ${path.join(targetDir, INSTALL_MANIFEST)}`);
+  }
+
+  const packageJson = readPackageJson();
+  if (manifest.packageName !== packageJson.name) {
+    throw new Error(
+      `Installed package name ${String(manifest.packageName)} does not match ${packageJson.name}`
+    );
+  }
+  if (manifest.packageVersion !== packageJson.version) {
+    throw new Error(
+      `Installed version ${String(manifest.packageVersion)} is not current ` +
+      `(expected ${packageJson.version})`
+    );
+  }
+
+  const expectedFiles = listRuntimeFiles();
+  const actualFiles = [...manifest.managedFiles].sort();
+  if (
+    expectedFiles.length !== actualFiles.length ||
+    expectedFiles.some((relativePath, index) => {
+      return relativePath !== actualFiles[index];
+    })
+  ) {
+    throw new Error('Installed manifest does not match the current runtime inventory');
+  }
+
+  actualFiles.map((relativePath) => {
+    const installedPath = path.join(targetDir, relativePath);
+    if (!fs.existsSync(installedPath)) {
+      throw new Error(`Installed runtime file is missing: ${relativePath}`);
+    }
+    const installedStat = fs.lstatSync(installedPath);
+    if (!installedStat.isFile() || installedStat.isSymbolicLink()) {
+      throw new Error(`Installed runtime entry must be a regular file: ${relativePath}`);
+    }
+    return relativePath;
+  });
+
+  const installedPackagePath = path.join(targetDir, 'package.json');
+  const installedPackage = JSON.parse(fs.readFileSync(installedPackagePath, 'utf8'));
+  if (
+    installedPackage.name !== manifest.packageName ||
+    installedPackage.version !== manifest.packageVersion
+  ) {
+    throw new Error('Installed package.json does not match the install manifest');
+  }
+
+  return packageJson.version;
+}
+
+function doctor(args = []) {
+  const parsedArgs = parseDoctorArgs(args);
+  const shouldVerifyInstall = Boolean(parsedArgs.agentName || parsedArgs.targetDir);
+  const resolved = shouldVerifyInstall ? resolveTarget({
+    agentName: parsedArgs.agentName,
+    requestedTargetDir: parsedArgs.targetDir
+  }) : null;
+
   console.log('Environment check:\n');
   let issues = 0;
 
@@ -476,6 +595,20 @@ function doctor() {
     issues += 1;
   }
 
+  if (resolved) {
+    try {
+      const installedVersion = verifyInstalledRuntime(path.resolve(resolved.targetDir));
+      console.log(`  [ok] Bug Hunter runtime v${installedVersion} is current and complete`);
+    } catch (error) {
+      console.error(
+        `  [!!] Installed runtime check failed: ` +
+        `${error instanceof Error ? error.message : String(error)}`
+      );
+      console.error('       Reinstall Bug Hunter for this target, then run doctor again.');
+      issues += 1;
+    }
+  }
+
   console.log('');
   if (issues > 0) {
     console.log(`  ${issues} issue(s) found. Fix them for full functionality.\n`);
@@ -503,8 +636,8 @@ function info() {
     console.log('');
   }
 
-  console.log('  Install:  npx skills add codexstar69/bug-hunter');
-  console.log('  Or:       npm install -g @codexstar/bug-hunter && bug-hunter install');
+  console.log('  Install:  npx --yes @codexstar/bug-hunter install --agent <name>');
+  console.log('  Verify:   npx --yes @codexstar/bug-hunter doctor --agent <name>');
   console.log('  Repo:     https://github.com/codexstar69/bug-hunter');
   console.log('');
 }
@@ -518,7 +651,7 @@ function main() {
     return;
   }
   if (command === 'doctor') {
-    doctor();
+    doctor(args.slice(1));
     return;
   }
   if (command === 'info') {

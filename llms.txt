@@ -1,81 +1,69 @@
 # Bug Hunter
 
-> AI-powered adversarial bug finding that argues with itself to surface real vulnerabilities — and auto-fixes them safely.
+Bug Hunter is an adversarial code-audit skill for AI coding agents. The default
+run scans and reports without editing files.
 
-## What It Does
+## Start
 
-Bug Hunter is an automated adversarial code auditing skill for AI coding agents. It runs a multi-agent pipeline where one agent hunts for bugs, a second tries to disprove them, and a third delivers an independent verdict. Only bugs that survive all three stages appear in your report.
-
-## Key Capabilities
-
-- Zero-token triage: classifies files by risk in <2s before any AI runs
-- Adversarial pipeline: Hunter → Skeptic → Referee eliminates false positives
-- Security classification: STRIDE threat categories, CWE weakness IDs, CVSS 3.1 scoring
-- Documentation verification: checks claims against official library docs via Context Hub + Context7
-- Safe auto-fix: git-branched fixes with worktree isolation, canary rollout, test verification, and automatic rollback
-- Experiment loop: autonomous iteration with metric tracking, hard iteration caps, stop-file cancellation, and auto-resume on context limits
-- Dependency CVE scanning: lockfile-aware audits for npm, pnpm, yarn, bun (including Bun 1.2+ text-format lockfiles)
-- PR review: first-class `--pr` workflow for reviewing current, recent, or numbered PRs
-- Enterprise security pack: bundled STRIDE threat modeling, vulnerability validation, and security review skills
-
-## Architecture — Skills-First Design
-
-All pipeline agents are bundled as first-class skills under `skills/`:
-
-| Skill | Purpose |
-|-------|---------|
-| `skills/hunter/` | Deep behavioral code analysis — finds bugs |
-| `skills/skeptic/` | Adversarial reviewer — kills false positives |
-| `skills/referee/` | Independent arbiter — delivers final verdicts |
-| `skills/fixer/` | Surgical code repair — implements fixes |
-| `skills/recon/` | Codebase reconnaissance — maps architecture |
-| `skills/doc-lookup/` | Documentation access — Context Hub + Context7 |
-| `skills/commit-security-scan/` | PR/commit security review |
-| `skills/security-review/` | Full enterprise security audit |
-| `skills/threat-model-generation/` | STRIDE threat model generation |
-| `skills/vulnerability-validation/` | Exploitability/CVSS validation |
-
-## Usage
-
-```
-/bug-hunter src/                   # single-pass scan, no code changes
-/bug-hunter --fix src/             # reviewed fixing after verification
-/bug-hunter --autonomous src/      # explicitly allow unattended edits
-/bug-hunter --autonomous --auto-commit src/ # also allow scoped commits
-/bug-hunter --loop src/            # iterative complete-coverage scan
-/bug-hunter --pr current           # review the current PR
-/bug-hunter --pr-security          # PR security review with threat model + CVEs
-/bug-hunter --security-review src/ # enterprise security audit
-/bug-hunter --threat-model src/    # generate STRIDE threat model
-/bug-hunter --deps src/            # include dependency CVE scan
-/bug-hunter -b feature-xyz        # scan branch diff vs main
-```
-
-## Install
+Install and verify for the intended agent:
 
 ```bash
-# npm global install (recommended)
-npm install -g @codexstar/bug-hunter && bug-hunter install
-
-# Cross-IDE install via skills.sh
-npx skills add codexstar69/bug-hunter
-
-# Git clone
-git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hunter
-
-# Optional: curated doc verification
-npm install -g @aisuite/chub
+npx --yes @codexstar/bug-hunter install --agent codex
+npx --yes @codexstar/bug-hunter doctor --agent codex
 ```
 
-Requirements: Node.js 22+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot.
+Then ask the coding agent:
 
-## Documentation
+```text
+Use the bug-hunter skill to scan this repository. Do not edit files.
+Return the final report and call out every item that needs manual review.
+```
 
-- [README.md](https://github.com/codexstar69/bug-hunter/blob/main/README.md) — full documentation
-- [SKILL.md](https://github.com/codexstar69/bug-hunter/blob/main/SKILL.md) — agent integration instructions
-- [CHANGELOG.md](https://github.com/codexstar69/bug-hunter/blob/main/CHANGELOG.md) — version history
-- [CONTRIBUTING.md](https://github.com/codexstar69/bug-hunter/blob/main/CONTRIBUTING.md) — contribution guide
+The `bug-hunter` terminal command installs and verifies the skill. Scans are
+requested inside the coding agent. There is no `bug-hunter scan` shell command.
 
-## License
+## Safety
 
-MIT
+- No flags means scan-only.
+- `--plan` builds a remediation plan without edits.
+- `--fix --approve` asks before every edit.
+- `--preview` renders proposed patches without applying them.
+- `--autonomous` explicitly permits unattended edits.
+- `--auto-commit` separately permits approved-path commits.
+- Referee or preservation failure disables fixing for the affected scope.
+
+## Pipeline
+
+Triage -> Recon -> Hunter -> documentation checks -> Skeptic -> Referee ->
+report -> optional plan -> optional approved Fixer -> verification
+
+Only the Referee can confirm findings. Invalid or incomplete review is reported
+as `manual-review` or `unreviewed`, never as clean.
+
+## Common agent arguments
+
+```text
+/bug-hunter
+/bug-hunter src/auth
+/bug-hunter --staged
+/bug-hunter --pr
+/bug-hunter --pr-security
+/bug-hunter --deps --threat-model
+/bug-hunter --plan
+/bug-hunter --fix --approve
+```
+
+Dependency parsing and reachability support JavaScript and TypeScript projects
+using npm, pnpm, Yarn, or Bun lockfiles. Other ecosystems return
+`scanner-unsupported`.
+
+## Read next
+
+- `README.md`: product overview and start path
+- `docs/getting-started.md`: complete first run
+- `docs/agent-installation.md`: targets, update, custom paths
+- `docs/usage-guide.md`: portable prompts and workflows
+- `docs/cli-reference.md`: installer commands and skill arguments
+- `docs/how-it-works.md`: roles, trust boundaries, outputs
+- `docs/troubleshooting.md`: failure recovery
+- `SKILL.md`: canonical orchestration contract
