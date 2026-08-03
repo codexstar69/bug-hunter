@@ -37,6 +37,9 @@ test('CI uses supported Node releases and installs the locked toolchain', () => 
   );
   assert.match(workflow, /node-version: \[22, 24\]/);
   assert.match(workflow, /pnpm install --frozen-lockfile/);
+  assert.match(workflow, /actions\/checkout@v7/);
+  assert.match(workflow, /pnpm\/action-setup@v6/);
+  assert.match(workflow, /actions\/setup-node@v7/);
   assert.doesNotMatch(workflow, /node-version: \[(?:18|20)/);
 });
 
@@ -49,8 +52,9 @@ test('publish workflow is release-only and uses npm trusted publishing', () => {
   assert.match(workflow, /node scripts\/prepublish-guard\.cjs/);
   assert.match(workflow, /npm publish --access public/);
   assert.match(workflow, /id-token: write/);
-  assert.match(workflow, /actions\/checkout@v6/);
-  assert.match(workflow, /actions\/setup-node@v6/);
+  assert.match(workflow, /actions\/checkout@v7/);
+  assert.match(workflow, /pnpm\/action-setup@v6/);
+  assert.match(workflow, /actions\/setup-node@v7/);
   assert.match(workflow, /refs\/remotes\/origin\/main/);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN/);
 });

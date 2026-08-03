@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scan arguments and link to focused guides.
 - Contributor setup follows the generated-file, test, preflight, and package
   checks used in CI.
+- CI and publish actions run on their maintained Node 24 action runtimes.
 
 ### Fixed
 
