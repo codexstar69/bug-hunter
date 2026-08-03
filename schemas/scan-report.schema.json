@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "scan-report",
+  "title": "Bug Hunter scan report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "generatedAt",
+    "mode",
+    "target",
+    "filesScanned",
+    "threatModelLoaded",
+    "dependencies",
+    "counts",
+    "confirmed",
+    "dismissed",
+    "manualReview",
+    "unreviewed"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generatedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$"
+    },
+    "mode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "filesScanned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "threatModelLoaded": {
+      "type": "boolean"
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown",
+            "not-applicable"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findings",
+        "confirmed",
+        "dismissed",
+        "manualReview",
+        "unreviewed"
+      ],
+      "properties": {
+        "findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confirmed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dismissed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manualReview": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unreviewed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "confirmed": {
+      "$ref": "#/$defs/reportRows"
+    },
+    "dismissed": {
+      "$ref": "#/$defs/reportRows"
+    },
+    "manualReview": {
+      "$ref": "#/$defs/reportRows"
+    },
+    "unreviewed": {
+      "$ref": "#/$defs/reportRows"
+    }
+  },
+  "$defs": {
+    "reportRows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "finding"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "finding": {
+            "type": "object"
+          },
+          "verdict": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

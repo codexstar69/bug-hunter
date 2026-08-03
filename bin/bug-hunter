@@ -1,34 +1,38 @@
 #!/usr/bin/env node
+'use strict';
 
 /**
- * bug-hunter CLI — installs the bug-hunter skill into your agent's skill directory.
+ * bug-hunter CLI — installs the bug-hunter skill into an agent skill directory.
  *
- * Usage:
- *   bug-hunter install            # Auto-detect agent and install skill
- *   bug-hunter install --agent claude-code
- *   bug-hunter install --path ~/.custom/skills
- *   bug-hunter doctor             # Check environment (node, chub, context7)
- *   bug-hunter info               # Show skill metadata
+ * Installs are managed by a manifest. Files not recorded in that manifest are
+ * user-owned: upgrades preserve them while replacing the managed runtime.
  */
 
-const fs = require('fs');
-const path = require('path');
-const { execFileSync } = require('child_process');
+const childProcess = require('node:child_process');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const SKILL_SRC = path.resolve(__dirname, '..');
 const SKILL_NAME = 'bug-hunter';
+const INSTALL_MANIFEST = '.bug-hunter-install-manifest.json';
+const REQUIRED_RUNTIME_FILES = [
+  'SKILL.md',
+  'bin/bug-hunter',
+  'package.json',
+  'scripts/run-bug-hunter.cjs'
+];
 
-// Agent skill directories in priority order
-const homedir = require('os').homedir();
 const AGENT_DIRS = [
-  { agent: 'claude-code', dir: path.join(homedir, '.claude', 'skills', SKILL_NAME) },
-  { agent: 'codex', dir: path.join(homedir, '.codex', 'skills', SKILL_NAME) },
-  { agent: 'agents', dir: path.join(homedir, '.agents', 'skills', SKILL_NAME) },
-  { agent: 'cursor', dir: path.join(homedir, '.cursor', 'skills', SKILL_NAME) },
-  { agent: 'kiro', dir: path.join(homedir, '.kiro', 'skills', SKILL_NAME) },
-  { agent: 'copilot', dir: path.join(homedir, '.copilot', 'skills', SKILL_NAME) },
-  { agent: 'windsurf', dir: path.join(homedir, '.windsurf', 'skills', SKILL_NAME) },
-  { agent: 'opencode', dir: path.join(homedir, '.opencode', 'skills', SKILL_NAME) },
+  { agent: 'claude-code', dir: path.join(os.homedir(), '.claude', 'skills', SKILL_NAME) },
+  { agent: 'codex', dir: path.join(os.homedir(), '.codex', 'skills', SKILL_NAME) },
+  { agent: 'agents', dir: path.join(os.homedir(), '.agents', 'skills', SKILL_NAME) },
+  { agent: 'cursor', dir: path.join(os.homedir(), '.cursor', 'skills', SKILL_NAME) },
+  { agent: 'kiro', dir: path.join(os.homedir(), '.kiro', 'skills', SKILL_NAME) },
+  { agent: 'copilot', dir: path.join(os.homedir(), '.copilot', 'skills', SKILL_NAME) },
+  { agent: 'windsurf', dir: path.join(os.homedir(), '.windsurf', 'skills', SKILL_NAME) },
+  { agent: 'opencode', dir: path.join(os.homedir(), '.opencode', 'skills', SKILL_NAME) }
 ];
 
 function usage() {
@@ -41,105 +45,412 @@ function usage() {
     info                                       Show skill metadata
 
   Options:
-    --agent <name>    Target agent: claude-code, codex, cursor, kiro, copilot, windsurf, opencode, agents
-    --path <dir>      Custom install directory (overrides --agent)
+    --agent <name>    Target agent: claude-code, codex, cursor, kiro, copilot,
+                      windsurf, opencode, agents
+    --path <dir>      Exact custom skill directory (overrides --agent)
+    --skip-doctor     Do not run the environment check after installation
 
   Examples:
-    bug-hunter install                         # Auto-detect agent
-    bug-hunter install --agent claude-code     # Specific agent
+    bug-hunter install
+    bug-hunter install --agent claude-code
     bug-hunter install --path ~/my-skills/bug-hunter
-    bug-hunter doctor                          # Check node, chub, context7
+    bug-hunter doctor
   `.trim());
 }
 
-function copyRecursive(src, dest) {
-  const stat = fs.statSync(src);
-  if (stat.isDirectory()) {
-    fs.mkdirSync(dest, { recursive: true });
-    for (const entry of fs.readdirSync(src)) {
-      // Skip git, node_modules, tmp, .bug-hunter output
-      if (['.git', 'node_modules', 'tmp', '.bug-hunter'].includes(entry)) continue;
-      copyRecursive(path.join(src, entry), path.join(dest, entry));
-    }
-  } else {
-    fs.copyFileSync(src, dest);
+function isPathInside({ childPath, parentPath }) {
+  const relative = path.relative(parentPath, childPath);
+  return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' &&
+    !path.isAbsolute(relative);
+}
+
+function normalizeRelativePath(relativePath) {
+  if (typeof relativePath !== 'string' || relativePath.length === 0) {
+    throw new Error('Install manifest contains an empty path');
+  }
+
+  const normalized = path.posix.normalize(relativePath.replaceAll('\\', '/')).replace(/\/+$/, '');
+  if (
+    normalized === '' ||
+    normalized === '.' ||
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    path.posix.isAbsolute(normalized)
+  ) {
+    throw new Error(`Unsafe install path: ${relativePath}`);
+  }
+  return normalized;
+}
+
+function assertSafeTarget(targetDir) {
+  const resolvedTarget = path.resolve(targetDir);
+  const filesystemRoot = path.parse(resolvedTarget).root;
+  const homeDir = path.resolve(os.homedir());
+
+  if (resolvedTarget === filesystemRoot || resolvedTarget === homeDir) {
+    throw new Error(`Refusing broad install target: ${resolvedTarget}`);
+  }
+  if (
+    resolvedTarget === SKILL_SRC ||
+    isPathInside({ childPath: SKILL_SRC, parentPath: resolvedTarget })
+  ) {
+    throw new Error(`Install target must not contain the package source: ${resolvedTarget}`);
   }
 }
 
-function install(args) {
+function readPackageJson() {
+  const packagePath = path.join(SKILL_SRC, 'package.json');
+  return JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+}
+
+function getRuntimeRoots() {
+  const packageJson = readPackageJson();
+  if (!Array.isArray(packageJson.files)) {
+    throw new Error('package.json files must define the runtime install allowlist');
+  }
+
+  const roots = ['package.json', ...packageJson.files]
+    .filter((entry) => {
+      return typeof entry === 'string' && !entry.startsWith('!');
+    })
+    .map((entry) => {
+      return normalizeRelativePath(entry);
+    });
+
+  return [...new Set(roots)].sort();
+}
+
+function walkFiles({ rootDir, relativeDir = '' }) {
+  const directory = path.join(rootDir, relativeDir);
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => {
+      return entry.name !== '.DS_Store';
+    })
+    .flatMap((entry) => {
+      const relativePath = normalizeRelativePath(
+        path.posix.join(relativeDir.replaceAll('\\', '/'), entry.name)
+      );
+      const absolutePath = path.join(rootDir, relativePath);
+      if (entry.isDirectory()) {
+        return walkFiles({ rootDir, relativeDir: relativePath });
+      }
+      if (entry.isFile() || entry.isSymbolicLink()) {
+        return [relativePath];
+      }
+      throw new Error(`Unsupported filesystem entry in install source: ${absolutePath}`);
+    });
+}
+
+function listRuntimeFiles() {
+  return getRuntimeRoots().flatMap((runtimeRoot) => {
+    const sourcePath = path.join(SKILL_SRC, runtimeRoot);
+    if (!isPathInside({ childPath: sourcePath, parentPath: SKILL_SRC })) {
+      throw new Error(`Runtime allowlist escapes package root: ${runtimeRoot}`);
+    }
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error(`Runtime allowlist entry is missing: ${runtimeRoot}`);
+    }
+
+    const stat = fs.lstatSync(sourcePath);
+    if (stat.isDirectory()) {
+      return walkFiles({ rootDir: SKILL_SRC, relativeDir: runtimeRoot });
+    }
+    if (!stat.isFile()) {
+      throw new Error(`Runtime allowlist entry must be a regular file: ${runtimeRoot}`);
+    }
+    return [runtimeRoot];
+  }).filter((relativePath, index, allPaths) => {
+    return allPaths.indexOf(relativePath) === index;
+  }).sort();
+}
+
+function copyEntry({ sourcePath, targetPath, allowSymbolicLink }) {
+  const stat = fs.lstatSync(sourcePath);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+
+  if (stat.isSymbolicLink()) {
+    if (!allowSymbolicLink) {
+      throw new Error(`Managed runtime must not contain symbolic links: ${sourcePath}`);
+    }
+    fs.symlinkSync(fs.readlinkSync(sourcePath), targetPath);
+    return;
+  }
+  if (!stat.isFile()) {
+    throw new Error(`Expected a regular file: ${sourcePath}`);
+  }
+  fs.copyFileSync(sourcePath, targetPath);
+  fs.chmodSync(targetPath, stat.mode);
+}
+
+function readPreviousManagedFiles(targetDir) {
+  const manifestPath = path.join(targetDir, INSTALL_MANIFEST);
+  if (!fs.existsSync(manifestPath)) {
+    return new Set();
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  if (
+    !manifest ||
+    manifest.manifestVersion !== 1 ||
+    !Array.isArray(manifest.managedFiles)
+  ) {
+    throw new Error(`Invalid managed install manifest: ${manifestPath}`);
+  }
+
+  return new Set(manifest.managedFiles.map((relativePath) => {
+    return normalizeRelativePath(relativePath);
+  }));
+}
+
+function preserveUserFiles({ targetDir, stagingDir, previousManagedFiles }) {
+  if (!fs.existsSync(targetDir)) {
+    return;
+  }
+  if (!fs.lstatSync(targetDir).isDirectory()) {
+    throw new Error(`Install target is not a directory: ${targetDir}`);
+  }
+
+  walkFiles({ rootDir: targetDir }).filter((relativePath) => {
+    return relativePath !== INSTALL_MANIFEST && !previousManagedFiles.has(relativePath);
+  }).map((relativePath) => {
+    copyEntry({
+      sourcePath: path.join(targetDir, relativePath),
+      targetPath: path.join(stagingDir, relativePath),
+      allowSymbolicLink: true
+    });
+    return relativePath;
+  });
+}
+
+function copyManagedRuntime({ stagingDir, managedFiles }) {
+  managedFiles.map((relativePath) => {
+    copyEntry({
+      sourcePath: path.join(SKILL_SRC, relativePath),
+      targetPath: path.join(stagingDir, relativePath),
+      allowSymbolicLink: false
+    });
+    return relativePath;
+  });
+}
+
+function writeInstallManifest({ stagingDir, managedFiles }) {
+  const packageJson = readPackageJson();
+  const manifest = {
+    manifestVersion: 1,
+    packageName: packageJson.name,
+    packageVersion: packageJson.version,
+    managedFiles
+  };
+  fs.writeFileSync(
+    path.join(stagingDir, INSTALL_MANIFEST),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    { encoding: 'utf8', flag: 'wx' }
+  );
+}
+
+function validateStagedInstall({ stagingDir, managedFiles }) {
+  REQUIRED_RUNTIME_FILES.map((relativePath) => {
+    if (!managedFiles.includes(relativePath)) {
+      throw new Error(`Runtime allowlist omits required file: ${relativePath}`);
+    }
+    const stagedPath = path.join(stagingDir, relativePath);
+    if (!fs.existsSync(stagedPath) || !fs.lstatSync(stagedPath).isFile()) {
+      throw new Error(`Staged install is missing required file: ${relativePath}`);
+    }
+    return relativePath;
+  });
+
+  managedFiles.map((relativePath) => {
+    const stagedPath = path.join(stagingDir, relativePath);
+    if (!fs.existsSync(stagedPath) || !fs.lstatSync(stagedPath).isFile()) {
+      throw new Error(`Staged managed file is invalid: ${relativePath}`);
+    }
+    return relativePath;
+  });
+}
+
+function removeCreatedDirectory(directoryPath) {
+  if (!fs.existsSync(directoryPath)) {
+    return;
+  }
+  fs.rmSync(directoryPath, { recursive: true, force: false });
+}
+
+function swapInstall({ targetDir, stagingDir, backupDir }) {
+  const targetExisted = fs.existsSync(targetDir);
+  if (targetExisted) {
+    fs.renameSync(targetDir, backupDir);
+  }
+
+  try {
+    fs.renameSync(stagingDir, targetDir);
+  } catch (error) {
+    if (targetExisted && fs.existsSync(backupDir) && !fs.existsSync(targetDir)) {
+      fs.renameSync(backupDir, targetDir);
+    }
+    throw error;
+  }
+
+  if (targetExisted && fs.existsSync(backupDir)) {
+    try {
+      removeCreatedDirectory(backupDir);
+    } catch (error) {
+      console.warn(`  Warning: rollback directory retained at ${backupDir}`);
+      console.warn(`  Cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+function parseInstallArgs(args) {
   let targetDir = null;
   let agentName = null;
+  let skipDoctor = false;
 
-  // Parse args
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--path' && args[i + 1]) {
-      targetDir = path.resolve(args[++i]);
-    } else if (args[i] === '--agent' && args[i + 1]) {
-      agentName = args[++i];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === '--path') {
+      if (!args[index + 1]) {
+        throw new Error('--path requires a directory');
+      }
+      targetDir = path.resolve(args[index + 1]);
+      index += 1;
+      continue;
     }
+    if (argument === '--agent') {
+      if (!args[index + 1]) {
+        throw new Error('--agent requires a name');
+      }
+      agentName = args[index + 1];
+      index += 1;
+      continue;
+    }
+    if (argument === '--skip-doctor') {
+      skipDoctor = true;
+      continue;
+    }
+    throw new Error(`Unknown install option: ${argument}`);
   }
 
-  // Resolve target directory
-  if (!targetDir) {
-    if (agentName) {
-      const match = AGENT_DIRS.find(a => a.agent === agentName);
-      if (!match) {
-        console.error(`Unknown agent: ${agentName}`);
-        console.error(`Available: ${AGENT_DIRS.map(a => a.agent).join(', ')}`);
-        process.exit(1);
-      }
-      targetDir = match.dir;
-    } else {
-      // Auto-detect: use first agent whose parent dir exists
-      for (const { agent, dir } of AGENT_DIRS) {
-        const parent = path.dirname(path.dirname(dir)); // e.g. ~/.claude
-        if (fs.existsSync(parent)) {
-          targetDir = dir;
-          agentName = agent;
-          break;
-        }
-      }
-      if (!targetDir) {
-        // Default to ~/.agents/skills/bug-hunter
-        targetDir = AGENT_DIRS.find(a => a.agent === 'agents').dir;
-        agentName = 'agents';
-      }
+  return { agentName, skipDoctor, targetDir };
+}
+
+function resolveTarget({ agentName, requestedTargetDir }) {
+  if (requestedTargetDir) {
+    return { agentName, targetDir: requestedTargetDir };
+  }
+  if (agentName) {
+    const match = AGENT_DIRS.find((candidate) => {
+      return candidate.agent === agentName;
+    });
+    if (!match) {
+      throw new Error(
+        `Unknown agent: ${agentName}. Available: ${AGENT_DIRS.map((candidate) => {
+          return candidate.agent;
+        }).join(', ')}`
+      );
     }
+    return { agentName, targetDir: match.dir };
   }
 
-  console.log(`Installing bug-hunter skill...`);
+  const detected = AGENT_DIRS.find(({ dir }) => {
+    return fs.existsSync(path.dirname(path.dirname(dir)));
+  });
+  if (detected) {
+    return { agentName: detected.agent, targetDir: detected.dir };
+  }
+
+  const fallback = AGENT_DIRS.find((candidate) => {
+    return candidate.agent === 'agents';
+  });
+  if (!fallback) {
+    throw new Error('Default agent target is unavailable');
+  }
+  return { agentName: fallback.agent, targetDir: fallback.dir };
+}
+
+function install(args) {
+  const parsedArgs = parseInstallArgs(args);
+  const resolved = resolveTarget({
+    agentName: parsedArgs.agentName,
+    requestedTargetDir: parsedArgs.targetDir
+  });
+  const targetDir = path.resolve(resolved.targetDir);
+  assertSafeTarget(targetDir);
+
+  const parentDir = path.dirname(targetDir);
+  const uniqueSuffix = `${process.pid}-${crypto.randomUUID()}`;
+  const stagingDir = path.join(parentDir, `.${path.basename(targetDir)}.staging-${uniqueSuffix}`);
+  const backupDir = path.join(parentDir, `.${path.basename(targetDir)}.backup-${uniqueSuffix}`);
+
+  console.log('Installing bug-hunter skill...');
   console.log(`  Source:  ${SKILL_SRC}`);
   console.log(`  Target:  ${targetDir}`);
-  if (agentName) console.log(`  Agent:   ${agentName}`);
+  if (resolved.agentName) {
+    console.log(`  Agent:   ${resolved.agentName}`);
+  }
 
-  // Copy skill files
-  copyRecursive(SKILL_SRC, targetDir);
+  fs.mkdirSync(parentDir, { recursive: true });
+  try {
+    fs.mkdirSync(stagingDir, { recursive: false });
+    const previousManagedFiles = readPreviousManagedFiles(targetDir);
+    const managedFiles = listRuntimeFiles();
+    preserveUserFiles({ targetDir, stagingDir, previousManagedFiles });
+    copyManagedRuntime({ stagingDir, managedFiles });
+    writeInstallManifest({ stagingDir, managedFiles });
+    validateStagedInstall({ stagingDir, managedFiles });
+    swapInstall({ targetDir, stagingDir, backupDir });
+  } catch (error) {
+    if (fs.existsSync(stagingDir)) {
+      removeCreatedDirectory(stagingDir);
+    }
+    throw error;
+  }
 
-  console.log(`\n  Installed successfully.\n`);
-  console.log(`  Usage: /bug-hunter src/`);
-  console.log(`  Docs:  https://github.com/codexstar69/bug-hunter`);
+  console.log('\n  Installed successfully.\n');
+  console.log('  Usage: /bug-hunter src/');
+  console.log('  Docs:  https://github.com/codexstar69/bug-hunter');
 
-  // Run doctor automatically after install
-  console.log('');
-  doctor();
+  if (!parsedArgs.skipDoctor) {
+    console.log('');
+    doctor();
+  }
+}
+
+function getMinimumNodeMajor() {
+  const packageJson = readPackageJson();
+  const engine = packageJson.engines && packageJson.engines.node;
+  const match = typeof engine === 'string' ? engine.match(/>=\s*(\d+)/) : null;
+  if (!match) {
+    throw new Error('package.json must define a >= Node engine');
+  }
+  return Number.parseInt(match[1], 10);
 }
 
 function doctor() {
   console.log('Environment check:\n');
   let issues = 0;
 
-  // Node.js
   try {
-    const nodeVersion = execFileSync('node', ['--version'], { encoding: 'utf8' }).trim();
-    console.log(`  [ok] Node.js ${nodeVersion}`);
-  } catch {
-    console.error('  [!!] Node.js not found — required for doc verification');
-    issues++;
+    const nodeVersion = process.versions.node;
+    const nodeMajor = Number.parseInt(nodeVersion.split('.')[0], 10);
+    const minimumNodeMajor = getMinimumNodeMajor();
+    if (!Number.isInteger(nodeMajor) || nodeMajor < minimumNodeMajor) {
+      console.error(
+        `  [!!] Node.js v${nodeVersion} is unsupported — Node ${minimumNodeMajor}+ is required`
+      );
+      issues += 1;
+    } else {
+      console.log(`  [ok] Node.js v${nodeVersion}`);
+    }
+  } catch (error) {
+    console.error(
+      `  [!!] Node.js check failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+    issues += 1;
   }
 
-  // Context Hub (chub)
   try {
-    execFileSync('chub', ['--help'], { stdio: 'ignore', timeout: 3000 });
+    childProcess.execFileSync('chub', ['--help'], { stdio: 'ignore', timeout: 3000 });
     console.log('  [ok] Context Hub (chub) installed — curated docs available');
   } catch {
     console.log('  [--] Context Hub (chub) not installed — will fall back to Context7');
@@ -147,41 +458,37 @@ function doctor() {
     console.log('       More info: https://github.com/andrewyng/context-hub');
   }
 
-  // Context7 API
-  try {
-    const c7Script = path.join(SKILL_SRC, 'scripts', 'context7-api.cjs');
-    if (fs.existsSync(c7Script)) {
-      console.log('  [ok] Context7 fallback available');
-    } else {
-      console.log('  [--] Context7 script not found (non-critical)');
-    }
-  } catch {
-    console.log('  [--] Context7 check skipped');
+  const context7Script = path.join(SKILL_SRC, 'scripts', 'context7-api.cjs');
+  if (fs.existsSync(context7Script)) {
+    console.log('  [ok] Context7 fallback available');
+  } else {
+    console.log('  [--] Context7 script not found (non-critical)');
   }
 
-  // Git
   try {
-    const gitVersion = execFileSync('git', ['--version'], { encoding: 'utf8' }).trim();
+    const gitVersion = childProcess.execFileSync('git', ['--version'], {
+      encoding: 'utf8',
+      timeout: 3000
+    }).trim();
     console.log(`  [ok] ${gitVersion}`);
   } catch {
     console.error('  [!!] Git not found — required for fix pipeline');
-    issues++;
+    issues += 1;
   }
 
   console.log('');
-  if (issues === 0) {
-    console.log('  Ready to hunt bugs.\n');
-  } else {
+  if (issues > 0) {
     console.log(`  ${issues} issue(s) found. Fix them for full functionality.\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
+  console.log('  Ready to hunt bugs.\n');
 }
 
 function info() {
   const skillMd = path.join(SKILL_SRC, 'SKILL.md');
   if (!fs.existsSync(skillMd)) {
-    console.error('SKILL.md not found');
-    process.exit(1);
+    throw new Error('SKILL.md not found');
   }
 
   const content = fs.readFileSync(skillMd, 'utf8');
@@ -189,44 +496,50 @@ function info() {
   if (frontmatterMatch) {
     const lines = frontmatterMatch[1].split('\n');
     console.log('\nbug-hunter skill metadata:\n');
-    for (const line of lines) {
+    lines.map((line) => {
       console.log(`  ${line}`);
-    }
+      return line;
+    });
     console.log('');
   }
 
-  console.log(`  Install:  npx skills add codexstar69/bug-hunter`);
-  console.log(`  Or:       npm install -g @codexstar/bug-hunter && bug-hunter install`);
-  console.log(`  Repo:     https://github.com/codexstar69/bug-hunter`);
+  console.log('  Install:  npx skills add codexstar69/bug-hunter');
+  console.log('  Or:       npm install -g @codexstar/bug-hunter && bug-hunter install');
+  console.log('  Repo:     https://github.com/codexstar69/bug-hunter');
   console.log('');
 }
 
-// Main
-const args = process.argv.slice(2);
-const command = args[0];
+function main() {
+  const args = process.argv.slice(2);
+  const command = args[0];
 
-switch (command) {
-  case 'install':
+  if (command === 'install') {
     install(args.slice(1));
-    break;
-  case 'doctor':
-    doctor();
-    break;
-  case 'info':
-    info();
-    break;
-  case '--version':
-  case '-v': {
-    const version = require('../package.json').version;
-    console.log(`bug-hunter ${version}`);
-    break;
+    return;
   }
-  case '--help':
-  case '-h':
-  case undefined:
+  if (command === 'doctor') {
+    doctor();
+    return;
+  }
+  if (command === 'info') {
+    info();
+    return;
+  }
+  if (command === '--version' || command === '-v') {
+    const packageJson = readPackageJson();
+    console.log(`bug-hunter ${packageJson.version}`);
+    return;
+  }
+  if (command === '--help' || command === '-h' || command === undefined) {
     usage();
-    break;
-  default:
-    console.error(`Unknown command: ${command}`);
-    process.exit(1);
+    return;
+  }
+  throw new Error(`Unknown command: ${command}`);
+}
+
+try {
+  main();
+} catch (error) {
+  console.error(`bug-hunter: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
 }

@@ -19,13 +19,13 @@ Before any phase, check for `.bug-hunter/triage.json` (written by Step 1). If pr
 
 ## Step 4: Run Recon
 
-Dispatch Recon using the standard dispatch pattern (see `_dispatch.md`, role=`recon`).
+Dispatch Recon using the standard dispatch pattern (see `dispatch.md`, role=`recon`).
 
 **If triage data exists**, tell Recon to use the triage risk map and only identify tech stack + patterns.
 
 **If no triage data**, Recon does full file discovery and classification.
 
-After Recon completes, read `.bug-hunter/recon.md` to extract the risk map and tech stack.
+After Recon completes, read `.bug-hunter/recon.json` to extract the risk map and tech stack.
 
 ---
 
@@ -55,7 +55,7 @@ For each chunk:
    node "$SKILL_DIR/scripts/bug-hunter-state.cjs" mark-chunk ".bug-hunter/state.json" "<chunk-id>" in_progress
    ```
 
-2. Dispatch Hunter on this chunk's files using the standard dispatch pattern (see `_dispatch.md`, role=`hunter`).
+2. Dispatch Hunter on this chunk's files using the standard dispatch pattern (see `dispatch.md`, role=`hunter`).
 
 3. Record findings and mark done:
    ```bash
@@ -67,7 +67,7 @@ For each chunk:
 
 ### 5d. Merge all findings
 
-After all chunks complete, merge findings from state into `.bug-hunter/findings.json`.
+After all chunks complete, merge findings from state into `.bug-hunter/hunter-findings.json`.
 
 If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to Step 7 (Final Report) in SKILL.md.
 
@@ -75,7 +75,7 @@ If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to Step 7 (Final Report) in S
 
 ## Step 6: Run Skeptic(s)
 
-Dispatch 1-2 Skeptics by directory using the standard dispatch pattern (see `_dispatch.md`, role=`skeptic`).
+Dispatch 1-2 Skeptics by directory using the standard dispatch pattern (see `dispatch.md`, role=`skeptic`).
 
 Split bugs by directory/service so each Skeptic has a focused scope. Merge results after completion.
 
@@ -83,7 +83,7 @@ Split bugs by directory/service so each Skeptic has a focused scope. Merge resul
 
 ## Step 7: Run Referee
 
-Dispatch Referee using the standard dispatch pattern (see `_dispatch.md`, role=`referee`).
+Dispatch Referee using the standard dispatch pattern (see `dispatch.md`, role=`referee`).
 
 Pass merged Hunter findings + Skeptic challenges.
 

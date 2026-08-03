@@ -31,8 +31,8 @@ function parseArgs(argv) {
   return args;
 }
 
-function runCommand({ bin, args, cwd, timeout = 90000 }) {
-  const result = spawnSync(bin, args, {
+function runCommand({ executable, args, cwd, timeout = 90000 }) {
+  const result = spawnSync(executable, args, {
     cwd,
     encoding: 'utf8',
     timeout,
@@ -55,15 +55,15 @@ function runCommand({ bin, args, cwd, timeout = 90000 }) {
 
 function detectEcosystems(targetDir) {
   const checks = [
-    { lockfile: 'package-lock.json', ecosystem: 'node', manager: 'npm', bin: 'npm', args: ['audit', '--json'] },
-    { lockfile: 'pnpm-lock.yaml', ecosystem: 'node', manager: 'pnpm', bin: 'pnpm', args: ['audit', '--json'] },
-    { lockfile: 'yarn.lock', ecosystem: 'node', manager: 'yarn', bin: 'yarn', args: ['npm', 'audit', '--json'] },
-    { lockfile: 'bun.lockb', ecosystem: 'node', manager: 'bun', bin: 'bun', args: ['audit', '--json'] },
-    { lockfile: 'bun.lock', ecosystem: 'node', manager: 'bun', bin: 'bun', args: ['audit', '--json'] },
-    { lockfile: 'requirements.txt', ecosystem: 'pip', manager: 'pip', bin: 'pip-audit', args: ['--format', 'json'] },
-    { lockfile: 'Pipfile.lock', ecosystem: 'pip', manager: 'pipenv', bin: 'pip-audit', args: ['--format', 'json'] },
-    { lockfile: 'go.sum', ecosystem: 'go', manager: 'go', bin: 'govulncheck', args: ['-json', './...'] },
-    { lockfile: 'Cargo.lock', ecosystem: 'rust', manager: 'cargo', bin: 'cargo', args: ['audit', '--json'] },
+    { lockfile: 'package-lock.json', ecosystem: 'node', manager: 'npm', executable: 'npm', args: ['audit', '--json'] },
+    { lockfile: 'pnpm-lock.yaml', ecosystem: 'node', manager: 'pnpm', executable: 'pnpm', args: ['audit', '--json'] },
+    { lockfile: 'yarn.lock', ecosystem: 'node', manager: 'yarn', executable: 'yarn', args: ['npm', 'audit', '--json'] },
+    { lockfile: 'bun.lockb', ecosystem: 'node', manager: 'bun', executable: 'bun', args: ['audit', '--json'] },
+    { lockfile: 'bun.lock', ecosystem: 'node', manager: 'bun', executable: 'bun', args: ['audit', '--json'] },
+    { lockfile: 'requirements.txt', ecosystem: 'pip', manager: 'pip', executable: 'pip-audit', args: ['--format', 'json'] },
+    { lockfile: 'Pipfile.lock', ecosystem: 'pip', manager: 'pipenv', executable: 'pip-audit', args: ['--format', 'json'] },
+    { lockfile: 'go.sum', ecosystem: 'go', manager: 'go', executable: 'govulncheck', args: ['-json', './...'] },
+    { lockfile: 'Cargo.lock', ecosystem: 'rust', manager: 'cargo', executable: 'cargo', args: ['audit', '--json'] },
   ];
 
   return checks.filter((check) => {
@@ -175,44 +175,44 @@ function extractFindingsByEcosystem({ ecosystem, manager, rawOutput }) {
     return { findings: extractNodeFindings(data), parseError: null };
   }
 
-  // TODO: add richer parsers for pip/go/rust outputs.
   return {
     findings: [],
-    parseError: null,
+    parseError: `scanner-unsupported: no validated ${ecosystem}/${manager} output parser`,
   };
 }
 
 function searchReachability({ targetDir, packageName }) {
   const escapedPackage = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const importPattern = `(require\\(|from\\s+)['"]${escapedPackage}`;
-  let result;
-  try {
-    result = spawnSync('rg', [
-      '-l', importPattern, targetDir,
-      '--type-add', 'src:*.{js,ts,jsx,tsx,py,go,rs}',
-      '-t', 'src'
-    ], {
-      cwd: targetDir,
-      encoding: 'utf8',
-      timeout: 20000,
-    });
-  } catch {
-    return { reachability: 'NOT_REACHABLE', evidence: 'Search tool (rg) not available' };
-  }
-  if (result.error) {
-    return { reachability: 'NOT_REACHABLE', evidence: 'Search tool (rg) not available' };
-  }
-  const searchResult = {
-    ok: result.status === 0,
-    stdout: (result.stdout || '').trim(),
-    stderr: (result.stderr || '').trim(),
-  };
+  const importPattern = `(require\\(|from\\s+)['\"]${escapedPackage}`;
+  const result = runCommand({
+    executable: 'rg',
+    args: [
+      '-l',
+      importPattern,
+      targetDir,
+      '--type-add',
+      'src:*.{js,ts,jsx,tsx,py,go,rs}',
+      '-t',
+      'src',
+    ],
+    cwd: targetDir,
+    timeout: 20000,
+  });
 
-  if (!searchResult.ok || !searchResult.stdout) {
+  if (result.status === 1 && !result.errorMessage && !result.timedOut) {
     return { reachability: 'NOT_REACHABLE', evidence: 'No imports found in source files' };
   }
 
-  const files = searchResult.stdout.split('\n').filter(Boolean);
+  if (!result.ok) {
+    const reason = result.errorMessage || result.stderr || `rg failed with status ${String(result.status)}`;
+    return { reachability: 'UNKNOWN', evidence: `Reachability analysis failed: ${reason}` };
+  }
+
+  if (!result.stdout) {
+    return { reachability: 'NOT_REACHABLE', evidence: 'No imports found in source files' };
+  }
+
+  const files = result.stdout.split('\n').filter(Boolean);
   const nonTestFiles = files.filter((filePath) => {
     return !filePath.includes('.test.') && !filePath.includes('.spec.') && !filePath.includes('__tests__');
   });
@@ -254,6 +254,7 @@ function main() {
         reachable: 0,
         potentially_reachable: 0,
         not_reachable: 0,
+        reachability_unknown: 0,
       },
       scan_errors: [
         {
@@ -271,10 +272,32 @@ function main() {
 
   const scanErrors = [];
   const allFindings = [];
+  const scannerStatuses = [];
 
   ecosystems.forEach((eco) => {
-    console.log(`dep-scan: Running ${eco.bin} ${eco.args.join(' ')} in ${targetDir}...`);
-    const runResult = runCommand({ bin: eco.bin, args: eco.args, cwd: targetDir });
+    if (eco.ecosystem !== 'node') {
+      const reason = `scanner-unsupported: ${eco.ecosystem}/${eco.manager} parser and reachability fixtures are not implemented`;
+      scanErrors.push({
+        manager: eco.manager,
+        lockfile: eco.lockfile,
+        reason
+      });
+      scannerStatuses.push({
+        ecosystem: eco.ecosystem,
+        manager: eco.manager,
+        lockfile: eco.lockfile,
+        status: 'scanner-unsupported',
+        reason
+      });
+      return;
+    }
+
+    console.log(`dep-scan: Running ${[eco.executable, ...eco.args].join(' ')} in ${targetDir}...`);
+    const runResult = runCommand({
+      executable: eco.executable,
+      args: eco.args,
+      cwd: targetDir,
+    });
 
     const combinedOutput = [runResult.stdout, runResult.stderr].filter(Boolean).join('\n');
 
@@ -283,6 +306,13 @@ function main() {
         manager: eco.manager,
         lockfile: eco.lockfile,
         reason: runResult.errorMessage || `Command failed with status ${String(runResult.status)}`,
+      });
+      scannerStatuses.push({
+        ecosystem: eco.ecosystem,
+        manager: eco.manager,
+        lockfile: eco.lockfile,
+        status: 'failed',
+        reason: runResult.errorMessage || `Command failed with status ${String(runResult.status)}`
       });
       return;
     }
@@ -310,6 +340,14 @@ function main() {
       });
     }
 
+    scannerStatuses.push({
+      ecosystem: eco.ecosystem,
+      manager: eco.manager,
+      lockfile: eco.lockfile,
+      status: parseError || shouldTreatNonZeroAsError ? 'failed' : 'complete',
+      ...(parseError ? { reason: parseError } : {})
+    });
+
     findings.forEach((finding) => {
       const reach = searchReachability({ targetDir, packageName: finding.package });
       allFindings.push({
@@ -334,6 +372,9 @@ function main() {
     not_reachable: allFindings.filter((finding) => {
       return finding.reachability === 'NOT_REACHABLE';
     }).length,
+    reachability_unknown: allFindings.filter((finding) => {
+      return finding.reachability === 'UNKNOWN';
+    }).length,
   };
 
   const result = {
@@ -341,6 +382,7 @@ function main() {
     ecosystems: [...new Set(ecosystems.map((eco) => eco.ecosystem))],
     lockfiles: ecosystems.map((eco) => eco.lockfile),
     findings: allFindings,
+    scanner_statuses: scannerStatuses,
     summary,
     scan_errors: scanErrors,
   };
@@ -348,7 +390,7 @@ function main() {
   writeOutput({ outputPath, payload: result });
 
   console.log(
-    `dep-scan: ${summary.total} HIGH/CRITICAL CVEs | ${summary.reachable} reachable, ${summary.potentially_reachable} potentially reachable, ${summary.not_reachable} not reachable`
+    `dep-scan: ${summary.total} HIGH/CRITICAL CVEs | ${summary.reachable} reachable, ${summary.potentially_reachable} potentially reachable, ${summary.not_reachable} not reachable, ${summary.reachability_unknown} unknown`
   );
 
   if (scanErrors.length > 0) {

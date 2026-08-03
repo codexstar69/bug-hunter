@@ -13,6 +13,28 @@ const {
   writeJson
 } = require('./test-utils.cjs');
 
+function writeRefereeArtifact({ filePath, verdicts }) {
+  writeJson(filePath, verdicts.map((verdict) => {
+    return {
+      bugId: verdict.bugId,
+      verdict: verdict.verdict || 'REAL_BUG',
+      trueSeverity: verdict.trueSeverity || 'Critical',
+      confidenceScore: verdict.confidenceScore ?? 95,
+      confidenceLabel: verdict.confidenceLabel || 'high',
+      verificationMode: 'INDEPENDENTLY_VERIFIED',
+      analysisSummary: verdict.analysisSummary || `Validated ${verdict.bugId}.`
+    };
+  }));
+}
+
+function runJsonAllowFailure(cmd, args, options = {}) {
+  const result = runRaw(cmd, args, options);
+  return {
+    result,
+    value: JSON.parse(String(result.stdout || '').trim())
+  };
+}
+
 test('run-bug-hunter preflight selects available backend by priority', () => {
   const runner = resolveSkillScript('run-bug-hunter.cjs');
   const skillDir = path.resolve(__dirname, '..', '..');
@@ -41,9 +63,15 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
     'shared.cjs',
     'run-bug-hunter.cjs',
     'bug-hunter-state.cjs',
+    'process-runner.cjs',
+    'state-store.cjs',
+    'artifact-planner.cjs',
+    'chunk-scheduler.cjs',
     'payload-guard.cjs',
     'schema-validate.cjs',
     'schema-runtime.cjs',
+    'generated-schema-validators.cjs',
+    'schema-catalog.cjs',
     'render-report.cjs',
     'fix-lock.cjs',
     'doc-lookup.cjs',
@@ -61,6 +89,7 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
     'fix-report.schema.json',
     'fix-plan.schema.json',
     'fix-strategy.schema.json',
+    'fixer-scope.schema.json',
     'recon.schema.json',
     'shared.schema.json'
   ]) {
@@ -196,6 +225,7 @@ test('run-bug-hunter integrates index+delta, fact cards, consistency pass, and f
   const factsPath = path.join(sandbox, '.claude', 'bug-hunter-facts.json');
   const coveragePath = path.join(sandbox, '.claude', 'coverage.json');
   const coverageMarkdownPath = path.join(sandbox, '.claude', 'coverage.md');
+  const refereePath = path.join(sandbox, '.claude', 'referee.json');
 
   const changedFile = path.join(sandbox, 'src', 'feature', 'changed.ts');
   const depFile = path.join(sandbox, 'src', 'feature', 'dep.ts');
@@ -208,6 +238,16 @@ test('run-bug-hunter integrates index+delta, fact cards, consistency pass, and f
 
   writeJson(filesJsonPath, [changedFile, depFile, overlayFile]);
   writeJson(changedFilesJsonPath, [changedFile]);
+  writeRefereeArtifact({
+    filePath: refereePath,
+    verdicts: ['BUG-chunk-1', 'BUG-chunk-2', 'BUG-chunk-3'].map((bugId) => {
+      return {
+        bugId,
+        confidenceScore: 60,
+        confidenceLabel: 'low'
+      };
+    })
+  });
 
   const worker = resolveSkillScript('tests', 'fixtures', 'low-confidence-worker.cjs');
   const workerTemplate = [
@@ -244,6 +284,8 @@ test('run-bug-hunter integrates index+delta, fact cards, consistency pass, and f
     '1',
     '--worker-cmd',
     workerTemplate,
+    '--referee-path',
+    refereePath,
     '--timeout-ms',
     '5000',
     '--max-retries',
@@ -327,6 +369,7 @@ test('run-bug-hunter builds canary fix subset from high-confidence findings', ()
   const filesJsonPath = path.join(sandbox, 'files.json');
   const statePath = path.join(sandbox, '.claude', 'bug-hunter-state.json');
   const fixPlanPath = path.join(sandbox, '.claude', 'bug-hunter-fix-plan.json');
+  const refereePath = path.join(sandbox, '.claude', 'referee.json');
 
   const fileA = path.join(sandbox, 'src', 'a.ts');
   const fileB = path.join(sandbox, 'src', 'b.ts');
@@ -334,6 +377,12 @@ test('run-bug-hunter builds canary fix subset from high-confidence findings', ()
   fs.writeFileSync(fileA, 'export const a = 1;\n', 'utf8');
   fs.writeFileSync(fileB, 'export const b = 2;\n', 'utf8');
   writeJson(filesJsonPath, [fileA, fileB]);
+  writeRefereeArtifact({
+    filePath: refereePath,
+    verdicts: ['BUG-chunk-1', 'BUG-chunk-2'].map((bugId) => {
+      return { bugId, confidenceScore: 92 };
+    })
+  });
 
   const worker = resolveSkillScript('tests', 'fixtures', 'low-confidence-worker.cjs');
   const workerTemplate = [
@@ -366,6 +415,8 @@ test('run-bug-hunter builds canary fix subset from high-confidence findings', ()
     '1',
     '--worker-cmd',
     workerTemplate,
+    '--referee-path',
+    refereePath,
     '--timeout-ms',
     '5000',
     '--confidence-threshold',
@@ -390,12 +441,17 @@ test('run-bug-hunter excludes non-autofix strategy findings from the executable 
   const filesJsonPath = path.join(sandbox, 'files.json');
   const statePath = path.join(sandbox, '.claude', 'bug-hunter-state.json');
   const fixPlanPath = path.join(sandbox, '.claude', 'bug-hunter-fix-plan.json');
+  const refereePath = path.join(sandbox, '.claude', 'referee.json');
   const workerPath = path.join(sandbox, 'worker.cjs');
 
   const fileA = path.join(sandbox, 'src', 'architecture.ts');
   fs.mkdirSync(path.dirname(fileA), { recursive: true });
   fs.writeFileSync(fileA, 'export const architecture = true;\n', 'utf8');
   writeJson(filesJsonPath, [fileA]);
+  writeRefereeArtifact({
+    filePath: refereePath,
+    verdicts: [{ bugId: 'BUG-ARCH', confidenceScore: 98 }]
+  });
 
   fs.writeFileSync(workerPath, [
     '#!/usr/bin/env node',
@@ -421,6 +477,8 @@ test('run-bug-hunter excludes non-autofix strategy findings from the executable 
     '1',
     '--worker-cmd',
     `node ${shellQuote(workerPath)} --chunk-id {chunkId} --scan-files-json {scanFilesJson} --findings-json {findingsJson}`,
+    '--referee-path',
+    refereePath,
     '--timeout-ms',
     '5000',
     '--confidence-threshold',
@@ -447,12 +505,20 @@ test('run-bug-hunter downgrades conflicting findings to manual review before fix
   const statePath = path.join(sandbox, '.claude', 'bug-hunter-state.json');
   const fixPlanPath = path.join(sandbox, '.claude', 'bug-hunter-fix-plan.json');
   const consistencyPath = path.join(sandbox, '.claude', 'consistency.json');
+  const refereePath = path.join(sandbox, '.claude', 'referee.json');
   const workerPath = path.join(sandbox, 'worker.cjs');
 
   const fileA = path.join(sandbox, 'src', 'conflict.ts');
   fs.mkdirSync(path.dirname(fileA), { recursive: true });
   fs.writeFileSync(fileA, 'export const conflict = true;\n', 'utf8');
   writeJson(filesJsonPath, [fileA]);
+  writeRefereeArtifact({
+    filePath: refereePath,
+    verdicts: [
+      { bugId: 'BUG-1', confidenceScore: 97 },
+      { bugId: 'BUG-2', confidenceScore: 96 }
+    ]
+  });
 
   fs.writeFileSync(workerPath, [
     '#!/usr/bin/env node',
@@ -481,6 +547,8 @@ test('run-bug-hunter downgrades conflicting findings to manual review before fix
     '1',
     '--worker-cmd',
     `node ${shellQuote(workerPath)} --chunk-id {chunkId} --scan-files-json {scanFilesJson} --findings-json {findingsJson}`,
+    '--referee-path',
+    refereePath,
     '--timeout-ms',
     '5000',
     '--confidence-threshold',
@@ -666,7 +734,7 @@ test('run-bug-hunter retries malformed findings and records schema errors in the
   assert.equal(attempts['chunk-1'], 2);
   const journal = fs.readFileSync(journalPath, 'utf8');
   assert.match(journal, /attempt-post-check-failed/);
-  assert.match(journal, /\$\[0\]\.claim is required/);
+  assert.match(journal, /(?:\$\[0\]\.claim is required|\/0 must have required property 'claim')/);
 });
 
 test('run-bug-hunter clears stale findings artifacts before retrying a chunk', () => {
@@ -715,7 +783,7 @@ test('run-bug-hunter clears stale findings artifacts before retrying a chunk', (
     shellQuote(attemptsFile)
   ].join(' ');
 
-  const result = runJson('node', [
+  const { result: commandResult, value: result } = runJsonAllowFailure('node', [
     runner,
     'run',
     '--skill-dir',
@@ -740,7 +808,8 @@ test('run-bug-hunter clears stale findings artifacts before retrying a chunk', (
     cwd: sandbox
   });
 
-  assert.equal(result.ok, true);
+  assert.notEqual(commandResult.status, 0);
+  assert.equal(result.ok, false);
   const attempts = readJson(attemptsFile);
   assert.equal(attempts['chunk-1'], 2);
   const state = readJson(statePath);
@@ -772,7 +841,7 @@ test('run-bug-hunter handles worker paths containing spaces', () => {
 
   const workerTemplate = [
     'node',
-    workerPath,
+    shellQuote(workerPath),
     '--chunk-id',
     '{chunkId}',
     '--scan-files-json',
@@ -820,7 +889,7 @@ test('run-bug-hunter skips fix strategy and fix plan emission when chunks fail',
 
   fs.writeFileSync(workerPath, '#!/usr/bin/env node\nprocess.exit(1);\n', 'utf8');
 
-  const result = runJson('node', [
+  const { result: commandResult, value: result } = runJsonAllowFailure('node', [
     runner,
     'run',
     '--skill-dir',
@@ -845,11 +914,323 @@ test('run-bug-hunter skips fix strategy and fix plan emission when chunks fail',
     cwd: sandbox
   });
 
-  assert.equal(result.ok, true);
+  assert.notEqual(commandResult.status, 0);
+  assert.equal(result.ok, false);
   const state = readJson(statePath);
   assert.equal(state.chunks[0].status, 'failed');
   assert.equal(fs.existsSync(fixPlanPath), false);
   assert.equal(fs.existsSync(strategyPath), false);
+});
+
+test('run-bug-hunter requires a worker before creating run state', () => {
+  const sandbox = makeSandbox('run-bug-hunter-worker-preflight-');
+  const runner = resolveSkillScript('run-bug-hunter.cjs');
+  const skillDir = path.resolve(__dirname, '..', '..');
+  const filesJsonPath = path.join(sandbox, 'files.json');
+  const statePath = path.join(sandbox, '.bug-hunter', 'state.json');
+  writeJson(filesJsonPath, []);
+
+  const result = runRaw('node', [
+    runner,
+    'run',
+    '--skill-dir',
+    skillDir,
+    '--files-json',
+    filesJsonPath,
+    '--state',
+    statePath
+  ], {
+    cwd: sandbox,
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout || ''}${result.stderr || ''}`, /--worker-cmd is required/);
+  assert.equal(fs.existsSync(statePath), false);
+});
+
+test('run-bug-hunter accepts zero retries as exactly one attempt', () => {
+  const sandbox = makeSandbox('run-bug-hunter-zero-retries-');
+  const runner = resolveSkillScript('run-bug-hunter.cjs');
+  const skillDir = path.resolve(__dirname, '..', '..');
+  const filesJsonPath = path.join(sandbox, 'files.json');
+  const statePath = path.join(sandbox, '.bug-hunter', 'state.json');
+  const attemptsPath = path.join(sandbox, 'attempts.txt');
+  const sourcePath = path.join(sandbox, 'source.ts');
+  const workerPath = path.join(sandbox, 'worker.cjs');
+  fs.writeFileSync(sourcePath, 'export const value = 1;\n', 'utf8');
+  writeJson(filesJsonPath, [sourcePath]);
+  fs.writeFileSync(workerPath, [
+    "const fs = require('fs');",
+    `const attemptsPath = ${JSON.stringify(attemptsPath)};`,
+    "const attempts = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) : 0;",
+    "fs.writeFileSync(attemptsPath, String(attempts + 1));",
+    'process.exit(1);'
+  ].join('\n'), 'utf8');
+
+  const { result: commandResult, value: result } = runJsonAllowFailure('node', [
+    runner,
+    'run',
+    '--skill-dir',
+    skillDir,
+    '--files-json',
+    filesJsonPath,
+    '--state',
+    statePath,
+    '--worker-cmd',
+    `node ${shellQuote(workerPath)}`,
+    '--max-retries',
+    '0',
+    '--backoff-ms',
+    '0'
+  ], {
+    cwd: sandbox
+  });
+
+  assert.notEqual(commandResult.status, 0);
+  assert.equal(result.ok, false);
+  assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '1');
+});
+
+test('run-bug-hunter resumes only the matching explicit run identity', () => {
+  const sandbox = makeSandbox('run-bug-hunter-resume-');
+  const runner = resolveSkillScript('run-bug-hunter.cjs');
+  const skillDir = path.resolve(__dirname, '..', '..');
+  const filesJsonPath = path.join(sandbox, 'files.json');
+  const statePath = path.join(sandbox, '.bug-hunter', 'state.json');
+  const attemptsPath = path.join(sandbox, 'attempts.txt');
+  const sourcePath = path.join(sandbox, 'source.ts');
+  const workerPath = path.join(sandbox, 'worker.cjs');
+  fs.writeFileSync(sourcePath, 'export const value = 1;\n', 'utf8');
+  writeJson(filesJsonPath, [sourcePath]);
+  fs.writeFileSync(workerPath, [
+    "const fs = require('fs');",
+    "const args = process.argv;",
+    "const findingsPath = args[args.indexOf('--findings-json') + 1];",
+    `const attemptsPath = ${JSON.stringify(attemptsPath)};`,
+    "const attempts = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1;",
+    "fs.writeFileSync(attemptsPath, String(attempts));",
+    'if (attempts <= 2) process.exit(1);',
+    "fs.writeFileSync(findingsPath, JSON.stringify([{ bugId: 'BUG-resume', severity: 'Low', category: 'logic', file: 'source.ts', lines: '1', claim: 'resume succeeds', evidence: 'source.ts:1 evidence', runtimeTrigger: 'Run worker', crossReferences: [], confidenceScore: 90 }]));"
+  ].join('\n'), 'utf8');
+  const baseArgs = [
+    runner,
+    'run',
+    '--skill-dir',
+    skillDir,
+    '--files-json',
+    filesJsonPath,
+    '--state',
+    statePath,
+    '--worker-cmd',
+    `node ${shellQuote(workerPath)} --findings-json {findingsJson}`,
+    '--max-retries',
+    '1',
+    '--backoff-ms',
+    '0'
+  ];
+
+  const firstRun = runJsonAllowFailure('node', [...baseArgs, '--run-id', 'resume-test'], {
+    cwd: sandbox
+  });
+  assert.notEqual(firstRun.result.status, 0);
+  assert.equal(firstRun.value.ok, false);
+
+  const resumed = runJson('node', [...baseArgs, '--resume', 'resume-test'], {
+    cwd: sandbox
+  });
+  assert.equal(resumed.ok, true);
+  assert.equal(resumed.runId, 'resume-test');
+  assert.equal(fs.readFileSync(attemptsPath, 'utf8'), '3');
+
+  fs.writeFileSync(sourcePath, 'export const changed = 2;\n', 'utf8');
+  const mismatch = runRaw('node', [...baseArgs, '--resume', 'resume-test', '--mode', 'small'], {
+    cwd: sandbox,
+    encoding: 'utf8'
+  });
+  assert.notEqual(mismatch.status, 0);
+  assert.match(`${mismatch.stdout || ''}${mismatch.stderr || ''}`, /Resume fingerprint mismatch/);
+});
+
+test('run-bug-hunter uses only REAL_BUG Referee verdicts and assigned bucket stages', () => {
+  const sandbox = makeSandbox('run-bug-hunter-referee-gate-');
+  const runner = resolveSkillScript('run-bug-hunter.cjs');
+  const skillDir = path.resolve(__dirname, '..', '..');
+  const filesJsonPath = path.join(sandbox, 'files.json');
+  const statePath = path.join(sandbox, '.bug-hunter', 'state.json');
+  const refereePath = path.join(sandbox, '.bug-hunter', 'referee.json');
+  const planPath = path.join(sandbox, '.bug-hunter', 'fix-plan.json');
+  const strategyPath = path.join(sandbox, '.bug-hunter', 'fix-strategy.json');
+  const sourcePaths = ['a.ts', 'b.ts'].map((name) => path.join(sandbox, name));
+  sourcePaths.map((sourcePath) => {
+    fs.writeFileSync(sourcePath, 'export const value = 1;\n', 'utf8');
+    return sourcePath;
+  });
+  writeJson(filesJsonPath, sourcePaths);
+  writeRefereeArtifact({
+    filePath: refereePath,
+    verdicts: [
+      { bugId: 'BUG-chunk-1', confidenceScore: 99 },
+      { bugId: 'BUG-chunk-2', verdict: 'NOT_A_BUG', confidenceScore: 99 }
+    ]
+  });
+  const worker = resolveSkillScript('tests', 'fixtures', 'low-confidence-worker.cjs');
+
+  const result = runJson('node', [
+    runner,
+    'run',
+    '--skill-dir',
+    skillDir,
+    '--files-json',
+    filesJsonPath,
+    '--state',
+    statePath,
+    '--chunk-size',
+    '1',
+    '--worker-cmd',
+    `node ${shellQuote(worker)} --chunk-id {chunkId} --scan-files-json {scanFilesJson} --findings-json {findingsJson} --confidence 99`,
+    '--referee-path',
+    refereePath,
+    '--fix-plan-path',
+    planPath,
+    '--strategy-path',
+    strategyPath,
+    '--canary-size',
+    '1'
+  ], {
+    cwd: sandbox
+  });
+
+  assert.equal(result.ok, true);
+  const plan = readJson(planPath);
+  assert.deepEqual(plan.canary.map((entry) => entry.bugId), ['BUG-chunk-1']);
+  assert.equal(plan.canary[0].executionStage, 'canary');
+  assert.deepEqual(plan.rollout, []);
+  assert.deepEqual(plan.manualReview, []);
+  const strategy = readJson(strategyPath);
+  assert.equal(strategy.summary.confirmed, 1);
+  assert.equal(strategy.clusters[0].executionStage, 'canary');
+  const fixerScope = readJson(result.fixerScopePath);
+  assert.equal(fixerScope.runId, result.runId);
+  assert.deepEqual(fixerScope.approvedBugIds, ['BUG-chunk-1']);
+  assert.deepEqual(fixerScope.approvedFiles, [sourcePaths[0]]);
+});
+
+test('run-bug-hunter reports missing executables and output limits without hanging', () => {
+  const sandbox = makeSandbox('run-bug-hunter-process-errors-');
+  const runner = resolveSkillScript('run-bug-hunter.cjs');
+  const skillDir = path.resolve(__dirname, '..', '..');
+  const outputPath = path.join(sandbox, 'skeptic.json');
+  const missing = runRaw('node', [
+    runner,
+    'phase',
+    '--skill-dir',
+    skillDir,
+    '--artifact',
+    'skeptic',
+    '--output-path',
+    outputPath,
+    '--worker-cmd',
+    'bug-hunter-definitely-missing-executable',
+    '--max-retries',
+    '0'
+  ], {
+    cwd: sandbox,
+    encoding: 'utf8'
+  });
+  assert.notEqual(missing.status, 0);
+  assert.match(`${missing.stdout || ''}${missing.stderr || ''}`, /ENOENT|spawn/);
+
+  const noisyWorkerPath = path.join(sandbox, 'noisy-worker.cjs');
+  const journalPath = path.join(sandbox, 'noisy.log');
+  fs.writeFileSync(noisyWorkerPath, "process.stdout.write('x'.repeat(4096));\n", 'utf8');
+  const noisy = runRaw('node', [
+    runner,
+    'phase',
+    '--skill-dir',
+    skillDir,
+    '--artifact',
+    'skeptic',
+    '--output-path',
+    outputPath,
+    '--worker-cmd',
+    `node ${shellQuote(noisyWorkerPath)}`,
+    '--max-output-bytes',
+    '128',
+    '--max-retries',
+    '0',
+    '--kill-grace-ms',
+    '50',
+    '--journal-path',
+    journalPath
+  ], {
+    cwd: sandbox,
+    encoding: 'utf8'
+  });
+  assert.notEqual(noisy.status, 0);
+  assert.match(fs.readFileSync(journalPath, 'utf8'), /outputLimitHit.*true|output exceeded 128 bytes/i);
+});
+
+test('run-bug-hunter timeout stops the worker process group', {
+  skip: process.platform === 'win32'
+}, () => {
+  const sandbox = makeSandbox('run-bug-hunter-process-group-');
+  const runner = resolveSkillScript('run-bug-hunter.cjs');
+  const skillDir = path.resolve(__dirname, '..', '..');
+  const workerPath = path.join(sandbox, 'worker.cjs');
+  const descendantPath = path.join(sandbox, 'descendant.cjs');
+  const workerPidPath = path.join(sandbox, 'worker.pid');
+  const descendantPidPath = path.join(sandbox, 'descendant.pid');
+  const outputPath = path.join(sandbox, 'skeptic.json');
+  fs.writeFileSync(descendantPath, [
+    "process.on('SIGTERM', () => {});",
+    'setInterval(() => {}, 1000);'
+  ].join('\n'), 'utf8');
+  fs.writeFileSync(workerPath, [
+    "const childProcess = require('child_process');",
+    "const fs = require('fs');",
+    `fs.writeFileSync(${JSON.stringify(workerPidPath)}, String(process.pid));`,
+    `const child = childProcess.spawn(process.execPath, [${JSON.stringify(descendantPath)}], { stdio: 'ignore' });`,
+    `fs.writeFileSync(${JSON.stringify(descendantPidPath)}, String(child.pid));`,
+    "process.on('SIGTERM', () => {});",
+    'setInterval(() => {}, 1000);'
+  ].join('\n'), 'utf8');
+
+  const result = runRaw('node', [
+    runner,
+    'phase',
+    '--skill-dir',
+    skillDir,
+    '--artifact',
+    'skeptic',
+    '--output-path',
+    outputPath,
+    '--worker-cmd',
+    `node ${shellQuote(workerPath)}`,
+    '--timeout-ms',
+    '100',
+    '--kill-grace-ms',
+    '100',
+    '--max-retries',
+    '0'
+  ], {
+    cwd: sandbox,
+    encoding: 'utf8',
+    timeout: 5000
+  });
+
+  assert.notEqual(result.status, 0);
+  const pids = [workerPidPath, descendantPidPath].map((pidPath) => {
+    return Number(fs.readFileSync(pidPath, 'utf8'));
+  });
+  pids.map((pid) => {
+    assert.throws(() => {
+      process.kill(pid, 0);
+    }, (error) => {
+      return error && error.code === 'ESRCH';
+    });
+    return pid;
+  });
 });
 
 test('run-bug-hunter fails fast on unknown placeholders in worker templates', () => {
@@ -924,9 +1305,7 @@ test('run-bug-hunter phase retries invalid skeptic output and renders a markdown
     'node',
     shellQuote(path.join(skillDir, 'scripts', 'render-report.cjs')),
     'skeptic',
-    '{outputPath}',
-    '>',
-    '{renderOutputPath}'
+    '{outputPath}'
   ].join(' ');
 
   const result = runJson('node', [
@@ -968,7 +1347,10 @@ test('run-bug-hunter phase retries invalid skeptic output and renders a markdown
 
   const journal = fs.readFileSync(journalPath, 'utf8');
   assert.match(journal, /attempt-post-check-failed/);
-  assert.match(journal, /\$\[0\]\.analysisSummary is required/);
+  assert.match(
+    journal,
+    /(?:\$\[0\]\.analysisSummary is required|\/0 must have required property 'analysisSummary')/
+  );
 
   const rendered = fs.readFileSync(renderOutputPath, 'utf8');
   assert.match(rendered, /# Skeptic Review/);
@@ -995,7 +1377,7 @@ test('run-bug-hunter phase validates referee and fix-report artifacts', () => {
           analysisSummary: 'Confirmed on retry.'
         }
       ], null, 2),
-      expectedError: '\\$\\[0\\]\\.trueSeverity is required'
+      expectedError: 'trueSeverity'
     },
     {
       artifact: 'fix-report',
@@ -1035,7 +1417,7 @@ test('run-bug-hunter phase validates referee and fix-report artifacts', () => {
           partial: 0
         }
       }, null, 2),
-      expectedError: '\\$\\.base_commit is required'
+      expectedError: 'base_commit'
     }
   ];
 

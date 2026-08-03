@@ -22,15 +22,80 @@ function ensureParent(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
-function readLock(lockPath) {
-  if (!fs.existsSync(lockPath)) {
-    return null;
-  }
+function flushDirectory(directoryPath) {
+  let directoryDescriptor;
   try {
-    return JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-  } catch {
-    return null;
+    directoryDescriptor = fs.openSync(directoryPath, 'r');
+    fs.fsyncSync(directoryDescriptor);
+  } catch (error) {
+    if (!error || !['EINVAL', 'ENOTSUP', 'EBADF', 'EISDIR'].includes(error.code)) {
+      throw error;
+    }
+  } finally {
+    if (directoryDescriptor !== undefined) {
+      fs.closeSync(directoryDescriptor);
+    }
   }
+}
+
+function lockFingerprint(raw) {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+function readLockSnapshot(lockPath) {
+  if (!fs.existsSync(lockPath)) {
+    return { status: 'missing' };
+  }
+
+  const raw = (() => {
+    try {
+      return fs.readFileSync(lockPath, 'utf8');
+    } catch (error) {
+      if (error && error.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  })();
+  if (raw === null) {
+    return { status: 'missing' };
+  }
+
+  const parsed = (() => {
+    try {
+      return { ok: true, value: JSON.parse(raw) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, reason: `invalid-json: ${message}` };
+    }
+  })();
+  if (!parsed.ok) {
+    return { status: 'malformed', reason: parsed.reason };
+  }
+
+  const lock = parsed.value;
+  if (!lock || typeof lock !== 'object' || Array.isArray(lock)) {
+    return { status: 'malformed', reason: 'lock metadata must be an object' };
+  }
+  if (typeof lock.ownerToken !== 'string' || lock.ownerToken.trim() === '') {
+    return { status: 'malformed', reason: 'lock metadata requires ownerToken' };
+  }
+  if (!Number.isFinite(lock.createdAtMs)) {
+    return { status: 'malformed', reason: 'lock metadata requires createdAtMs' };
+  }
+
+  const fingerprint = lockFingerprint(raw);
+  const generation = typeof lock.generation === 'string' && lock.generation
+    ? lock.generation
+    : `legacy:${fingerprint}`;
+  return {
+    status: 'valid',
+    lock: {
+      ...lock,
+      generation
+    },
+    generation
+  };
 }
 
 function pidAlive(pid) {
@@ -46,154 +111,251 @@ function pidAlive(pid) {
 }
 
 function lockIsStale(lockData, ttlSeconds) {
-  if (!lockData || typeof lockData.createdAtMs !== 'number') {
-    return true;
-  }
-  const expired = nowMs() - lockData.createdAtMs > ttlSeconds * 1000;
-  return expired;
+  return nowMs() - lockData.createdAtMs > ttlSeconds * 1000;
 }
 
-function writeLock(lockPath, ownerTokenRaw, exclusive = true) {
-  ensureParent(lockPath);
-  const lockData = {
-    pid: process.pid,
-    host: os.hostname(),
-    cwd: process.cwd(),
-    ownerToken: ownerTokenRaw || crypto.randomUUID(),
-    createdAtMs: nowMs(),
-    createdAt: new Date().toISOString()
+function buildLock({ ownerToken, previousLock }) {
+  const timestamp = nowMs();
+  const lock = {
+    pid: previousLock ? previousLock.pid : process.pid,
+    host: previousLock ? previousLock.host : os.hostname(),
+    cwd: previousLock ? previousLock.cwd : process.cwd(),
+    ownerToken: ownerToken || crypto.randomUUID(),
+    generation: crypto.randomUUID(),
+    createdAtMs: timestamp,
+    createdAt: previousLock && previousLock.createdAt
+      ? previousLock.createdAt
+      : new Date(timestamp).toISOString()
   };
-  const fd = fs.openSync(lockPath, exclusive ? 'wx' : 'w');
+  if (previousLock) {
+    lock.renewedAt = new Date(timestamp).toISOString();
+  }
+  return lock;
+}
+
+function writeLockCandidate(lockPath, lockData) {
+  ensureParent(lockPath);
+  const candidatePath = `${lockPath}.${process.pid}.${crypto.randomUUID()}.candidate`;
+  const fileDescriptor = fs.openSync(candidatePath, 'wx');
   try {
-    fs.writeFileSync(fd, `${JSON.stringify(lockData, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(fileDescriptor, `${JSON.stringify(lockData, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(fileDescriptor);
   } finally {
-    fs.closeSync(fd);
+    fs.closeSync(fileDescriptor);
   }
-  return lockData;
+  return candidatePath;
 }
 
-function assertOwner(existing, ownerToken) {
-  if (!existing || !existing.ownerToken) {
-    return true;
-  }
-  return ownerToken === existing.ownerToken;
-}
-
-function renew(lockPath, ownerToken) {
-  const existing = readLock(lockPath);
-  if (!existing) {
-    console.log(JSON.stringify({ ok: false, renewed: false, reason: 'no-lock' }, null, 2));
-    process.exit(1);
-    return;
-  }
-  if (!assertOwner(existing, ownerToken)) {
-    console.log(JSON.stringify({ ok: false, renewed: false, reason: 'lock-owner-mismatch' }, null, 2));
-    process.exit(1);
-    return;
-  }
-  existing.createdAtMs = nowMs();
-  existing.renewedAt = new Date().toISOString();
-  const tempPath = `${lockPath}.${process.pid}.tmp`;
-  fs.writeFileSync(tempPath, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
-  fs.renameSync(tempPath, lockPath);
-  console.log(JSON.stringify({ ok: true, renewed: true, lock: existing }, null, 2));
-}
-
-function acquire(lockPath, ttlSeconds) {
-  const existing = readLock(lockPath);
-  if (!existing) {
-    try { fs.unlinkSync(lockPath); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-    try {
-      const lockData = writeLock(lockPath);
-      console.log(JSON.stringify({ ok: true, acquired: true, lock: lockData }, null, 2));
-      return;
-    } catch (error) {
-      if (error && error.code === 'EEXIST') {
-        const current = readLock(lockPath);
-        console.log(JSON.stringify({
-          ok: false,
-          acquired: false,
-          reason: 'lock-held',
-          lock: current
-        }, null, 2));
-        process.exit(1);
-        return;
-      }
-      throw error;
+function installNewLock(lockPath, lockData) {
+  const candidatePath = writeLockCandidate(lockPath, lockData);
+  try {
+    fs.linkSync(candidatePath, lockPath);
+    flushDirectory(path.dirname(lockPath));
+  } finally {
+    if (fs.existsSync(candidatePath)) {
+      fs.unlinkSync(candidatePath);
     }
   }
+}
 
-  const stale = lockIsStale(existing, ttlSeconds);
-  const ownerAlive = typeof existing.pid === 'number' ? pidAlive(existing.pid) : false;
-
-  if (!stale || ownerAlive) {
-    console.log(JSON.stringify({
-      ok: false,
-      acquired: false,
-      reason: ownerAlive ? 'lock-held-by-live-owner' : 'lock-held',
-      stale,
-      ownerAlive,
-      lock: existing
-    }, null, 2));
-    process.exit(1);
-  }
-
-  try { fs.unlinkSync(lockPath); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+function replaceLock(lockPath, lockData) {
+  const candidatePath = writeLockCandidate(lockPath, lockData);
   try {
-    const lockData = writeLock(lockPath);
-    console.log(JSON.stringify({
-      ok: true,
-      acquired: true,
-      recoveredFromStaleLock: true,
-      previousLock: existing,
-      lock: lockData
-    }, null, 2));
-    return;
+    fs.renameSync(candidatePath, lockPath);
+    flushDirectory(path.dirname(lockPath));
   } catch (error) {
-    if (error && error.code === 'EEXIST') {
-      const current = readLock(lockPath);
-      console.log(JSON.stringify({
-        ok: false,
-        acquired: false,
-        reason: 'lock-held',
-        lock: current
-      }, null, 2));
-      process.exit(1);
-      return;
+    if (fs.existsSync(candidatePath)) {
+      fs.unlinkSync(candidatePath);
     }
     throw error;
   }
 }
 
+function emitFailure(payload) {
+  console.log(JSON.stringify({ ok: false, ...payload }, null, 2));
+  process.exitCode = 1;
+  return null;
+}
+
+function withMutationGate(lockPath, operation) {
+  ensureParent(lockPath);
+  // Every compliant mutation uses the same atomic gate. An orphaned gate blocks
+  // mutations for manual recovery instead of guessing that concurrent work died.
+  const gatePath = `${lockPath}.mutation-gate`;
+  try {
+    fs.mkdirSync(gatePath);
+  } catch (error) {
+    if (error && error.code === 'EEXIST') {
+      return emitFailure({ reason: 'lock-mutation-in-progress' });
+    }
+    throw error;
+  }
+
+  try {
+    return operation();
+  } finally {
+    fs.rmdirSync(gatePath);
+  }
+}
+
+function assertOwner(existing, ownerToken) {
+  return Boolean(
+    existing
+    && typeof existing.ownerToken === 'string'
+    && existing.ownerToken
+    && typeof ownerToken === 'string'
+    && ownerToken
+    && ownerToken === existing.ownerToken
+  );
+}
+
+function snapshotStillMatches(lockPath, expectedGeneration) {
+  // Renew, release, and stale takeover are bound to the exact observed lease.
+  const current = readLockSnapshot(lockPath);
+  return current.status === 'valid' && current.generation === expectedGeneration;
+}
+
+function renew(lockPath, ownerToken) {
+  if (!ownerToken) {
+    emitFailure({ renewed: false, reason: 'owner-token-required' });
+    return;
+  }
+
+  withMutationGate(lockPath, () => {
+    const existing = readLockSnapshot(lockPath);
+    if (existing.status === 'missing') {
+      return emitFailure({ renewed: false, reason: 'no-lock' });
+    }
+    if (existing.status === 'malformed') {
+      return emitFailure({ renewed: false, reason: 'malformed-lock', detail: existing.reason });
+    }
+    if (!assertOwner(existing.lock, ownerToken)) {
+      return emitFailure({ renewed: false, reason: 'lock-owner-mismatch' });
+    }
+    if (!snapshotStillMatches(lockPath, existing.generation)) {
+      return emitFailure({ renewed: false, reason: 'lock-generation-changed' });
+    }
+
+    const renewedLock = buildLock({
+      ownerToken,
+      previousLock: existing.lock
+    });
+    replaceLock(lockPath, renewedLock);
+    console.log(JSON.stringify({ ok: true, renewed: true, lock: renewedLock }, null, 2));
+    return renewedLock;
+  });
+}
+
+function acquire(lockPath, ttlSeconds) {
+  withMutationGate(lockPath, () => {
+    const existing = readLockSnapshot(lockPath);
+    if (existing.status === 'malformed') {
+      return emitFailure({ acquired: false, reason: 'malformed-lock', detail: existing.reason });
+    }
+    if (existing.status === 'missing') {
+      const lockData = buildLock({});
+      try {
+        installNewLock(lockPath, lockData);
+      } catch (error) {
+        if (error && error.code === 'EEXIST') {
+          const current = readLockSnapshot(lockPath);
+          return emitFailure({
+            acquired: false,
+            reason: 'lock-held',
+            lock: current.status === 'valid' ? current.lock : null
+          });
+        }
+        throw error;
+      }
+      console.log(JSON.stringify({ ok: true, acquired: true, lock: lockData }, null, 2));
+      return lockData;
+    }
+
+    const stale = lockIsStale(existing.lock, ttlSeconds);
+    const ownerAlive = existing.lock.host === os.hostname()
+      && typeof existing.lock.pid === 'number'
+      && pidAlive(existing.lock.pid);
+    if (!stale || ownerAlive) {
+      return emitFailure({
+        acquired: false,
+        reason: ownerAlive ? 'lock-held-by-live-owner' : 'lock-held',
+        stale,
+        ownerAlive,
+        lock: existing.lock
+      });
+    }
+    if (!snapshotStillMatches(lockPath, existing.generation)) {
+      return emitFailure({ acquired: false, reason: 'lock-generation-changed' });
+    }
+
+    const lockData = buildLock({});
+    replaceLock(lockPath, lockData);
+    console.log(JSON.stringify({
+      ok: true,
+      acquired: true,
+      recoveredFromStaleLock: true,
+      previousLock: existing.lock,
+      lock: lockData
+    }, null, 2));
+    return lockData;
+  });
+}
+
 function release(lockPath, ownerToken) {
-  const existing = readLock(lockPath);
-  if (!existing) {
-    console.log(JSON.stringify({ ok: true, released: false, reason: 'no-lock' }, null, 2));
+  if (!ownerToken) {
+    emitFailure({ released: false, reason: 'owner-token-required' });
     return;
   }
-  if (!assertOwner(existing, ownerToken)) {
-    console.log(JSON.stringify({ ok: false, released: false, reason: 'lock-owner-mismatch' }, null, 2));
-    process.exit(1);
-    return;
-  }
-  fs.unlinkSync(lockPath);
-  console.log(JSON.stringify({ ok: true, released: true, previousLock: existing }, null, 2));
+
+  withMutationGate(lockPath, () => {
+    const existing = readLockSnapshot(lockPath);
+    if (existing.status === 'missing') {
+      console.log(JSON.stringify({ ok: true, released: false, reason: 'no-lock' }, null, 2));
+      return null;
+    }
+    if (existing.status === 'malformed') {
+      return emitFailure({ released: false, reason: 'malformed-lock', detail: existing.reason });
+    }
+    if (!assertOwner(existing.lock, ownerToken)) {
+      return emitFailure({ released: false, reason: 'lock-owner-mismatch' });
+    }
+    if (!snapshotStillMatches(lockPath, existing.generation)) {
+      return emitFailure({ released: false, reason: 'lock-generation-changed' });
+    }
+
+    fs.unlinkSync(lockPath);
+    flushDirectory(path.dirname(lockPath));
+    console.log(JSON.stringify({ ok: true, released: true, previousLock: existing.lock }, null, 2));
+    return existing.lock;
+  });
 }
 
 function status(lockPath, ttlSeconds) {
-  const existing = readLock(lockPath);
-  if (!existing) {
+  const existing = readLockSnapshot(lockPath);
+  if (existing.status === 'missing') {
     console.log(JSON.stringify({ ok: true, exists: false }, null, 2));
     return;
   }
-  const stale = lockIsStale(existing, ttlSeconds);
-  const alive = typeof existing.pid === 'number' ? pidAlive(existing.pid) : false;
+  if (existing.status === 'malformed') {
+    emitFailure({
+      exists: true,
+      malformed: true,
+      reason: 'malformed-lock',
+      detail: existing.reason
+    });
+    return;
+  }
+
+  const stale = lockIsStale(existing.lock, ttlSeconds);
+  const ownerAlive = existing.lock.host === os.hostname()
+    && typeof existing.lock.pid === 'number'
+    && pidAlive(existing.lock.pid);
   console.log(JSON.stringify({
     ok: true,
     exists: true,
     stale,
-    ownerAlive: alive,
-    lock: existing
+    ownerAlive,
+    lock: existing.lock
   }, null, 2));
 }
 

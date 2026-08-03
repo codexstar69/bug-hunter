@@ -44,7 +44,7 @@ Use this skill for deeper security audits than a simple bug hunt, especially whe
 ## Outputs
 
 Primary artifacts should stay inside `.bug-hunter/`:
-- `.bug-hunter/findings.json`
+- `.bug-hunter/hunter-findings.json`
 - `.bug-hunter/referee.json`
 - `.bug-hunter/report.md`
 - `.bug-hunter/dep-findings.json` when dependency review is enabled

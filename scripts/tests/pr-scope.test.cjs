@@ -210,3 +210,34 @@ process.exit(1);
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout || ''}${result.stderr || ''}`, /not found/);
 });
+
+test('pr-scope bounds child command execution time', () => {
+  const sandbox = makeSandbox('pr-scope-timeout-');
+  const script = resolveSkillScript('pr-scope.cjs');
+  const ghPath = path.join(sandbox, 'gh-hangs.cjs');
+
+  writeExecutable(ghPath, `#!/usr/bin/env node
+setTimeout(() => {
+  process.stdout.write('{}');
+}, 10000);
+`);
+
+  const startedAt = Date.now();
+  const result = runRaw('node', [
+    script,
+    'resolve',
+    '123',
+    '--repo-root',
+    sandbox,
+    '--gh-bin',
+    ghPath,
+    '--timeout-ms',
+    '50'
+  ], {
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout || ''}${result.stderr || ''}`, /timed out after 50ms/);
+  assert.equal(Date.now() - startedAt < 5000, true);
+});

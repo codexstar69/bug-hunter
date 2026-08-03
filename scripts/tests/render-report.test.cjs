@@ -53,6 +53,173 @@ test('render-report renders a markdown summary from findings and referee JSON', 
   assert.match(result.stdout, /Confirmed by tracing the sink/);
 });
 
+test('render-report preserves findings that have no referee verdict', () => {
+  const sandbox = makeSandbox('render-unreviewed-');
+  const script = resolveSkillScript('render-report.cjs');
+  const findingsPath = path.join(sandbox, 'findings.json');
+  const refereePath = path.join(sandbox, 'referee.json');
+
+  writeJson(findingsPath, [
+    {
+      bugId: 'BUG-UNREVIEWED',
+      severity: 'Low',
+      category: 'logic',
+      file: 'src/example.ts',
+      lines: '4',
+      claim: 'A boundary case remains unchecked',
+      evidence: 'src/example.ts:4',
+      runtimeTrigger: 'Empty input',
+      crossReferences: ['Single file'],
+      confidenceScore: 55
+    }
+  ]);
+  writeJson(refereePath, []);
+
+  const result = runRaw('node', [script, 'report', findingsPath, refereePath], {
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Unreviewed: 1/);
+  assert.match(result.stdout, /BUG-UNREVIEWED \| Low \| src\/example.ts/);
+});
+
+test('scan-report emits a validated canonical report and joins by bugId', () => {
+  const sandbox = makeSandbox('render-scan-report-');
+  const script = resolveSkillScript('render-report.cjs');
+  const findingsPath = path.join(sandbox, 'findings.json');
+  const refereePath = path.join(sandbox, 'referee.json');
+  const metadataPath = path.join(sandbox, 'metadata.json');
+
+  writeJson(findingsPath, [
+    {
+      bugId: 'BUG-2',
+      severity: 'Medium',
+      category: 'error-handling',
+      file: 'src/b.ts',
+      lines: '20',
+      claim: 'Failure is discarded',
+      evidence: 'src/b.ts:20',
+      runtimeTrigger: 'Dependency rejects',
+      crossReferences: ['src/a.ts'],
+      confidenceScore: 75
+    },
+    {
+      bugId: 'BUG-1',
+      severity: 'High',
+      category: 'security',
+      file: 'src/a.ts',
+      lines: '10',
+      claim: 'Input reaches a sink',
+      evidence: 'src/a.ts:10',
+      runtimeTrigger: 'Attacker input',
+      crossReferences: ['src/b.ts'],
+      confidenceScore: 90
+    }
+  ]);
+  writeJson(refereePath, [
+    {
+      bugId: 'BUG-1',
+      verdict: 'REAL_BUG',
+      trueSeverity: 'High',
+      confidenceScore: 95,
+      confidenceLabel: 'high',
+      verificationMode: 'INDEPENDENTLY_VERIFIED',
+      analysisSummary: 'The data flow is reachable.'
+    }
+  ]);
+  writeJson(metadataPath, {
+    runId: 'run-123',
+    generatedAt: '2026-08-03T10:20:30.000Z',
+    mode: 'local-sequential',
+    target: '.',
+    filesScanned: 2,
+    threatModelLoaded: true,
+    dependencies: {
+      status: 'complete'
+    }
+  });
+
+  const result = runRaw(
+    'node',
+    [script, 'scan-report', findingsPath, refereePath, metadataPath],
+    { encoding: 'utf8' }
+  );
+
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    schemaVersion: 1,
+    runId: 'run-123',
+    generatedAt: '2026-08-03T10:20:30.000Z',
+    mode: 'local-sequential',
+    target: '.',
+    filesScanned: 2,
+    threatModelLoaded: true,
+    dependencies: {
+      status: 'complete'
+    },
+    counts: {
+      findings: 2,
+      confirmed: 1,
+      dismissed: 0,
+      manualReview: 0,
+      unreviewed: 1
+    },
+    confirmed: [
+      {
+        id: 'BUG-1',
+        finding: JSON.parse(fs.readFileSync(findingsPath, 'utf8'))[1],
+        verdict: JSON.parse(fs.readFileSync(refereePath, 'utf8'))[0]
+      }
+    ],
+    dismissed: [],
+    manualReview: [],
+    unreviewed: [
+      {
+        id: 'BUG-2',
+        finding: JSON.parse(fs.readFileSync(findingsPath, 'utf8'))[0]
+      }
+    ]
+  });
+});
+
+test('render-report rejects non-array findings and unknown verdict IDs', () => {
+  const sandbox = makeSandbox('render-invalid-');
+  const script = resolveSkillScript('render-report.cjs');
+  const findingsPath = path.join(sandbox, 'findings.json');
+  const refereePath = path.join(sandbox, 'referee.json');
+
+  writeJson(findingsPath, { bugId: 'BUG-1' });
+  writeJson(refereePath, []);
+  const nonArrayResult = runRaw(
+    'node',
+    [script, 'report', findingsPath, refereePath],
+    { encoding: 'utf8' }
+  );
+  assert.notEqual(nonArrayResult.status, 0);
+  assert.match(nonArrayResult.stderr, /findings must be a JSON array/);
+
+  writeJson(findingsPath, []);
+  writeJson(refereePath, [
+    {
+      bugId: 'BUG-UNKNOWN',
+      verdict: 'NOT_A_BUG',
+      trueSeverity: 'Low',
+      confidenceScore: 80,
+      confidenceLabel: 'high',
+      verificationMode: 'EVIDENCE_BASED',
+      analysisSummary: 'No matching finding exists.'
+    }
+  ]);
+  const unknownIdResult = runRaw(
+    'node',
+    [script, 'report', findingsPath, refereePath],
+    { encoding: 'utf8' }
+  );
+  assert.notEqual(unknownIdResult.status, 0);
+  assert.match(unknownIdResult.stderr, /unknown bugId values: BUG-UNKNOWN/);
+});
+
 test('render-report renders coverage markdown from coverage JSON', () => {
   const sandbox = makeSandbox('render-coverage-');
   const script = resolveSkillScript('render-report.cjs');

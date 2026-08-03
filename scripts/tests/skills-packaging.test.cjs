@@ -28,3 +28,24 @@ test('bundled local security skills exist with SKILL.md entrypoints', () => {
     assert.match(contents, /description:/);
   }
 });
+
+test('CI uses supported Node releases and installs the locked toolchain', () => {
+  const workflow = fs.readFileSync(
+    resolveSkillScript('..', '.github', 'workflows', 'ci.yml'),
+    'utf8'
+  );
+  assert.match(workflow, /node-version: \[22, 24\]/);
+  assert.match(workflow, /pnpm install --frozen-lockfile/);
+  assert.doesNotMatch(workflow, /node-version: \[(?:18|20)/);
+});
+
+test('publish workflow is release-only and requests npm provenance', () => {
+  const workflow = fs.readFileSync(
+    resolveSkillScript('..', '.github', 'workflows', 'publish.yml'),
+    'utf8'
+  );
+  assert.doesNotMatch(workflow, /workflow_dispatch/);
+  assert.match(workflow, /node scripts\/prepublish-guard\.cjs/);
+  assert.match(workflow, /npm publish --access public --provenance/);
+  assert.match(workflow, /id-token: write/);
+});

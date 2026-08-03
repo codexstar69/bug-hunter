@@ -44,7 +44,7 @@ Resolve the scan scope from the user request:
    - Elevation of Privilege: missing authorization, role bypass, privilege escalation
 
 5. Reuse Bug Hunter-native security conventions:
-   - findings should be compatible with `.bug-hunter/findings.json`
+   - findings should be compatible with `.bug-hunter/hunter-findings.json`
    - use STRIDE + CWE labels
    - include confidence scores
 
@@ -54,7 +54,7 @@ Resolve the scan scope from the user request:
 ## Output
 
 Preferred outputs:
-- `.bug-hunter/findings.json` when integrating with the main Bug Hunter pipeline
+- `.bug-hunter/hunter-findings.json` when integrating with the main Bug Hunter pipeline
 - `.bug-hunter/report.md` as a rendered companion if needed
 
 ## Notes

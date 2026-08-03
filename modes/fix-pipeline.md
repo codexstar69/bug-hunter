@@ -1,9 +1,12 @@
-# Phase 2: Fix Pipeline (default; also via `--fix`/`--autonomous`)
+# Phase 2: Fix Pipeline (explicit `--fix`/`--autonomous` only)
 
 This phase takes the Referee's confirmed bug report and implements fixes. It runs when `FIX_MODE=true` and the Referee confirmed at least one real bug.
 All Fixer launches in this file must use `AGENT_BACKEND` selected during SKILL preflight.
 
-**If `DRY_RUN_MODE=true`:** execute Steps 8a–8d only (no git branch, no edits, no lock). The Fixer reads code and outputs planned changes as unified diff previews without editing any files. Skip to Step 12 after producing the dry-run report.
+**If `DRY_RUN_MODE=true`:** execute Steps 8a–8d only (no git branch, no edits,
+no lock). The Fixer reads code and outputs planned changes as unified diff
+previews without editing files. Skip to Step 12 after producing the dry-run
+report.
 
 ### Step 8: Prepare for fixing (single-writer model)
 
@@ -25,19 +28,22 @@ Report:
 - Base commit hash (`FIX_BASE_COMMIT`)
 - Whether stash was created
 
-**8a-wt. Worktree isolation setup (subagent/teams backends only)**
+**8a-wt. Worktree isolation setup (subagent/teams backends with explicit
+`--auto-commit` only)**
 
-If `AGENT_BACKEND` is `subagent` or `teams` and `worktree-harvest.cjs` exists:
+If `AUTO_COMMIT=true`, `AGENT_BACKEND` is `subagent` or `teams`, and
+`worktree-harvest.cjs` exists:
 1. Clean up any stale worktrees from previous failed runs:
    ```
    node "$SKILL_DIR/scripts/worktree-harvest.cjs" cleanup-all ".bug-hunter/worktrees"
    ```
 2. Set `WORKTREE_MODE=true`.
 
-If `AGENT_BACKEND` is `local-sequential` or `interactive_shell`, or `worktree-harvest.cjs` is missing:
+If `AUTO_COMMIT=false`, `AGENT_BACKEND` is `local-sequential` or
+`interactive_shell`, or `worktree-harvest.cjs` is missing:
 - Set `WORKTREE_MODE=false`. No worktree setup needed — Fixer edits directly.
 
-**IMPORTANT:** Do NOT use your runtime's built-in isolation parameters (e.g., `isolation: "worktree"`) for Fixer dispatch. Built-in isolation creates ephemeral branches and auto-cleans on exit, losing commits. Bug-hunter manages its own worktrees via `worktree-harvest.cjs` which keeps the Fixer on the same fix branch.
+**IMPORTANT:** Do NOT use the Agent tool's built-in `isolation: "worktree"` parameter for Fixer dispatch. That creates an ephemeral branch and auto-cleans on exit, losing commits. We manage our own worktrees via `worktree-harvest.cjs` which keeps the Fixer on the same fix branch.
 
 Acquire single-writer lock before edits (skip if `DRY_RUN_MODE=true`):
 
@@ -87,6 +93,22 @@ If baseline cannot run, set `BASELINE=null` and `FLAKY_TESTS={}` and continue wi
 **8d. Build fix strategy + sequential fix plan**
 
 Before deciding what to patch, write `.bug-hunter/fix-strategy.json` and `.bug-hunter/fix-strategy.md`.
+Validate `.bug-hunter/referee.json` first. Join verdicts to Hunter findings by
+`bugId` and admit only `REAL_BUG` rows. Never derive the queue directly from
+Hunter findings or state ledger entries.
+
+Write and validate `.bug-hunter/fixer-scope.json` before any Fixer dispatch. It
+must bind the run ID, canonical repository root, base commit, approved bug IDs,
+and approved files:
+
+```bash
+node "$SKILL_DIR/scripts/schema-validate.cjs" fixer-scope \
+  ".bug-hunter/fixer-scope.json"
+```
+
+Reject and preserve any Fixer result that changes a file outside this scope,
+crosses a symlink/submodule boundary, or changes Git metadata.
+
 The strategy artifact must classify each confirmed bug into one of:
 - `safe-autofix`
 - `manual-review`
@@ -160,7 +182,8 @@ For each batch in order:
 3. Permission mode:
    - `APPROVE_MODE=true` → `mode: "default"`
    - `APPROVE_MODE=false` → `mode: "auto"`
-   - `DRY_RUN_MODE=true` → Fixer reads code and outputs planned diff only, no file edits
+   - `DRY_RUN_MODE=true` → Fixer reads code and outputs planned diff only, with
+     no file edits
 
 **Path A — Worktree mode (`WORKTREE_MODE=true`):**
 
@@ -174,10 +197,11 @@ For each batch in order:
    - Compute `WORKTREE_ABS` (absolute path of the worktree directory).
    - In the Fixer task instructions, include:
      - `"Your working directory is: $WORKTREE_ABS"`
-     - `"You MUST git add + git commit each fix: fix(bug-hunter): BUG-N — [description]"`
-     - `"Do NOT use your runtime's built-in worktree or isolation tools — you are already in an isolated worktree managed by bug-hunter"`
+     - `"Commit permission is true because the caller supplied --auto-commit."`
+     - `"Stage only validated scope files and commit each fix: fix(bug-hunter): BUG-N — [description]"`
+     - `"Do NOT use EnterWorktree/ExitWorktree — you are already in an isolated worktree"`
      - `"Do NOT switch branches or run git checkout"`
-   - Do NOT use your runtime's built-in isolation — bug-hunter manages worktrees itself.
+   - Do NOT set `isolation: "worktree"` on the Agent tool — we manage worktrees ourselves.
    - Launch one Fixer with: `skills/fixer/SKILL.md`, batch bug subset, recon tech stack context.
 
 6a. After Fixer completes (or crashes), harvest commits:
@@ -207,10 +231,11 @@ For each batch in order:
    - Batch bug subset (max `MAX_BUGS_PER_FIXER` bugs)
    - Recon tech stack context
 5b. Apply returned changes (skip if dry-run).
-6b. Commit checkpoint — **one commit per bug** (mandatory):
+6b. If `AUTO_COMMIT=true`, commit a checkpoint — **one commit per bug**:
    - `fix(bug-hunter): BUG-N — [short description]`
    - Exception: if two bugs touch the same lines and cannot be separated, combine into a single commit with both BUG-IDs.
-7b. Record commit hash per BUG-ID in a fix ledger.
+7b. Record a commit hash per BUG-ID when `AUTO_COMMIT=true`; otherwise record
+the validated uncommitted diff.
 8b. **Renew lock** after each bug fix:
    ```
    node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock" "$LOCK_OWNER_TOKEN"

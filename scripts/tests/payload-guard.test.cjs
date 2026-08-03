@@ -42,6 +42,82 @@ test('payload-guard accepts valid hunter payload and rejects malformed payload',
   assert.match(output, /schema version 1/);
 });
 
+test('payload-guard rejects JSON primitives with structured errors', () => {
+  const sandbox = makeSandbox('payload-guard-primitives-');
+  const guardScript = resolveSkillScript('payload-guard.cjs');
+
+  try {
+    [null, true, 42, 'payload', []].map((payload, index) => {
+      const payloadPath = path.join(sandbox, `payload-${index}.json`);
+      writeJson(payloadPath, payload);
+      return runRaw('node', [guardScript, 'validate', 'hunter', payloadPath]);
+    }).map((result) => {
+      assert.notEqual(result.status, 0);
+      const output = JSON.parse(result.stdout);
+      assert.deepEqual(output, {
+        ok: false,
+        errors: ['Payload must be a JSON object']
+      });
+      return result;
+    });
+  } finally {
+    require('fs').rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('payload-guard binds Fixer bugs and files to the validated scope', () => {
+  const sandbox = makeSandbox('payload-guard-fixer-scope-');
+  const guardScript = resolveSkillScript('payload-guard.cjs');
+  const schemaRuntime = require(resolveSkillScript('schema-runtime.cjs'));
+  const payloadPath = path.join(sandbox, 'fixer.json');
+  const repositoryRoot = path.join(sandbox, 'repo');
+  const approvedFile = path.join(repositoryRoot, 'src', 'approved.ts');
+  const payload = {
+    skillDir: '/Users/codex/.agents/skills/bug-hunter',
+    bugs: [
+      {
+        bugId: 'BUG-1',
+        file: approvedFile
+      }
+    ],
+    techStack: {},
+    scopeManifest: {
+      schemaVersion: 1,
+      runId: 'run-1',
+      repositoryRoot,
+      baseCommit: 'abc123',
+      approvedBugIds: ['BUG-1'],
+      approvedFiles: [approvedFile]
+    },
+    commitAllowed: false,
+    outputSchema: schemaRuntime.createSchemaRef('fix-report')
+  };
+  writeJson(payloadPath, payload);
+
+  assert.equal(
+    runJson('node', [guardScript, 'validate', 'fixer', payloadPath]).ok,
+    true
+  );
+
+  writeJson(payloadPath, {
+    ...payload,
+    bugs: [
+      {
+        bugId: 'BUG-2',
+        file: path.join(repositoryRoot, 'src', 'outside.ts')
+      }
+    ]
+  });
+  const invalid = runRaw(
+    'node',
+    [guardScript, 'validate', 'fixer', payloadPath],
+    { encoding: 'utf8' }
+  );
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stdout, /bugId is outside scopeManifest/);
+  assert.match(invalid.stdout, /file is outside scopeManifest/);
+});
+
 test('schema-validate validates example findings fixtures', () => {
   const validatorScript = resolveSkillScript('schema-validate.cjs');
   const validPath = resolveSkillScript('..', 'schemas', 'examples', 'findings.valid.json');

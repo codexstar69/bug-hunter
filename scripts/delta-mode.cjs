@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
 const path = require('path');
-const { readJson, toPositiveInt } = require('./shared.cjs');
 
 function usage() {
   console.error('Usage:');
@@ -9,10 +9,28 @@ function usage() {
   console.error('  delta-mode.cjs expand <indexPath> <seedFilesJsonPath> <alreadySelectedFilesJsonPath> [hops]');
 }
 
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
 function assertArray(value, label) {
   if (!Array.isArray(value)) {
     throw new Error(`${label} must be an array`);
   }
+}
+
+function parseHops({ value, fallback }) {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (!/^\d+$/.test(String(value))) {
+    throw new Error('hops must be an integer from 0 to 100');
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 100) {
+    throw new Error('hops must be an integer from 0 to 100');
+  }
+  return parsed;
 }
 
 function normalizeFile(filePath) {
@@ -85,18 +103,23 @@ function criticalOverlay(index, selected) {
 }
 
 function select(indexPath, changedFilesJsonPath, hopsRaw) {
-  const hops = toPositiveInt(hopsRaw, 2);
+  const hops = parseHops({ value: hopsRaw, fallback: 2 });
   const index = readJson(indexPath);
   const changed = readJson(changedFilesJsonPath);
   assertArray(changed, 'changedFilesJson');
 
   const filesInIndex = new Set(Object.keys(index.files || {}));
   const normalizedChanged = [...new Set(changed.map((item) => normalizeFile(item)))];
-  const seeds = normalizedChanged.filter((filePath) => filesInIndex.has(filePath));
+  const seedsInIndex = normalizedChanged.filter((filePath) => {
+    return filesInIndex.has(filePath);
+  });
+  const unindexedChanged = normalizedChanged.filter((filePath) => {
+    return !filesInIndex.has(filePath);
+  });
 
   const { graph, reverse } = buildGraph(index);
   const selectedSet = expandByHops({
-    seeds,
+    seeds: normalizedChanged,
     graph,
     reverse,
     hops
@@ -108,7 +131,8 @@ function select(indexPath, changedFilesJsonPath, hopsRaw) {
     ok: true,
     hops,
     changedTotal: normalizedChanged.length,
-    changedInIndex: seeds.length,
+    changedInIndex: seedsInIndex.length,
+    unindexedChanged,
     selected,
     expansionCandidates: overlays,
     metrics: {
@@ -119,16 +143,14 @@ function select(indexPath, changedFilesJsonPath, hopsRaw) {
 }
 
 function expand(indexPath, seedFilesJsonPath, alreadySelectedFilesJsonPath, hopsRaw) {
-  const hops = toPositiveInt(hopsRaw, 1);
+  const hops = parseHops({ value: hopsRaw, fallback: 1 });
   const index = readJson(indexPath);
   const seedFiles = readJson(seedFilesJsonPath);
   const alreadySelectedFiles = readJson(alreadySelectedFilesJsonPath);
   assertArray(seedFiles, 'seedFilesJson');
   assertArray(alreadySelectedFiles, 'alreadySelectedFilesJson');
 
-  const filesInIndex = new Set(Object.keys(index.files || {}));
-  const seeds = [...new Set(seedFiles.map((item) => normalizeFile(item)))]
-    .filter((filePath) => filesInIndex.has(filePath));
+  const seeds = [...new Set(seedFiles.map((item) => normalizeFile(item)))];
   const alreadySelected = new Set(alreadySelectedFiles.map((item) => normalizeFile(item)));
   const { graph, reverse } = buildGraph(index);
   const expandedSet = expandByHops({

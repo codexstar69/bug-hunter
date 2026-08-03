@@ -33,12 +33,11 @@ Write:
 3. Generate a concise STRIDE threat model.
 4. Generate a matching security config with thresholds and tech-stack metadata.
 
-## Existing implementation hooks
+## Compatibility
 
-Bug Hunter already has a native prompt for this capability:
-- `prompts/threat-model.md`
-
-Prefer reusing that prompt structure and artifact conventions rather than inventing a second format.
+`prompts/threat-model.md` is generated from this skill for older clients. This
+skill is the canonical source and must be edited instead of the generated
+compatibility prompt.
 
 ## Output rules
 

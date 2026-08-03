@@ -11,19 +11,34 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20]
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify generated runtime assets
+        run: pnpm check:generated
 
       - name: Run tests
-        run: node --test scripts/tests/*.test.cjs
+        run: pnpm test
 
       - name: Run preflight check
         run: node scripts/run-bug-hunter.cjs preflight --skill-dir .
+
+      - name: Inspect package inventory
+        if: matrix.node-version == 24
+        run: pnpm verify:package
 
       - name: Verify bin is executable
         run: test -x bin/bug-hunter

@@ -30,6 +30,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const MAX_SCAN_DEPTH = 100;
+
 // ─── Source extensions ───────────────────────────────────────────────
 const SOURCE_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
@@ -38,14 +40,27 @@ const SOURCE_EXTENSIONS = new Set([
   '.ex', '.exs', '.erl', '.hs', '.ml', '.clj', '.lua'
 ]);
 
+const SOURCE_SHEBANG = /^#!.*\b(node|python|ruby|php|bash|sh)\b/;
+
+function hasSourceShebang(filePath) {
+  const fileDescriptor = fs.openSync(filePath, 'r');
+  try {
+    const prefix = Buffer.alloc(256);
+    const bytesRead = fs.readSync(fileDescriptor, prefix, 0, prefix.length, 0);
+    return SOURCE_SHEBANG.test(prefix.toString('utf8', 0, bytesRead));
+  } finally {
+    fs.closeSync(fileDescriptor);
+  }
+}
+
 // ─── Directories to always skip ─────────────────────────────────────
 const SKIP_DIRS = new Set([
   'node_modules', 'vendor', 'dist', 'build', '.git', '__pycache__',
   '.next', 'coverage', '.cache', 'tmp', '.tmp', '.idea', '.vscode',
   '.svn', 'target', 'out', '.output', '.nuxt', '.turbo', '.parcel-cache',
   'bower_components', 'jspm_packages', '.yarn', '.pnp',
-  'venv', '.venv', 'virtualenv',
-  'Pods', '.gradle', '.mvn', 'bin', 'obj',
+  'venv', '.venv', 'env', '.env', 'virtualenv',
+  'Pods', '.gradle', '.mvn', 'obj',
   'artifacts', 'logs', '.terraform'
 ]);
 
@@ -93,6 +108,16 @@ function walkDir(dirPath, maxDepth, currentDepth) {
       const ext = path.extname(entry.name);
       if (SOURCE_EXTENSIONS.has(ext)) {
         results.push(fullPath);
+        continue;
+      }
+      if (ext === '') {
+        try {
+          if (hasSourceShebang(fullPath)) {
+            results.push(fullPath);
+          }
+        } catch {
+          // Skip unreadable files
+        }
       }
     }
   }
@@ -203,7 +228,7 @@ function discoverDomains(files, repoRoot) {
 
   // Sort: CRITICAL first, then HIGH, then MEDIUM, then rest
   const tierOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, 'CONTEXT-ONLY': 4 };
-  domains.sort((a, b) => (tierOrder[a.tier] || 99) - (tierOrder[b.tier] || 99));
+  domains.sort((a, b) => (tierOrder[a.tier] ?? 99) - (tierOrder[b.tier] ?? 99));
 
   return domains;
 }
@@ -219,12 +244,14 @@ function computeFileBudget(files) {
   const step = Math.max(1, Math.floor(files.length / sampleSize));
   let totalLines = 0;
   let sampled = 0;
+  const maxSampleBytes = 5 * 1024 * 1024;
 
-  const MAX_SAMPLE_BYTES = 5 * 1024 * 1024;
   for (let i = 0; i < files.length && sampled < sampleSize; i += step) {
     try {
       const stat = fs.statSync(files[i]);
-      if (stat.size > MAX_SAMPLE_BYTES) continue;
+      if (stat.size > maxSampleBytes) {
+        continue;
+      }
       const content = fs.readFileSync(files[i], 'utf8');
       totalLines += content.split('\n').length;
       sampled += 1;
@@ -294,7 +321,11 @@ function buildRiskMap(files, repoRoot) {
 // ─── Main: triage scan ──────────────────────────────────────────────
 function scan(targetPath, options) {
   const resolvedTarget = path.resolve(targetPath);
-  const maxDepth = options.maxDepth || 20;
+  const maxDepth = options.maxDepth ?? 20;
+
+  if (!Number.isInteger(maxDepth) || maxDepth < 0 || maxDepth > MAX_SCAN_DEPTH) {
+    throw new Error(`max depth must be an integer between 0 and ${MAX_SCAN_DEPTH}`);
+  }
 
   if (!fs.existsSync(resolvedTarget)) {
     throw new Error(`Target not found: ${resolvedTarget}`);
@@ -338,24 +369,21 @@ function scan(targetPath, options) {
   const includeFileRiskMap = totalFiles <= 200;
   const riskMap = includeFileRiskMap ? buildRiskMap(allFiles, resolvedTarget) : null;
 
-  // Build scan order: CRITICAL → HIGH → MEDIUM (skip low + context-only)
+  // Build scan order: CRITICAL → HIGH → MEDIUM → LOW (skip context-only)
   let scanOrder;
   if (riskMap) {
-    scanOrder = [...riskMap.critical, ...riskMap.high, ...riskMap.medium];
-    if (scanOrder.length === 0 && riskMap.low.length > 0) {
-      scanOrder = [...riskMap.low];
-    }
+    scanOrder = [...riskMap.critical, ...riskMap.high, ...riskMap.medium, ...riskMap.low];
   } else {
     // For large codebases, just list domains in priority order
     scanOrder = domains
-      .filter((d) => d.tier !== 'CONTEXT-ONLY' && d.tier !== 'LOW')
+      .filter((d) => d.tier !== 'CONTEXT-ONLY')
       .map((d) => `${d.path}/ (${d.fileCount} files, ${d.tier})`);
   }
 
   // Token estimates
   const scannable = riskMap
     ? scanOrder.length
-    : domains.filter((d) => !['CONTEXT-ONLY', 'LOW'].includes(d.tier)).reduce((s, d) => s + d.fileCount, 0);
+    : domains.filter((d) => d.tier !== 'CONTEXT-ONLY').reduce((s, d) => s + d.fileCount, 0);
   const tokensPerFile = budget.avgTokens || 400;
   const reconTokens = includeFileRiskMap ? Math.min(totalFiles * 20, 5000) : Math.min(domains.length * 100, 3000);
   const perHunterChunk = Math.min(budget.fileBudget, scannable) * tokensPerFile;
@@ -446,7 +474,7 @@ function formatHuman(result) {
   lines.push('Domains:');
   // Sort by tier for display: CRITICAL → HIGH → MEDIUM → LOW → CONTEXT-ONLY
   const tierOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, 'CONTEXT-ONLY': 4 };
-  const sorted = [...result.domains].sort((a, b) => (tierOrder[a.tier] || 99) - (tierOrder[b.tier] || 99));
+  const sorted = [...result.domains].sort((a, b) => (tierOrder[a.tier] ?? 99) - (tierOrder[b.tier] ?? 99));
   for (const d of sorted) {
     lines.push(`  ${d.tier.padEnd(12)} ${d.path} (${d.fileCount} files)`);
   }
@@ -483,7 +511,11 @@ function parseArgs(argv) {
       args.output = argv[i + 1];
       i += 2;
     } else if (flag === '--max-depth' && i + 1 < argv.length) {
-      args.maxDepth = parseInt(argv[i + 1], 10) || 20;
+      const maxDepth = Number(argv[i + 1]);
+      if (!Number.isInteger(maxDepth) || maxDepth < 0 || maxDepth > MAX_SCAN_DEPTH) {
+        throw new Error(`--max-depth must be an integer between 0 and ${MAX_SCAN_DEPTH}`);
+      }
+      args.maxDepth = maxDepth;
       i += 2;
     } else if (flag === '--format' && i + 1 < argv.length) {
       args.format = argv[i + 1];

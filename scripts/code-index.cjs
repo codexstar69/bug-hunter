@@ -121,6 +121,7 @@ function extractImports(content, extension) {
   if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(extension)) {
     const regexes = [
       /import\s+[^'"]*?from\s+['"]([^'"]+)['"]/g,
+      /import\s*['"]([^'"]+)['"]/g,
       /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
       /require\(\s*['"]([^'"]+)['"]\s*\)/g,
       /export\s+[^'"]*?from\s+['"]([^'"]+)['"]/g
@@ -208,6 +209,25 @@ function resolveRelativeImport(specifier, fromFilePath, fileSet) {
   if (!specifier.startsWith('.')) {
     return null;
   }
+
+  if (path.extname(fromFilePath) === '.py') {
+    const leadingDots = specifier.match(/^\.+/)[0].length;
+    const moduleSpecifier = specifier.slice(leadingDots);
+    const packageRoot = Array.from({ length: leadingDots - 1 }).reduce((currentPath) => {
+      return path.dirname(currentPath);
+    }, path.dirname(fromFilePath));
+    const modulePath = moduleSpecifier
+      ? path.join(packageRoot, ...moduleSpecifier.split('.'))
+      : packageRoot;
+    const candidates = [
+      `${modulePath}.py`,
+      path.join(modulePath, '__init__.py')
+    ];
+    return candidates.find((candidate) => {
+      return fileSet.has(candidate);
+    }) || null;
+  }
+
   const fromDir = path.dirname(fromFilePath);
   const base = path.resolve(fromDir, specifier);
   const candidates = [

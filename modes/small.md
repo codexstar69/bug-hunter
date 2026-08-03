@@ -16,13 +16,13 @@ Before any phase, check for `.bug-hunter/triage.json` (written by Step 1). If pr
 
 ## Step 4: Run Recon
 
-Dispatch Recon using the standard dispatch pattern (see `_dispatch.md`, role=`recon`).
+Dispatch Recon using the standard dispatch pattern (see `dispatch.md`, role=`recon`).
 
 **If triage data exists**, tell Recon to use the triage risk map and only identify tech stack + patterns. Pass the triage JSON path as phase-specific context.
 
 **If no triage data**, Recon does full file discovery and classification.
 
-After Recon completes, read `.bug-hunter/recon.md` to extract the risk map and tech stack.
+After Recon completes, read `.bug-hunter/recon.json` to extract the risk map and tech stack.
 
 Report architecture summary to user.
 
@@ -30,15 +30,15 @@ Report architecture summary to user.
 
 ## Step 5: Run Hunter
 
-Dispatch Hunter using the standard dispatch pattern (see `_dispatch.md`, role=`hunter`).
+Dispatch Hunter using the standard dispatch pattern (see `dispatch.md`, role=`hunter`).
 
 Pass to the Hunter:
 - File list in risk-map order (CRITICAL → HIGH → MEDIUM → LOW). If triage exists, use `triage.scanOrder`.
 - Risk map from Recon (or triage).
 - Tech stack from Recon.
-- `doc-lookup.md` contents as phase-specific context.
+- `skills/doc-lookup/SKILL.md` contents as phase-specific context.
 
-After completion, read `.bug-hunter/findings.json`.
+After completion, read `.bug-hunter/hunter-findings.json`.
 
 If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to Step 7 (Final Report) in SKILL.md.
 
@@ -50,20 +50,20 @@ Compare the Hunter's FILES SCANNED list against the risk map.
 
 If any queued scannable files appear in FILES SKIPPED:
 
-**local-sequential:** Read the missed files yourself now in priority order (CRITICAL → HIGH → MEDIUM → LOW) and scan them for bugs. Append new findings to `.bug-hunter/findings.json`.
+**local-sequential:** Read the missed files yourself now in priority order (CRITICAL → HIGH → MEDIUM → LOW) and scan them for bugs. Append new findings to `.bug-hunter/hunter-findings.json`.
 
-**subagent/teams:** Launch a second Hunter on ONLY the missed files using the standard dispatch pattern. Merge gap findings into `.bug-hunter/findings.json`.
+**subagent/teams:** Launch a second Hunter on ONLY the missed files using the standard dispatch pattern. Merge gap findings into `.bug-hunter/hunter-findings.json`.
 
 ---
 
 ## Step 6: Run Skeptic
 
-Dispatch Skeptic using the standard dispatch pattern (see `_dispatch.md`, role=`skeptic`).
+Dispatch Skeptic using the standard dispatch pattern (see `dispatch.md`, role=`skeptic`).
 
 Pass to the Skeptic:
-- Hunter findings from `.bug-hunter/findings.json`.
+- Hunter findings from `.bug-hunter/hunter-findings.json`.
 - Tech stack from Recon.
-- `doc-lookup.md` contents as phase-specific context.
+- `skills/doc-lookup/SKILL.md` contents as phase-specific context.
 
 After completion, read `.bug-hunter/skeptic.json`.
 
@@ -71,10 +71,10 @@ After completion, read `.bug-hunter/skeptic.json`.
 
 ## Step 7: Run Referee
 
-Dispatch Referee using the standard dispatch pattern (see `_dispatch.md`, role=`referee`).
+Dispatch Referee using the standard dispatch pattern (see `dispatch.md`, role=`referee`).
 
 Pass to the Referee:
-- Hunter findings from `.bug-hunter/findings.json`.
+- Hunter findings from `.bug-hunter/hunter-findings.json`.
 - Skeptic challenges from `.bug-hunter/skeptic.json`.
 
 After completion, read `.bug-hunter/referee.json`.

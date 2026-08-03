@@ -1,3 +1,11 @@
+<!-- Generated from skills/doc-lookup/SKILL.md by scripts/generate-compat-prompts.cjs. -->
+---
+name: doc-lookup
+description: "Unified documentation lookup for Bug Hunter agents. Uses Context Hub (chub) as primary source with Context7 API fallback. Provides verified library/framework documentation to prevent false positives and ensure correct fix patterns."
+---
+
+# Doc Lookup — Verified Documentation Access
+
 ## Documentation Lookup (Context Hub + Context7 fallback)
 
 When you need to verify a claim about how a library, framework, or API actually behaves — do NOT guess from training data. Look it up.

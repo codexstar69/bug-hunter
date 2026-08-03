@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
 const path = require('path');
-const { readJson, toArray } = require('./shared.cjs');
+const { validateArtifactValue } = require('./schema-runtime.cjs');
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
 
 function usage() {
   console.error('Usage:');
   console.error('  render-report.cjs report <findings-json> <referee-json>');
+  console.error('  render-report.cjs scan-report <findings-json> <referee-json> <metadata-json>');
   console.error('  render-report.cjs coverage <coverage-json>');
   console.error('  render-report.cjs skeptic <skeptic-json>');
   console.error('  render-report.cjs referee <referee-json>');
@@ -13,27 +19,114 @@ function usage() {
   console.error('  render-report.cjs fix-strategy <fix-strategy-json>');
 }
 
-function renderReport({ findingsPath, refereePath }) {
-  const findings = toArray(readJson(findingsPath));
-  const verdicts = toArray(readJson(refereePath));
-  const findingByBugId = new Map(findings.map((finding) => [finding.bugId, finding]));
-  const confirmed = [];
-  const dismissed = [];
-  const manualReview = [];
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
 
-  for (const verdict of verdicts) {
-    const finding = findingByBugId.get(verdict.bugId) || null;
-    const row = { verdict, finding };
-    if (verdict.verdict === 'REAL_BUG') {
-      confirmed.push(row);
-      continue;
-    }
-    if (verdict.verdict === 'MANUAL_REVIEW') {
-      manualReview.push(row);
-      continue;
-    }
-    dismissed.push(row);
+function requireArray({ value, label }) {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be a JSON array`);
   }
+  return value;
+}
+
+function assertValidArtifact({ artifactName, value }) {
+  const result = validateArtifactValue({ artifactName, value });
+  if (!result.ok) {
+    throw new Error(`${artifactName} validation failed: ${result.errors.join('; ')}`);
+  }
+}
+
+function indexByBugId({ rows, label }) {
+  return rows.reduce((index, row, rowIndex) => {
+    const bugId = typeof row?.bugId === 'string' ? row.bugId.trim() : '';
+    if (!bugId) {
+      throw new Error(`${label}[${rowIndex}].bugId must be a non-empty string`);
+    }
+    if (index.has(bugId)) {
+      throw new Error(`${label} contains duplicate bugId ${bugId}`);
+    }
+    index.set(bugId, row);
+    return index;
+  }, new Map());
+}
+
+function joinFindingsAndVerdicts({ findings, verdicts }) {
+  const findingByBugId = indexByBugId({ rows: findings, label: 'findings' });
+  const verdictByBugId = indexByBugId({ rows: verdicts, label: 'referee verdicts' });
+  const unknownVerdictIds = [...verdictByBugId.keys()].filter((bugId) => {
+    return !findingByBugId.has(bugId);
+  });
+  if (unknownVerdictIds.length > 0) {
+    throw new Error(`Referee verdicts reference unknown bugId values: ${unknownVerdictIds.join(', ')}`);
+  }
+
+  return findings.map((finding) => {
+    const verdict = verdictByBugId.get(finding.bugId);
+    return {
+      id: finding.bugId,
+      finding,
+      ...(verdict ? { verdict } : {})
+    };
+  });
+}
+
+function partitionReportRows(rows) {
+  return {
+    confirmed: rows.filter((row) => {
+      return row.verdict?.verdict === 'REAL_BUG';
+    }),
+    dismissed: rows.filter((row) => {
+      return row.verdict?.verdict === 'NOT_A_BUG';
+    }),
+    manualReview: rows.filter((row) => {
+      return row.verdict?.verdict === 'MANUAL_REVIEW';
+    }),
+    unreviewed: rows.filter((row) => {
+      return !row.verdict;
+    })
+  };
+}
+
+function buildScanReport({ findings, verdicts, metadata }) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('metadata must be a JSON object');
+  }
+  const rows = joinFindingsAndVerdicts({ findings, verdicts });
+  const partitions = partitionReportRows(rows);
+  return {
+    schemaVersion: 1,
+    runId: metadata.runId,
+    generatedAt: metadata.generatedAt,
+    mode: metadata.mode,
+    target: metadata.target,
+    filesScanned: metadata.filesScanned,
+    threatModelLoaded: metadata.threatModelLoaded,
+    dependencies: metadata.dependencies,
+    counts: {
+      findings: findings.length,
+      confirmed: partitions.confirmed.length,
+      dismissed: partitions.dismissed.length,
+      manualReview: partitions.manualReview.length,
+      unreviewed: partitions.unreviewed.length
+    },
+    ...partitions
+  };
+}
+
+function renderReport({ findingsPath, refereePath }) {
+  const findings = requireArray({
+    value: readJson(findingsPath),
+    label: 'findings'
+  });
+  const verdicts = requireArray({
+    value: readJson(refereePath),
+    label: 'referee verdicts'
+  });
+  assertValidArtifact({ artifactName: 'findings', value: findings });
+  assertValidArtifact({ artifactName: 'referee', value: verdicts });
+  const partitions = partitionReportRows(joinFindingsAndVerdicts({ findings, verdicts }));
+  const { confirmed, dismissed, manualReview, unreviewed } = partitions;
 
   const lines = [
     '# Bug Hunter Report',
@@ -42,6 +135,7 @@ function renderReport({ findingsPath, refereePath }) {
     `- Confirmed: ${confirmed.length}`,
     `- Dismissed: ${dismissed.length}`,
     `- Manual review: ${manualReview.length}`,
+    `- Unreviewed: ${unreviewed.length}`,
     ''
   ];
 
@@ -75,6 +169,15 @@ function renderReport({ findingsPath, refereePath }) {
       lines.push(`- ${verdict.bugId} | ${finding ? finding.file : 'unknown file'} | ${finding ? finding.claim : 'No finding available'}`);
       lines.push(`  Analysis: ${verdict.analysisSummary}`);
     }
+  }
+
+  lines.push('', '## Unreviewed Findings');
+  if (unreviewed.length === 0) {
+    lines.push('- None');
+  } else {
+    lines.push(...unreviewed.map(({ finding }) => {
+      return `- ${finding.bugId} | ${finding.severity} | ${finding.file} | ${finding.claim}`;
+    }));
   }
 
   return `${lines.join('\n')}\n`;
@@ -262,6 +365,33 @@ function main() {
       findingsPath: path.resolve(findingsPath),
       refereePath: path.resolve(refereePath)
     }));
+    return;
+  }
+
+  if (command === 'scan-report') {
+    const [findingsPath, refereePath, metadataPath] = args;
+    if (!findingsPath || !refereePath || !metadataPath) {
+      usage();
+      process.exit(1);
+    }
+    const findings = requireArray({
+      value: readJson(path.resolve(findingsPath)),
+      label: 'findings'
+    });
+    const verdicts = requireArray({
+      value: readJson(path.resolve(refereePath)),
+      label: 'referee verdicts'
+    });
+    const metadata = readJson(path.resolve(metadataPath));
+    assertValidArtifact({ artifactName: 'findings', value: findings });
+    assertValidArtifact({ artifactName: 'referee', value: verdicts });
+    const scanReport = buildScanReport({
+      findings,
+      verdicts,
+      metadata
+    });
+    assertValidArtifact({ artifactName: 'scan-report', value: scanReport });
+    process.stdout.write(`${JSON.stringify(scanReport, null, 2)}\n`);
     return;
   }
 

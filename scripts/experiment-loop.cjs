@@ -79,13 +79,14 @@ function readJsonlLines(filePath) {
   if (!raw) {
     return [];
   }
-  return raw.split('\n').map((line) => {
+  return raw.split('\n').map((line, index) => {
     try {
       return JSON.parse(line);
-    } catch {
-      return null; // skip corrupt lines — defensive
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Corrupt JSONL at ${filePath}:${index + 1}: ${message}`);
     }
-  }).filter(Boolean);
+  });
 }
 
 function truncateOutput(str, maxBytes) {
@@ -184,7 +185,9 @@ function reconstructState(logPath) {
       }
 
       // Baseline is first result in segment
-      if (seg.baselineIndex === null && typeof result.value === 'number') {
+      if (seg.baselineIndex === null
+        && result.status === 'keep'
+        && typeof result.value === 'number') {
         seg.baselineIndex = seg.results.length - 1;
         state.bestMetric = result.value;
         state.bestDelta = null;
@@ -429,12 +432,16 @@ function parseMetrics(stdout) {
 // All git commands use spawnSync with explicit argv (no shell interpolation).
 // ---------------------------------------------------------------------------
 
-function gitCommitHash() {
+function gitCommitHash(cwd) {
   try {
     const result = childProcess.spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd,
       encoding: 'utf8',
       timeout: 10000
     });
+    if (result.status !== 0) {
+      return 'unknown';
+    }
     return (result.stdout || '').trim() || 'unknown';
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -443,11 +450,114 @@ function gitCommitHash() {
   }
 }
 
-function gitAutoCommit(description) {
+function isPathInside(parentPath, candidatePath) {
+  const relative = path.relative(parentPath, candidatePath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function resolveExistingAncestor(candidatePath) {
+  let current = candidatePath;
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return current;
+    }
+    current = parent;
+  }
+  return fs.realpathSync(current);
+}
+
+function normalizeAllowedPaths({ allowedPaths, repositoryRoot }) {
+  if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) {
+    throw new Error('Auto-commit requires a non-empty --allowed-paths JSON array');
+  }
+
+  const realRepositoryRoot = fs.realpathSync(repositoryRoot);
+  return allowedPaths.map((allowedPath) => {
+    if (typeof allowedPath !== 'string' || allowedPath.length === 0 || allowedPath.includes('\0')) {
+      throw new Error('Every auto-commit path must be a non-empty string');
+    }
+    if (path.isAbsolute(allowedPath)) {
+      throw new Error(`Auto-commit path must be repository-relative: ${allowedPath}`);
+    }
+
+    const normalized = path.normalize(allowedPath);
+    if (normalized === '.' || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+      throw new Error(`Auto-commit path escapes the repository: ${allowedPath}`);
+    }
+
+    const absolutePath = path.resolve(realRepositoryRoot, normalized);
+    const realBoundary = fs.existsSync(absolutePath)
+      ? fs.realpathSync(absolutePath)
+      : resolveExistingAncestor(absolutePath);
+    if (!isPathInside(realRepositoryRoot, absolutePath)
+      || !isPathInside(realRepositoryRoot, realBoundary)) {
+      throw new Error(`Auto-commit path escapes the repository through a symlink: ${allowedPath}`);
+    }
+
+    return normalized.split(path.sep).join('/');
+  });
+}
+
+function parseDirtyPaths(statusOutput) {
+  return statusOutput
+    .split('\0')
+    .filter(Boolean)
+    .map((line) => line.slice(3));
+}
+
+function pathIsAllowed(filePath, allowedPaths) {
+  return allowedPaths.some((allowedPath) => {
+    return filePath === allowedPath || filePath.startsWith(`${allowedPath}/`);
+  });
+}
+
+function gitAutoCommit({ description, cwd, allowedPaths }) {
   try {
-    childProcess.spawnSync('git', ['add', '-A'], { encoding: 'utf8', timeout: 30000 });
+    const rootResult = childProcess.spawnSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 10000
+    });
+    if (rootResult.status !== 0) {
+      const stderr = (rootResult.stderr || '').trim();
+      return { ok: false, error: stderr || 'not inside a Git repository' };
+    }
+
+    const repositoryRoot = (rootResult.stdout || '').trim();
+    const normalizedPaths = normalizeAllowedPaths({ allowedPaths, repositoryRoot });
+    const statusResult = childProcess.spawnSync(
+      'git',
+      ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'],
+      { cwd: repositoryRoot, encoding: 'utf8', timeout: 30000 }
+    );
+    if (statusResult.status !== 0) {
+      const stderr = (statusResult.stderr || '').trim();
+      return { ok: false, error: stderr || 'git status failed' };
+    }
+
+    const outsidePaths = parseDirtyPaths(statusResult.stdout || '')
+      .filter((filePath) => !pathIsAllowed(filePath, normalizedPaths));
+    if (outsidePaths.length > 0) {
+      return {
+        ok: false,
+        error: `Dirty paths outside the approved auto-commit scope: ${outsidePaths.join(', ')}`
+      };
+    }
+
+    const addResult = childProcess.spawnSync(
+      'git',
+      ['add', '--', ...normalizedPaths],
+      { cwd: repositoryRoot, encoding: 'utf8', timeout: 30000 }
+    );
+    if (addResult.status !== 0) {
+      const stderr = (addResult.stderr || '').trim();
+      return { ok: false, error: stderr || `git add exited ${addResult.status}` };
+    }
+
     const msg = `experiment: ${description}\n\nResult: keep`;
     const result = childProcess.spawnSync('git', ['commit', '-m', msg], {
+      cwd: repositoryRoot,
       encoding: 'utf8',
       timeout: 30000
     });
@@ -472,7 +582,7 @@ function usage() {
   console.error('Usage:');
   console.error('  experiment-loop.cjs init <logPath> <name> <metricName> <direction> [unit] [--max-iterations <n>]');
   console.error('  experiment-loop.cjs run <logPath> <command> [--timeout-ms <n>] [--checks-script <path>] [--stop-file <path>]');
-  console.error('  experiment-loop.cjs log <logPath> <status> <metricValue> [--description <text>] [--secondary <json>] [--auto-commit <true|false>] [--force <true|false>] [--duration-ms <ms>]');
+  console.error('  experiment-loop.cjs log <logPath> <status> <metricValue> [--description <text>] [--secondary <json>] [--auto-commit <true|false>] [--allowed-paths <json-array>] [--force <true|false>] [--duration-ms <ms>]');
   console.error('  experiment-loop.cjs check-continue <logPath> [--stop-file <path>]');
   console.error('  experiment-loop.cjs status <logPath>');
   console.error('  experiment-loop.cjs stop [--stop-file <path>]');
@@ -674,7 +784,16 @@ function cmdLog(args) {
 
   const description = named['description'] || '';
   const force = named['force'] === 'true';
-  const autoCommit = named['auto-commit'] !== 'false'; // Default true
+  const autoCommit = named['auto-commit'] === 'true';
+  let allowedPaths = [];
+  if (named['allowed-paths']) {
+    try {
+      allowedPaths = JSON.parse(named['allowed-paths']);
+    } catch {
+      console.error('Invalid --allowed-paths JSON');
+      process.exit(1);
+    }
+  }
   const durationMs = named['duration-ms'] !== undefined
     ? Number(named['duration-ms']) : 0;
   let secondaryMetrics = {};
@@ -712,14 +831,22 @@ function cmdLog(args) {
   }
 
   // Auto-commit on keep (pi-autoresearch pattern)
-  let commit = 'unknown';
+  let commit = 'not-created';
   let commitOk = true;
+  let commitError = '';
+  let recordedStatus = status;
   if (status === 'keep' && autoCommit) {
-    const commitResult = gitAutoCommit(description || `experiment #${state.totalRuns + 1}`);
+    const commitResult = gitAutoCommit({
+      description: description || `experiment #${state.totalRuns + 1}`,
+      cwd: process.cwd(),
+      allowedPaths
+    });
     commitOk = commitResult.ok;
-    commit = gitCommitHash();
-  } else {
-    commit = gitCommitHash();
+    commitError = commitResult.error;
+    commit = commitOk ? gitCommitHash(process.cwd()) : 'not-created';
+    if (!commitOk) {
+      recordedStatus = 'checks_failed';
+    }
   }
 
   // Compute delta from baseline
@@ -740,9 +867,11 @@ function cmdLog(args) {
     timestamp: nowMs(),
     value: metricValue,
     secondaryMetrics,
-    status,
+    status: recordedStatus,
     description,
     commit,
+    commitOk,
+    commitError,
     durationMs: Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0
   };
 
@@ -755,31 +884,36 @@ function cmdLog(args) {
 
   // Determine if this is the new best
   let isBest = false;
-  if (status === 'keep' && metricValue !== null && state.bestMetric !== null) {
+  if (recordedStatus === 'keep' && metricValue !== null && state.bestMetric !== null) {
     isBest = state.metricDirection === 'lower'
       ? metricValue < state.bestMetric
       : metricValue > state.bestMetric;
   }
   // First result is always the baseline / best
-  if (state.totalRuns === 0 && metricValue !== null) {
+  if (state.totalRuns === 0 && recordedStatus === 'keep' && metricValue !== null) {
     isBest = true;
   }
 
   console.log(JSON.stringify({
-    ok: true,
+    ok: commitOk,
     segment: state.currentSegment,
     runNumber: state.totalRuns + 1,
-    status,
+    status: recordedStatus,
+    requestedStatus: status,
     value: metricValue,
     delta,
     isBest,
     commit,
     commitOk,
-    kept: state.kept + (status === 'keep' ? 1 : 0),
-    discarded: state.discarded + (status === 'discard' ? 1 : 0),
-    crashed: state.crashed + (status === 'crash' ? 1 : 0),
-    checksFailed: state.checksFailed + (status === 'checks_failed' ? 1 : 0)
+    commitError,
+    kept: state.kept + (recordedStatus === 'keep' ? 1 : 0),
+    discarded: state.discarded + (recordedStatus === 'discard' ? 1 : 0),
+    crashed: state.crashed + (recordedStatus === 'crash' ? 1 : 0),
+    checksFailed: state.checksFailed + (recordedStatus === 'checks_failed' ? 1 : 0)
   }, null, 2));
+  if (!commitOk) {
+    process.exitCode = 1;
+  }
 }
 
 function cmdStatus(args) {

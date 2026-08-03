@@ -2,11 +2,68 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const { validateArtifactValue } = require('./schema-runtime.cjs');
-const { nowIso, readJson, writeJson, severityRank } = require('./shared.cjs');
 
 const VALID_CHUNK_STATUS = new Set(['pending', 'in_progress', 'done', 'failed']);
+const VALID_FILE_STATUS = new Set(['pending', 'scanned', 'missing', 'unreadable', 'skipped', 'failed']);
 const DEFAULT_CHUNK_SIZE = 30;
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function ensureDir(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function writeJson(filePath, value) {
+  ensureDir(filePath);
+  // State is promoted only after the complete sibling file is durable.
+  const directoryPath = path.dirname(filePath);
+  const tempPath = path.join(
+    directoryPath,
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`
+  );
+  let fileDescriptor;
+  try {
+    fileDescriptor = fs.openSync(tempPath, 'wx');
+    fs.writeFileSync(fileDescriptor, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(fileDescriptor);
+    fs.closeSync(fileDescriptor);
+    fileDescriptor = undefined;
+    fs.renameSync(tempPath, filePath);
+    flushDirectory(directoryPath);
+  } catch (error) {
+    if (fileDescriptor !== undefined) {
+      fs.closeSync(fileDescriptor);
+    }
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+    throw error;
+  }
+}
+
+function flushDirectory(directoryPath) {
+  let directoryDescriptor;
+  try {
+    directoryDescriptor = fs.openSync(directoryPath, 'r');
+    fs.fsyncSync(directoryDescriptor);
+  } catch (error) {
+    if (!error || !['EINVAL', 'ENOTSUP', 'EBADF', 'EISDIR'].includes(error.code)) {
+      throw error;
+    }
+  } finally {
+    if (directoryDescriptor !== undefined) {
+      fs.closeSync(directoryDescriptor);
+    }
+  }
+}
 
 function splitChunks(files, chunkSize) {
   const chunks = [];
@@ -44,11 +101,13 @@ function nextChunkNumber(chunks) {
 
 function buildInitialState({ mode, chunkSize, files }) {
   const normalizedFiles = [...new Set(files)].sort();
+  const initializedAt = nowIso();
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    generation: 0,
     mode,
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
+    createdAt: initializedAt,
+    updatedAt: initializedAt,
     chunkSize,
     runtime: {
       parallelDisabled: false
@@ -63,6 +122,12 @@ function buildInitialState({ mode, chunkSize, files }) {
       lowConfidenceFindings: 0
     },
     chunks: splitChunks(normalizedFiles, chunkSize),
+    fileStates: Object.fromEntries(normalizedFiles.map((filePath) => {
+      return [filePath, {
+        status: 'pending',
+        updatedAt: initializedAt
+      }];
+    })),
     bugLedger: [],
     hashCache: {},
     factCards: {},
@@ -78,19 +143,75 @@ function readState(statePath) {
   if (!fs.existsSync(statePath)) {
     throw new Error(`State file does not exist: ${statePath}`);
   }
-  return readJson(statePath);
+  let state;
+  try {
+    state = readJson(statePath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`State file is malformed JSON and was left unchanged: ${statePath}: ${message}`);
+  }
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    throw new Error(`State file must contain an object and was left unchanged: ${statePath}`);
+  }
+  normalizeFileStates(state);
+  return state;
 }
 
 function saveState(statePath, state) {
   state.updatedAt = nowIso();
+  state.schemaVersion = 3;
+  state.generation = Number.isInteger(state.generation) && state.generation >= 0
+    ? state.generation + 1
+    : 1;
   writeJson(statePath, state);
 }
 
-const MAX_HASH_BYTES = 10 * 1024 * 1024;
+function normalizeFileStates(state) {
+  if (!state.fileStates || typeof state.fileStates !== 'object' || Array.isArray(state.fileStates)) {
+    const filePaths = Array.isArray(state.chunks)
+      ? [...new Set(state.chunks.flatMap((chunk) => {
+        return Array.isArray(chunk.files) ? chunk.files.map((filePath) => String(filePath)) : [];
+      }))]
+      : [];
+    state.fileStates = Object.fromEntries(filePaths.map((filePath) => {
+      const cached = state.hashCache && state.hashCache[filePath];
+      return [filePath, {
+        status: cached && cached.status === 'scanned' ? 'scanned' : 'pending',
+        updatedAt: cached && cached.scannedAt ? cached.scannedAt : state.updatedAt || state.createdAt || nowIso()
+      }];
+    }));
+  }
+  updateFileMetrics(state);
+}
+
+function setFileStatus({ state, filePath, status, hash }) {
+  if (!VALID_FILE_STATUS.has(status)) {
+    throw new Error(`Invalid file status: ${status}`);
+  }
+  const nextState = {
+    status,
+    updatedAt: nowIso()
+  };
+  if (hash) {
+    nextState.hash = hash;
+  }
+  state.fileStates[filePath] = nextState;
+}
+
+function updateFileMetrics(state) {
+  if (!state.metrics || typeof state.metrics !== 'object') {
+    state.metrics = {};
+  }
+  // Chunk completion is not scan evidence; only hash-update records a scan.
+  state.metrics.filesScanned = Object.values(state.fileStates || {}).filter((fileState) => {
+    return fileState && fileState.status === 'scanned';
+  }).length;
+}
 
 function hashFile(filePath) {
   const stat = fs.statSync(filePath);
-  if (stat.size > MAX_HASH_BYTES) {
+  const maxHashBytes = 10 * 1024 * 1024;
+  if (stat.size > maxHashBytes) {
     return `size-${stat.size}-mtime-${stat.mtimeMs}`;
   }
   const data = fs.readFileSync(filePath);
@@ -115,6 +236,23 @@ function summarize(state) {
       failed
     }
   };
+}
+
+function severityRank(severity) {
+  const normalized = String(severity || '').toLowerCase();
+  if (normalized === 'critical') {
+    return 3;
+  }
+  if (normalized === 'high') {
+    return 2;
+  }
+  if (normalized === 'medium') {
+    return 1;
+  }
+  if (normalized === 'low') {
+    return 0;
+  }
+  return -1;
 }
 
 function usage() {
@@ -170,6 +308,9 @@ function main() {
     const chunkSize = Number.isInteger(chunkSizeParsed) && chunkSizeParsed > 0
       ? chunkSizeParsed
       : DEFAULT_CHUNK_SIZE;
+    if (fs.existsSync(statePath)) {
+      readState(statePath);
+    }
     const state = buildInitialState({ mode, chunkSize, files });
     saveState(statePath, state);
     console.log(JSON.stringify({
@@ -227,12 +368,22 @@ function main() {
       chunk.lastError = null;
     } else if (status === 'failed') {
       chunk.lastError = errorMessage || 'unknown';
+      const failedAt = nowIso();
+      const failedFileStates = Object.fromEntries(chunk.files
+        .filter((filePath) => {
+          const fileState = state.fileStates[String(filePath)];
+          return !fileState || fileState.status === 'pending';
+        })
+        .map((filePath) => {
+          return [String(filePath), {
+            status: 'failed',
+            updatedAt: failedAt
+          }];
+        }));
+      Object.assign(state.fileStates, failedFileStates);
     }
     state.metrics.chunksDone = state.chunks.filter((entry) => entry.status === 'done').length;
-    state.metrics.filesScanned = state.chunks
-      .filter((entry) => entry.status === 'done')
-      .flatMap((entry) => entry.files)
-      .length;
+    updateFileMetrics(state);
     saveState(statePath, state);
     console.log(JSON.stringify({ ok: true, chunk }, null, 2));
     return;
@@ -347,17 +498,36 @@ function main() {
       const normalized = String(filePath);
       if (!fs.existsSync(normalized)) {
         missing.push(normalized);
+        setFileStatus({
+          state,
+          filePath: normalized,
+          status: 'missing'
+        });
         continue;
       }
       const currentHash = hashFile(normalized);
       const previous = state.hashCache[normalized];
       if (previous && previous.hash === currentHash) {
         skip.push(normalized);
+        setFileStatus({
+          state,
+          filePath: normalized,
+          status: 'skipped',
+          hash: currentHash
+        });
       } else {
         scan.push(normalized);
+        setFileStatus({
+          state,
+          filePath: normalized,
+          status: 'pending',
+          hash: currentHash
+        });
       }
     }
 
+    updateFileMetrics(state);
+    saveState(statePath, state);
     console.log(JSON.stringify({ ok: true, scan, skip, missing }, null, 2));
     return;
   }
@@ -371,6 +541,9 @@ function main() {
     const state = readState(statePath);
     const files = readJson(filesJsonPath);
     assertArray(files, 'filesJson');
+    if (!VALID_FILE_STATUS.has(cacheStatus)) {
+      throw new Error(`Invalid hash cache status: ${cacheStatus}`);
+    }
     const updatedFiles = [];
     const missing = [];
 
@@ -378,16 +551,29 @@ function main() {
       const normalized = String(filePath);
       if (!fs.existsSync(normalized)) {
         missing.push(normalized);
+        setFileStatus({
+          state,
+          filePath: normalized,
+          status: 'missing'
+        });
         continue;
       }
+      const currentHash = hashFile(normalized);
       state.hashCache[normalized] = {
-        hash: hashFile(normalized),
+        hash: currentHash,
         status: cacheStatus,
         scannedAt: nowIso()
       };
+      setFileStatus({
+        state,
+        filePath: normalized,
+        status: cacheStatus,
+        hash: currentHash
+      });
       updatedFiles.push(normalized);
     }
 
+    updateFileMetrics(state);
     saveState(statePath, state);
     console.log(JSON.stringify({
       ok: true,
@@ -425,6 +611,13 @@ function main() {
         };
       });
     state.chunks.push(...newChunks);
+    const appendedAt = nowIso();
+    Object.assign(state.fileStates, Object.fromEntries(toAppend.map((filePath) => {
+      return [filePath, {
+        status: 'pending',
+        updatedAt: appendedAt
+      }];
+    })));
     state.metrics.filesTotal += toAppend.length;
     state.metrics.chunksTotal = state.chunks.length;
     saveState(statePath, state);

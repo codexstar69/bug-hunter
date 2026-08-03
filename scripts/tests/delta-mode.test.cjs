@@ -45,3 +45,31 @@ test('delta-mode selects changed scope and returns expansion overlays', () => {
   assert.equal(expansion.ok, true);
   assert.equal(expansion.overlayOnly.includes(criticalOverlay), true);
 });
+
+test('delta-mode preserves unindexed changes and validates hop bounds', () => {
+  const sandbox = makeSandbox('delta-mode-unindexed-');
+  const deltaMode = resolveSkillScript('delta-mode.cjs');
+  const indexPath = path.join(sandbox, 'index.json');
+  const changedJson = path.join(sandbox, 'changed.json');
+  const unindexedFile = path.join(sandbox, 'src', 'new-file.ts');
+
+  writeJson(indexPath, {
+    files: {},
+    reverseDependencies: {}
+  });
+  writeJson(changedJson, [unindexedFile]);
+
+  const selected = runJson(
+    'node',
+    [deltaMode, 'select', indexPath, changedJson, '0']
+  );
+  assert.equal(selected.hops, 0);
+  assert.deepEqual(selected.selected, [unindexedFile]);
+  assert.deepEqual(selected.unindexedChanged, [unindexedFile]);
+
+  ['-1', '1.5', 'NaN', '101'].map((hops) => {
+    return assert.throws(() => {
+      runJson('node', [deltaMode, 'select', indexPath, changedJson, hops]);
+    });
+  });
+});

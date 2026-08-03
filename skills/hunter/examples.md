@@ -1,6 +1,16 @@
+---
+title: Hunter Analysis Examples
+description: Calibration cases for evidence-backed Hunter findings.
+prompt: |
+  launch parallel agnents and finish it all
+
+  Preserve the legacy Hunter calibration content and make
+  @skills/hunter/SKILL.md the canonical runtime source.
+---
+
 # Hunter Analysis Examples
 
-Calibration examples showing the expected analysis process and BUG-N output format with STRIDE/CWE classification. Study these before scanning.
+Role-skill calibration examples showing the expected analysis process and BUG-N output format with STRIDE/CWE classification. Study these before scanning.
 
 ---
 

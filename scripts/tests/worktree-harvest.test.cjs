@@ -24,7 +24,7 @@ function makeGitFixture() {
 
   // Working clone
   const repo = path.join(sandbox, 'repo');
-  execFileSync('git', ['clone', origin, repo], { stdio: 'ignore' });
+  execFileSync('git', ['clone', origin, repo], { cwd: sandbox, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo, stdio: 'ignore' });
 
@@ -38,8 +38,39 @@ function makeGitFixture() {
   execFileSync('git', ['checkout', '-b', fixBranch], { cwd: repo, stdio: 'ignore' });
   // Go back to main so fix branch isn't checked out
   execFileSync('git', ['checkout', 'main'], { cwd: repo, stdio: 'ignore' });
+  const topLevel = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: repo,
+    encoding: 'utf8'
+  }).trim();
+  assert.equal(topLevel, fs.realpathSync(repo));
 
   return { sandbox, repo, fixBranch };
+}
+
+function makeGitFaultEnv({ sandbox, failPrefix }) {
+  const binDir = path.join(sandbox, 'fixture-bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  const gitFixture = path.join(binDir, 'git');
+  fs.writeFileSync(gitFixture, `#!/usr/bin/env node
+const childProcess = require('child_process');
+const args = process.argv.slice(2);
+if (args.join(' ').startsWith(process.env.TEST_FAIL_GIT_PREFIX)) {
+  process.stderr.write('injected git failure: ' + process.env.TEST_FAIL_GIT_PREFIX + '\\n');
+  process.exit(73);
+}
+const result = childProcess.spawnSync(process.env.TEST_REAL_GIT, args, { stdio: 'inherit' });
+process.exit(result.status === null ? 74 : result.status);
+`, { mode: 0o755 });
+  const realGit = execFileSync('which', ['git'], {
+    cwd: sandbox,
+    encoding: 'utf8'
+  }).trim();
+  return {
+    ...process.env,
+    PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+    TEST_FAIL_GIT_PREFIX: failPrefix,
+    TEST_REAL_GIT: realGit
+  };
 }
 
 test('prepare creates worktree on fix branch', () => {
@@ -62,6 +93,10 @@ test('prepare creates worktree on fix branch', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(wtDir, '.worktree-manifest.json'), 'utf8'));
   assert.equal(manifest.fixBranch, fixBranch);
   assert.ok(manifest.preHarvestHead);
+  assert.equal(manifest.repositoryRealpath, fs.realpathSync(repo));
+  assert.equal(manifest.worktreeRealpath, fs.realpathSync(wtDir));
+  assert.match(manifest.creationToken, /^[a-f0-9]{48}$/);
+  assert.equal(manifest.recoveryRecordPath.startsWith(`${fs.realpathSync(wtDir)}${path.sep}`), false);
 });
 
 test('prepare detaches main tree when on fix branch', () => {
@@ -117,6 +152,19 @@ test('prepare refuses to delete an unrelated pre-existing directory', () => {
   assert.equal(fs.existsSync(path.join(wtDir, 'keep.txt')), true);
 });
 
+test('prepare preserves a dirty existing managed worktree', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  fs.writeFileSync(path.join(wtDir, 'keep.txt'), 'uncommitted\n');
+
+  const result = runRaw('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'existing-worktree-dirty');
+  assert.equal(fs.readFileSync(path.join(wtDir, 'keep.txt'), 'utf8'), 'uncommitted\n');
+});
+
 test('harvest finds new commits', () => {
   const { repo, fixBranch } = makeGitFixture();
   const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
@@ -168,6 +216,98 @@ test('harvest handles no-op — clean worktree with no changes', () => {
   assert.equal(result.uncommittedStashed, false);
 });
 
+test('harvest preserves dirty state after a branch switch but refuses removal', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  const prepared = runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  execFileSync('git', ['checkout', '-b', 'other-branch'], { cwd: wtDir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(wtDir, 'dirty.txt'), 'uncommitted\n');
+
+  const result = runRaw('node', [SCRIPT, 'harvest', wtDir], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'branch-switched');
+  assert.equal(output.safeToRemove, false);
+  assert.equal(output.uncommittedStashed, true);
+  assert.equal(fs.existsSync(wtDir), true);
+  assert.equal(fs.existsSync(prepared.recoveryRecordPath), true);
+  const remainingStatus = execFileSync('git', ['status', '--porcelain'], {
+    cwd: wtDir,
+    encoding: 'utf8'
+  }).trim().split('\n').filter(Boolean);
+  assert.deepEqual(
+    remainingStatus.sort(),
+    ['?? .harvest-result.json', '?? .worktree-manifest.json']
+  );
+});
+
+test('harvest fails closed when git status fails', () => {
+  const { sandbox, repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+
+  const result = runRaw('node', [SCRIPT, 'harvest', wtDir], {
+    cwd: repo,
+    env: makeGitFaultEnv({ sandbox, failPrefix: 'status' })
+  });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'status-failed');
+  assert.equal(output.safeToRemove, false);
+  assert.equal(fs.existsSync(wtDir), true);
+});
+
+test('harvest fails closed when git add fails', () => {
+  const { sandbox, repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  fs.writeFileSync(path.join(wtDir, 'dirty.txt'), 'uncommitted\n');
+
+  const result = runRaw('node', [SCRIPT, 'harvest', wtDir], {
+    cwd: repo,
+    env: makeGitFaultEnv({ sandbox, failPrefix: 'add ' })
+  });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'preservation-add-failed');
+  assert.equal(output.safeToRemove, false);
+  assert.equal(fs.readFileSync(path.join(wtDir, 'dirty.txt'), 'utf8'), 'uncommitted\n');
+});
+
+test('harvest fails closed when git stash fails', () => {
+  const { sandbox, repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  fs.writeFileSync(path.join(wtDir, 'dirty.txt'), 'uncommitted\n');
+
+  const result = runRaw('node', [SCRIPT, 'harvest', wtDir], {
+    cwd: repo,
+    env: makeGitFaultEnv({ sandbox, failPrefix: 'stash push' })
+  });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'preservation-stash-failed');
+  assert.equal(output.safeToRemove, false);
+  assert.equal(fs.existsSync(wtDir), true);
+});
+
+test('harvest fails closed when stash lookup fails', () => {
+  const { sandbox, repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  fs.writeFileSync(path.join(wtDir, 'dirty.txt'), 'uncommitted\n');
+
+  const result = runRaw('node', [SCRIPT, 'harvest', wtDir], {
+    cwd: repo,
+    env: makeGitFaultEnv({ sandbox, failPrefix: 'stash list' })
+  });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'stash-lookup-failed');
+  assert.equal(output.safeToRemove, false);
+  assert.equal(fs.existsSync(wtDir), true);
+});
+
 test('cleanup removes worktree', () => {
   const { repo, fixBranch } = makeGitFixture();
   const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
@@ -197,9 +337,11 @@ test('cleanup does not report success for unmanaged directories', () => {
   fs.mkdirSync(wtDir, { recursive: true });
   fs.writeFileSync(path.join(wtDir, 'keep.txt'), 'keep\n');
 
-  const result = runJson('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
-  assert.equal(result.ok, true);
-  assert.equal(result.removed, false);
+  const result = runRaw('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.ok, false);
+  assert.equal(output.removed, false);
   assert.equal(fs.existsSync(path.join(wtDir, 'keep.txt')), true);
 });
 
@@ -210,9 +352,11 @@ test('cleanup preserves worktree contents when harvest fails', () => {
   runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
   fs.rmSync(path.join(wtDir, '.worktree-manifest.json'));
 
-  const result = runJson('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
-  assert.equal(result.ok, true);
-  assert.equal(result.removed, false);
+  const result = runRaw('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.ok, false);
+  assert.equal(output.removed, false);
   assert.equal(fs.existsSync(wtDir), true);
 });
 
@@ -228,6 +372,79 @@ test('cleanup returns stash metadata when defensive harvest stashes uncommitted 
   assert.equal(result.removed, true);
   assert.equal(typeof result.stashRef, 'string');
   assert.equal(result.stashRef.length > 0, true);
+});
+
+test('cleanup reruns harvest and preserves edits made after a cached harvest', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  const prepared = runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+  runJson('node', [SCRIPT, 'harvest', wtDir], { cwd: repo });
+  fs.writeFileSync(path.join(wtDir, 'late.txt'), 'late edit\n');
+
+  const result = runJson('node', [SCRIPT, 'cleanup', wtDir], { cwd: repo });
+  assert.equal(result.removed, true);
+  assert.equal(typeof result.stashRef, 'string');
+  const recovery = JSON.parse(fs.readFileSync(prepared.recoveryRecordPath, 'utf8'));
+  assert.equal(recovery.stashRefs.includes(result.stashRef), true);
+  assert.equal(fs.existsSync(prepared.recoveryRecordPath), true);
+});
+
+test('cleanup never recursively deletes after git worktree removal fails', () => {
+  const { sandbox, repo, fixBranch } = makeGitFixture();
+  const wtDir = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  const prepared = runJson('node', [SCRIPT, 'prepare', fixBranch, wtDir], { cwd: repo });
+
+  const result = runRaw('node', [SCRIPT, 'cleanup', wtDir], {
+    cwd: repo,
+    env: makeGitFaultEnv({ sandbox, failPrefix: 'worktree remove' })
+  });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'worktree-remove-failed');
+  assert.equal(output.removed, false);
+  assert.equal(fs.existsSync(wtDir), true);
+  assert.equal(fs.existsSync(prepared.recoveryRecordPath), true);
+});
+
+test('cleanup rejects a forged manifest in an ordinary directory', () => {
+  const { repo, fixBranch } = makeGitFixture();
+  const realWorktree = path.join(repo, '.bug-hunter', 'worktrees', 'batch-1');
+  runJson('node', [SCRIPT, 'prepare', fixBranch, realWorktree], { cwd: repo });
+  const forgedDir = path.join(repo, '.bug-hunter', 'worktrees', 'forged');
+  fs.mkdirSync(forgedDir, { recursive: true });
+  const forgedManifest = JSON.parse(
+    fs.readFileSync(path.join(realWorktree, '.worktree-manifest.json'), 'utf8')
+  );
+  forgedManifest.worktreeRealpath = fs.realpathSync(forgedDir);
+  forgedManifest.worktreeParentRealpath = fs.realpathSync(path.dirname(forgedDir));
+  fs.writeFileSync(
+    path.join(forgedDir, '.worktree-manifest.json'),
+    `${JSON.stringify(forgedManifest)}\n`
+  );
+
+  const result = runRaw('node', [SCRIPT, 'cleanup', forgedDir], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'worktree-registration-mismatch');
+  assert.equal(fs.existsSync(forgedDir), true);
+});
+
+test('cleanup rejects a symlink path that escapes the configured parent', () => {
+  const { sandbox, repo, fixBranch } = makeGitFixture();
+  const outsideParent = path.join(sandbox, 'outside-worktrees');
+  const realWorktree = path.join(outsideParent, 'batch-1');
+  fs.mkdirSync(outsideParent, { recursive: true });
+  runJson('node', [SCRIPT, 'prepare', fixBranch, realWorktree], { cwd: repo });
+  const configuredParent = path.join(repo, '.bug-hunter', 'worktrees');
+  fs.mkdirSync(configuredParent, { recursive: true });
+  const symlinkPath = path.join(configuredParent, 'escaped');
+  fs.symlinkSync(realWorktree, symlinkPath);
+
+  const result = runRaw('node', [SCRIPT, 'cleanup', symlinkPath], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.error, 'worktree-path-mismatch');
+  assert.equal(fs.existsSync(realWorktree), true);
 });
 
 test('cleanup-all removes multiple worktrees', () => {
@@ -247,9 +464,11 @@ test('cleanup-all removes multiple worktrees', () => {
   // First recreate wt1 dir as if it's stale leftover
   fs.mkdirSync(wt1, { recursive: true });
 
-  const result = runJson('node', [SCRIPT, 'cleanup-all', parentDir], { cwd: repo });
-  assert.equal(result.ok, true);
-  assert.ok(result.cleaned >= 1);
+  const result = runRaw('node', [SCRIPT, 'cleanup-all', parentDir], { cwd: repo });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.ok, false);
+  assert.ok(output.cleaned >= 1);
 });
 
 test('cleanup-all preserves unrelated directories under the parent', () => {
@@ -262,7 +481,8 @@ test('cleanup-all preserves unrelated directories under the parent', () => {
   fs.mkdirSync(unrelated, { recursive: true });
   fs.writeFileSync(path.join(unrelated, 'readme.txt'), 'keep me\n', 'utf8');
 
-  runJson('node', [SCRIPT, 'cleanup-all', parentDir], { cwd: repo });
+  const cleanupResult = runRaw('node', [SCRIPT, 'cleanup-all', parentDir], { cwd: repo });
+  assert.notEqual(cleanupResult.status, 0);
   assert.equal(fs.existsSync(unrelated), true);
   assert.equal(fs.existsSync(path.join(unrelated, 'readme.txt')), true);
 });

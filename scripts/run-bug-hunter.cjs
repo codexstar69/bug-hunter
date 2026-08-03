@@ -1,13 +1,35 @@
 #!/usr/bin/env node
 
-const childProcess = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { validateArtifactFile, validateArtifactValue } = require('./schema-runtime.cjs');
 const {
-  nowIso, ensureDir, readJson, writeJson, toArray,
-  toPositiveInt, toBoolean, severityRank, shellQuote
-} = require('./shared.cjs');
+  DEFAULT_KILL_GRACE_MS,
+  DEFAULT_MAX_OUTPUT_BYTES,
+  appendJournal,
+  fillTemplate,
+  parseCommand,
+  runCommandOnce,
+  runJsonScript,
+  runTextScript,
+  runWithRetry
+} = require('./process-runner.cjs');
+const {
+  assertRunIdentity,
+  buildRunIdentity,
+  requeueResumableChunks,
+  validateStateShape,
+  writeJsonAtomic
+} = require('./state-store.cjs');
+const {
+  buildConsistencyReport,
+  buildFixPlan,
+  buildFixStrategy,
+  buildFixerScope,
+  selectRefereeAuthorizedFindings
+} = require('./artifact-planner.cjs');
+const { processPendingChunks } = require('./chunk-scheduler.cjs');
 
 const BACKEND_PRIORITY = ['spawn_agent', 'subagent', 'teams', 'local-sequential'];
 const DEFAULT_TIMEOUT_MS = 120000;
@@ -22,9 +44,17 @@ const DEFAULT_EXPANSION_CAP = 40;
 function usage() {
   console.error('Usage:');
   console.error('  run-bug-hunter.cjs preflight [--skill-dir <path>] [--available-backends <csv>] [--backend <name>]');
-  console.error('  run-bug-hunter.cjs run --files-json <path> [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--worker-cmd <template>] [--timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
-  console.error('  run-bug-hunter.cjs phase --artifact <name> --output-path <path> --worker-cmd <template> [--phase-name <name>] [--skill-dir <path>] [--journal-path <path>] [--render-cmd <template>] [--render-output-path <path>] [--timeout-ms <n>] [--render-timeout-ms <n>] [--max-retries <n>] [--backoff-ms <n>]');
+  console.error('  run-bug-hunter.cjs run --files-json <path> --worker-cmd <template> [--run-id <id> | --resume <run-id>] [--referee-path <path>] [--fixer-scope-path <path>] [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
+  console.error('  run-bug-hunter.cjs phase --artifact <name> --output-path <path> --worker-cmd <template> [--phase-name <name>] [--skill-dir <path>] [--journal-path <path>] [--render-cmd <template>] [--render-output-path <path>] [--timeout-ms <n>] [--render-timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>]');
   console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--plan-path <path>]');
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function ensureDir(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
 }
 
 function parseArgs(argv) {
@@ -48,6 +78,42 @@ function parseArgs(argv) {
     index += 2;
   }
   return { command, options };
+}
+
+function toPositiveInt(value, fallback, label = 'value') {
+  if (value === undefined) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function toNonNegativeInt(value, fallback, label = 'value') {
+  if (value === undefined) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a nonnegative integer`);
+  }
+  return parsed;
+}
+
+function toBoolean(value, fallback) {
+  if (value === undefined) {
+    return fallback;
+  }
+  const normalized = String(value).toLowerCase();
+  if (normalized === 'true') {
+    return true;
+  }
+  if (normalized === 'false') {
+    return false;
+  }
+  return fallback;
 }
 
 function resolveSkillDir(options) {
@@ -89,9 +155,15 @@ function selectBackend(options) {
 function requiredScripts(skillDir) {
   return [
     path.join(skillDir, 'scripts', 'bug-hunter-state.cjs'),
+    path.join(skillDir, 'scripts', 'process-runner.cjs'),
+    path.join(skillDir, 'scripts', 'state-store.cjs'),
+    path.join(skillDir, 'scripts', 'artifact-planner.cjs'),
+    path.join(skillDir, 'scripts', 'chunk-scheduler.cjs'),
     path.join(skillDir, 'scripts', 'payload-guard.cjs'),
     path.join(skillDir, 'scripts', 'schema-validate.cjs'),
     path.join(skillDir, 'scripts', 'schema-runtime.cjs'),
+    path.join(skillDir, 'scripts', 'generated-schema-validators.cjs'),
+    path.join(skillDir, 'scripts', 'schema-catalog.cjs'),
     path.join(skillDir, 'scripts', 'render-report.cjs'),
     path.join(skillDir, 'scripts', 'fix-lock.cjs'),
     path.join(skillDir, 'scripts', 'doc-lookup.cjs'),
@@ -105,6 +177,7 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'schemas', 'fix-report.schema.json'),
     path.join(skillDir, 'schemas', 'fix-plan.schema.json'),
     path.join(skillDir, 'schemas', 'fix-strategy.schema.json'),
+    path.join(skillDir, 'schemas', 'fixer-scope.schema.json'),
     path.join(skillDir, 'schemas', 'recon.schema.json'),
     path.join(skillDir, 'schemas', 'shared.schema.json'),
     // Core agent skills (migrated from prompts/)
@@ -134,498 +207,45 @@ function preflight(options) {
   };
 }
 
-function runJsonScript(scriptPath, args) {
-  const result = childProcess.spawnSync('node', [scriptPath, ...args], {
-    encoding: 'utf8'
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function writeJson(filePath, value) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function loadRefereeAuthorization(refereePath) {
+  if (!refereePath) {
+    return null;
+  }
+  const resolvedPath = path.resolve(refereePath);
+  const validation = validateNamedArtifact({
+    artifactName: 'referee',
+    filePath: resolvedPath
   });
-  if (result.status !== 0) {
-    const stderr = (result.stderr || '').trim();
-    const stdout = (result.stdout || '').trim();
-    throw new Error(stderr || stdout || `Script failed: ${scriptPath}`);
+  if (!validation.ok) {
+    throw new Error(`Invalid Referee artifact: ${validation.errors.join('; ')}`);
   }
-  const output = (result.stdout || '').trim();
-  if (!output) {
-    return {};
-  }
-  return JSON.parse(output);
-}
-
-function runTextScript(scriptPath, args) {
-  const result = childProcess.spawnSync('node', [scriptPath, ...args], {
-    encoding: 'utf8'
+  const verdicts = readJson(resolvedPath);
+  const verdictsById = new Map();
+  verdicts.map((verdict) => {
+    const bugId = String(verdict.bugId || '').trim();
+    if (verdictsById.has(bugId)) {
+      throw new Error(`Duplicate Referee verdict for bug ID: ${bugId}`);
+    }
+    verdictsById.set(bugId, verdict);
+    return verdict;
   });
-  if (result.status !== 0) {
-    const stderr = (result.stderr || '').trim();
-    const stdout = (result.stdout || '').trim();
-    throw new Error(stderr || stdout || `Script failed: ${scriptPath}`);
-  }
-  return result.stdout || '';
-}
-
-function appendJournal(logPath, event) {
-  ensureDir(path.dirname(logPath));
-  const line = JSON.stringify({ at: nowIso(), ...event });
-  fs.appendFileSync(logPath, `${line}\n`, 'utf8');
-}
-
-function fillTemplate(template, variables) {
-  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
-    if (!(key in variables)) {
-      throw new Error(`Unknown template placeholder: ${key}`);
-    }
-    return shellQuote(variables[key]);
-  });
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function runCommandOnce({ command, timeoutMs }) {
-  return new Promise((resolve) => {
-    const shell = process.env.SHELL || '/bin/bash';
-    const child = childProcess.spawn(shell, ['-c', command], {
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    let stdout = '';
-    let stderr = '';
-    let timeoutHit = false;
-    let killTimer = null;
-
-    const timer = setTimeout(() => {
-      timeoutHit = true;
-      child.kill('SIGTERM');
-      killTimer = setTimeout(() => {
-        if (!child.killed) {
-          child.kill('SIGKILL');
-        }
-      }, 2000);
-    }, timeoutMs);
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (killTimer) {
-        clearTimeout(killTimer);
-      }
-      resolve({
-        ok: code === 0 && !timeoutHit,
-        code: code || 0,
-        timeoutHit,
-        stdout: stdout.trim(),
-        stderr: stderr.trim()
-      });
-    });
-  });
-}
-
-async function runWithRetry({
-  command,
-  timeoutMs,
-  maxRetries,
-  backoffMs,
-  journalPath,
-  phase,
-  chunkId,
-  beforeAttempt,
-  postAttempt
-}) {
-  const attempts = maxRetries + 1;
-  let lastResult = null;
-
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    appendJournal(journalPath, {
-      event: 'attempt-start',
-      phase,
-      chunkId,
-      attempt,
-      attempts,
-      timeoutMs
-    });
-    if (typeof beforeAttempt === 'function') {
-      await beforeAttempt({ attempt });
-    }
-    const result = await runCommandOnce({ command, timeoutMs });
-    let finalResult = result;
-
-    if (finalResult.ok && typeof postAttempt === 'function') {
-      const postAttemptResult = await postAttempt({ attempt });
-      if (!postAttemptResult.ok) {
-        const validationMessage = String(postAttemptResult.errorMessage || 'post-attempt validation failed');
-        appendJournal(journalPath, {
-          event: 'attempt-post-check-failed',
-          phase,
-          chunkId,
-          attempt,
-          errorMessage: validationMessage.slice(0, 500)
-        });
-        finalResult = {
-          ...finalResult,
-          ok: false,
-          stderr: validationMessage
-        };
-      }
-    }
-
-    appendJournal(journalPath, {
-      event: 'attempt-end',
-      phase,
-      chunkId,
-      attempt,
-      ok: finalResult.ok,
-      code: finalResult.code,
-      timeoutHit: finalResult.timeoutHit,
-      stderr: finalResult.stderr.slice(0, 500)
-    });
-
-    lastResult = finalResult;
-    if (finalResult.ok) {
-      return { ok: true, result: finalResult, attemptsUsed: attempt };
-    }
-    if (attempt < attempts) {
-      const delayMs = backoffMs * 2 ** (attempt - 1);
-      appendJournal(journalPath, {
-        event: 'retry-backoff',
-        phase,
-        chunkId,
-        attempt,
-        delayMs
-      });
-      await sleep(delayMs);
-    }
-  }
-
   return {
-    ok: false,
-    result: lastResult,
-    attemptsUsed: attempts
-  };
-}
-
-function buildHeuristicFactCard({ chunkId, scanFiles, findings, index }) {
-  const files = toArray(scanFiles).map((item) => path.resolve(String(item)));
-  const findingsList = toArray(findings);
-  const apiContracts = [];
-  const authAssumptions = [];
-  const invariants = [];
-
-  for (const filePath of files) {
-    const meta = index && index.files ? index.files[filePath] : null;
-    if (!meta) {
-      continue;
-    }
-    const relative = meta.relativePath || filePath;
-    const boundaries = toArray(meta.trustBoundaries);
-    if (boundaries.includes('external-input')) {
-      apiContracts.push(`${relative}: external-input boundary`);
-    }
-    if (boundaries.includes('auth')) {
-      authAssumptions.push(`${relative}: auth boundary must preserve identity and authorization checks`);
-    }
-    if (boundaries.includes('data-store')) {
-      invariants.push(`${relative}: data-store writes must keep state transitions atomic`);
-    }
-  }
-
-  for (const finding of findingsList) {
-    const claim = String((finding && finding.claim) || '').trim();
-    if (!claim) {
-      continue;
-    }
-    invariants.push(`Finding invariant: ${claim}`);
-  }
-
-  return {
-    chunkId,
-    createdAt: nowIso(),
-    apiContracts: [...new Set(apiContracts)].slice(0, 10),
-    authAssumptions: [...new Set(authAssumptions)].slice(0, 10),
-    invariants: [...new Set(invariants)].slice(0, 12)
-  };
-}
-
-function buildConsistencyReport({ bugLedger, confidenceThreshold }) {
-  const conflicts = [];
-  const byBugId = new Map();
-  const byLocation = new Map();
-
-  for (const entry of bugLedger) {
-    const bugId = String(entry.bugId || '').trim();
-    const locationKey = `${entry.file || ''}|${entry.lines || ''}`;
-    if (bugId) {
-      if (!byBugId.has(bugId)) {
-        byBugId.set(bugId, []);
-      }
-      byBugId.get(bugId).push(entry);
-    }
-    if (!byLocation.has(locationKey)) {
-      byLocation.set(locationKey, []);
-    }
-    byLocation.get(locationKey).push(entry);
-  }
-
-  for (const [bugId, entries] of byBugId.entries()) {
-    const uniqueKeys = new Set(entries.map((entry) => entry.key));
-    if (uniqueKeys.size > 1) {
-      conflicts.push({
-        type: 'bug-id-reused',
-        bugId,
-        count: uniqueKeys.size,
-        files: [...new Set(entries.map((entry) => entry.file))].sort()
-      });
-    }
-  }
-
-  for (const [location, entries] of byLocation.entries()) {
-    const claims = [...new Set(entries.map((entry) => String(entry.claim || '').trim()).filter(Boolean))];
-    if (claims.length > 1) {
-      conflicts.push({
-        type: 'location-claim-conflict',
-        location,
-        claims: claims.slice(0, 5)
-      });
-    }
-  }
-
-  const lowConfidence = bugLedger.filter((entry) => {
-    const confidenceScore = entry.confidenceScore;
-    return confidenceScore === null || confidenceScore === undefined || Number(confidenceScore) < confidenceThreshold;
-  }).length;
-
-  return {
-    checkedAt: nowIso(),
-    confidenceThreshold,
-    totalFindings: bugLedger.length,
-    lowConfidenceFindings: lowConfidence,
-    conflicts
-  };
-}
-
-function buildConflictSets(consistency) {
-  const conflicts = toArray(consistency && consistency.conflicts);
-  const bugIds = new Set();
-  const locations = new Set();
-
-  for (const conflict of conflicts) {
-    if (conflict && conflict.type === 'bug-id-reused' && conflict.bugId) {
-      bugIds.add(String(conflict.bugId));
-    }
-    if (conflict && conflict.type === 'location-claim-conflict' && conflict.location) {
-      locations.add(String(conflict.location));
-    }
-  }
-
-  return { bugIds, locations };
-}
-
-function applyConflictClassification(entry, classification, conflictSets) {
-  const bugId = String(entry.bugId || '').trim();
-  const location = `${entry.file || ''}|${entry.lines || ''}`;
-  const hasConflict = conflictSets.bugIds.has(bugId) || conflictSets.locations.has(location);
-  if (!hasConflict) {
-    return classification;
-  }
-  return {
-    strategy: 'manual-review',
-    executionStage: 'manual-review',
-    autofixEligible: false,
-    reason: 'Consistency conflict requires manual review before any fix is attempted.'
-  };
-}
-
-function buildFixPlan({ bugLedger, confidenceThreshold, canarySize, consistency }) {
-  const conflictSets = buildConflictSets(consistency);
-  const classifiedEntries = bugLedger.map((entry) => {
-    const confidenceRaw = entry.confidenceScore;
-    const confidenceScore = Number.isFinite(Number(confidenceRaw)) ? Number(confidenceRaw) : null;
-    const classification = applyConflictClassification(
-      entry,
-      classifyStrategy({ ...entry, confidenceScore }, confidenceThreshold),
-      conflictSets
-    );
-    return {
-      ...entry,
-      confidenceScore,
-      ...classification
-    };
-  });
-  const eligible = classifiedEntries
-    .filter((entry) => entry.autofixEligible === true)
-    .sort((left, right) => {
-      const severityDiff = severityRank(right.severity) - severityRank(left.severity);
-      if (severityDiff !== 0) {
-        return severityDiff;
-      }
-      const confidenceDiff = (right.confidenceScore || 0) - (left.confidenceScore || 0);
-      if (confidenceDiff !== 0) {
-        return confidenceDiff;
-      }
-      return String(left.key).localeCompare(String(right.key));
-    });
-  const manualReview = classifiedEntries
-    .filter((entry) => entry.autofixEligible !== true);
-  const canary = eligible.slice(0, canarySize);
-  const rollout = eligible.slice(canarySize);
-
-  return {
-    generatedAt: nowIso(),
-    confidenceThreshold,
-    canarySize,
-    totals: {
-      findings: classifiedEntries.length,
-      eligible: eligible.length,
-      canary: canary.length,
-      rollout: rollout.length,
-      manualReview: manualReview.length
-    },
-    canary,
-    rollout,
-    manualReview
-  };
-}
-
-function classifyStrategy(entry, confidenceThreshold) {
-  const confidenceScore = Number.isFinite(Number(entry.confidenceScore)) ? Number(entry.confidenceScore) : null;
-  const claim = String(entry.claim || '').toLowerCase();
-  const crossReferences = toArray(entry.crossReferences);
-  const architecturalSignals = ['architecture', 'migration', 'schema', 'contract', 'signature', 'protocol'];
-  const refactorSignals = ['refactor', 'transaction', 'concurrency', 'race', 'lock ordering'];
-
-  if (confidenceScore === null || confidenceScore < confidenceThreshold) {
-    return {
-      strategy: 'manual-review',
-      executionStage: 'manual-review',
-      autofixEligible: false,
-      reason: 'Confidence is below the autofix threshold.'
-    };
-  }
-
-  if (architecturalSignals.some((signal) => claim.includes(signal)) || crossReferences.length >= 3) {
-    return {
-      strategy: 'architectural-remediation',
-      executionStage: 'report-only',
-      autofixEligible: false,
-      reason: 'Claim spans broader contracts or architecture boundaries.'
-    };
-  }
-
-  if (refactorSignals.some((signal) => claim.includes(signal)) || (severityRank(entry.severity) >= 2 && crossReferences.length >= 2)) {
-    return {
-      strategy: 'larger-refactor',
-      executionStage: 'manual-review',
-      autofixEligible: false,
-      reason: 'Fix likely needs coordinated multi-file changes beyond a surgical patch.'
-    };
-  }
-
-  return {
-    strategy: 'safe-autofix',
-    executionStage: severityRank(entry.severity) >= 2 ? 'canary' : 'rollout',
-    autofixEligible: true,
-    reason: 'Finding is localized enough for a guarded surgical fix.'
-  };
-}
-
-function recommendedActionForStrategy(strategy) {
-  if (strategy === 'architectural-remediation') {
-    return 'Do not auto-edit. Capture a remediation design and schedule a broader change.';
-  }
-  if (strategy === 'larger-refactor') {
-    return 'Pause before patching. Review interfaces, callers, and rollback scope with a human.';
-  }
-  if (strategy === 'manual-review') {
-    return 'Keep this in the report and require human approval before any edits.';
-  }
-  return 'Proceed through the guarded fix pipeline with canary verification and rollback safety.';
-}
-
-function buildFixStrategy({ bugLedger, confidenceThreshold, consistency }) {
-  const conflictSets = buildConflictSets(consistency);
-  const normalized = bugLedger.map((entry) => {
-    const confidenceScore = Number.isFinite(Number(entry.confidenceScore)) ? Number(entry.confidenceScore) : null;
-    const classification = applyConflictClassification(
-      entry,
-      classifyStrategy({ ...entry, confidenceScore }, confidenceThreshold),
-      conflictSets
-    );
-    const filePath = String(entry.file || '').trim() || 'unknown-file';
-    const clusterDir = path.dirname(filePath);
-    const clusterSeed = `${classification.strategy}|${classification.executionStage}|${clusterDir}`;
-    return {
-      ...entry,
-      confidenceScore,
-      file: filePath,
-      clusterDir,
-      clusterSeed,
-      ...classification
-    };
-  });
-
-  const byCluster = new Map();
-  for (const entry of normalized) {
-    if (!byCluster.has(entry.clusterSeed)) {
-      byCluster.set(entry.clusterSeed, []);
-    }
-    byCluster.get(entry.clusterSeed).push(entry);
-  }
-
-  const clusters = [...byCluster.entries()].map(([clusterSeed, entries], index) => {
-    const strategy = entries[0].strategy;
-    const executionStage = entries[0].executionStage;
-    const files = [...new Set(entries.map((entry) => entry.file))].sort();
-    const bugIds = [...new Set(entries.map((entry) => String(entry.bugId || entry.key || '').trim()).filter(Boolean))];
-    const maxSeverity = entries
-      .map((entry) => entry.severity)
-      .sort((left, right) => severityRank(right) - severityRank(left))[0] || 'LOW';
-    const reasons = [...new Set(entries.map((entry) => entry.reason).filter(Boolean))];
-    const firstDir = entries[0].clusterDir || path.dirname(files[0] || 'unknown-file');
-    return {
-      clusterId: `cluster-${index + 1}`,
-      strategy,
-      executionStage,
-      autofixEligible: entries.every((entry) => entry.autofixEligible),
-      bugIds,
-      files,
-      maxSeverity,
-      summary: `${bugIds.length} bug(s) in ${firstDir || '.'} classified as ${strategy}.`,
-      recommendedAction: recommendedActionForStrategy(strategy),
-      reasons
-    };
-  }).sort((left, right) => {
-    const stageRank = {
-      canary: 0,
-      rollout: 1,
-      'manual-review': 2,
-      'report-only': 3
-    };
-    const stageDiff = stageRank[left.executionStage] - stageRank[right.executionStage];
-    if (stageDiff !== 0) {
-      return stageDiff;
-    }
-    return severityRank(right.maxSeverity) - severityRank(left.maxSeverity);
-  });
-
-  const summary = {
-    confirmed: normalized.length,
-    safeAutofix: normalized.filter((entry) => entry.strategy === 'safe-autofix').length,
-    manualReview: normalized.filter((entry) => entry.strategy === 'manual-review').length,
-    largerRefactor: normalized.filter((entry) => entry.strategy === 'larger-refactor').length,
-    architecturalRemediation: normalized.filter((entry) => entry.strategy === 'architectural-remediation').length,
-    canaryCandidates: normalized.filter((entry) => entry.executionStage === 'canary').length,
-    rolloutCandidates: normalized.filter((entry) => entry.executionStage === 'rollout').length
-  };
-
-  return {
-    version: '3.1.0',
-    generatedAt: nowIso(),
-    confidenceThreshold,
-    summary,
-    clusters
+    path: resolvedPath,
+    verdicts,
+    verdictsById
   };
 }
 
@@ -735,19 +355,6 @@ function renderCoverageMarkdown(coverage) {
   return `${lines.join('\n')}\n`;
 }
 
-function validateFindingsArtifact(findingsJsonPath) {
-  if (!fs.existsSync(findingsJsonPath)) {
-    return {
-      ok: false,
-      errors: [`Missing findings artifact: ${findingsJsonPath}`]
-    };
-  }
-  return validateArtifactFile({
-    artifactName: 'findings',
-    filePath: findingsJsonPath
-  });
-}
-
 function validateNamedArtifact({ artifactName, filePath }) {
   if (!fs.existsSync(filePath)) {
     return {
@@ -795,10 +402,20 @@ async function runPhase(options) {
     : null;
   const workerCmdTemplate = options['worker-cmd'];
   const renderCmdTemplate = options['render-cmd'] || null;
-  const timeoutMs = toPositiveInt(options['timeout-ms'], DEFAULT_TIMEOUT_MS);
-  const renderTimeoutMs = toPositiveInt(options['render-timeout-ms'], timeoutMs);
-  const maxRetries = toPositiveInt(options['max-retries'], DEFAULT_MAX_RETRIES);
-  const backoffMs = toPositiveInt(options['backoff-ms'], DEFAULT_BACKOFF_MS);
+  const timeoutMs = toPositiveInt(options['timeout-ms'], DEFAULT_TIMEOUT_MS, '--timeout-ms');
+  const renderTimeoutMs = toPositiveInt(options['render-timeout-ms'], timeoutMs, '--render-timeout-ms');
+  const maxOutputBytes = toPositiveInt(
+    options['max-output-bytes'],
+    DEFAULT_MAX_OUTPUT_BYTES,
+    '--max-output-bytes'
+  );
+  const killGraceMs = toPositiveInt(
+    options['kill-grace-ms'],
+    DEFAULT_KILL_GRACE_MS,
+    '--kill-grace-ms'
+  );
+  const maxRetries = toNonNegativeInt(options['max-retries'], DEFAULT_MAX_RETRIES, '--max-retries');
+  const backoffMs = toNonNegativeInt(options['backoff-ms'], DEFAULT_BACKOFF_MS, '--backoff-ms');
   const journalPath = path.resolve(
     options['journal-path'] || path.join(path.dirname(outputPath), `${phaseName}.log`)
   );
@@ -836,6 +453,8 @@ async function runPhase(options) {
     journalPath,
     phase: phaseName,
     chunkId: artifact,
+    maxOutputBytes,
+    killGraceMs,
     beforeAttempt: async () => {
       removeFileIfExists(outputPath);
       removeFileIfExists(renderOutputPath);
@@ -876,7 +495,9 @@ async function runPhase(options) {
     });
     const renderResult = await runCommandOnce({
       command: renderCommand,
-      timeoutMs: renderTimeoutMs
+      timeoutMs: renderTimeoutMs,
+      maxOutputBytes,
+      killGraceMs
     });
     if (!renderResult.ok) {
       const renderError = renderResult.stderr || renderResult.stdout || `${phaseName} render failed`;
@@ -887,6 +508,9 @@ async function runPhase(options) {
         errorMessage: renderError.slice(0, 500)
       });
       throw new Error(renderError);
+    }
+    if (renderOutputPath) {
+      fs.writeFileSync(renderOutputPath, `${renderResult.stdout}\n`, 'utf8');
     }
     appendJournal(journalPath, {
       event: 'phase-render-end',
@@ -925,132 +549,6 @@ function normalizeFiles(files) {
   return [...new Set(toArray(files).map((filePath) => path.resolve(String(filePath))))].sort();
 }
 
-async function processPendingChunks({
-  statePath,
-  stateScript,
-  chunksDir,
-  journalPath,
-  workerCmdTemplate,
-  timeoutMs,
-  maxRetries,
-  backoffMs,
-  failFast,
-  backend,
-  mode,
-  skillDir,
-  index,
-  confidenceThreshold
-}) {
-  while (true) {
-    const next = runJsonScript(stateScript, ['next-chunk', statePath]);
-    if (next.done) {
-      break;
-    }
-    const chunk = next.chunk;
-    const chunkFilesJsonPath = path.join(chunksDir, `${chunk.id}-files.json`);
-    const scanFilesJsonPath = path.join(chunksDir, `${chunk.id}-scan-files.json`);
-    const findingsJsonPath = path.join(chunksDir, `${chunk.id}-findings.json`);
-    const factsJsonPath = path.join(chunksDir, `${chunk.id}-facts.json`);
-    writeJson(chunkFilesJsonPath, chunk.files);
-
-    const hashFilterResult = runJsonScript(stateScript, ['hash-filter', statePath, chunkFilesJsonPath]);
-    const scanFiles = hashFilterResult.scan || [];
-    if (scanFiles.length === 0) {
-      appendJournal(journalPath, {
-        event: 'chunk-skip',
-        chunkId: chunk.id,
-        reason: 'hash-cache-no-changes'
-      });
-      runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'done']);
-      continue;
-    }
-
-    writeJson(scanFilesJsonPath, scanFiles);
-    if (fs.existsSync(findingsJsonPath)) {
-      fs.unlinkSync(findingsJsonPath);
-    }
-    if (fs.existsSync(factsJsonPath)) {
-      fs.unlinkSync(factsJsonPath);
-    }
-    runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'in_progress']);
-
-    const command = fillTemplate(workerCmdTemplate, {
-      chunkId: chunk.id,
-      chunkFilesJson: chunkFilesJsonPath,
-      scanFilesJson: scanFilesJsonPath,
-      findingsJson: findingsJsonPath,
-      factsJson: factsJsonPath,
-      backend,
-      mode,
-      statePath,
-      skillDir
-    });
-
-    const runResult = await runWithRetry({
-      command,
-      timeoutMs,
-      maxRetries,
-      backoffMs,
-      journalPath,
-      phase: 'chunk-worker',
-      chunkId: chunk.id,
-      beforeAttempt: async () => {
-        removeFileIfExists(findingsJsonPath);
-        removeFileIfExists(factsJsonPath);
-      },
-      postAttempt: async () => {
-        const findingsValidation = validateFindingsArtifact(findingsJsonPath);
-        if (findingsValidation.ok) {
-          return { ok: true };
-        }
-        return {
-          ok: false,
-          errorMessage: findingsValidation.errors.join('; ')
-        };
-      }
-    });
-
-    if (!runResult.ok) {
-      const errorMessage = (runResult.result && runResult.result.stderr) || 'worker failed';
-      runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'failed', errorMessage.slice(0, 240)]);
-      appendJournal(journalPath, {
-        event: 'chunk-failed',
-        chunkId: chunk.id,
-        errorMessage: errorMessage.slice(0, 500)
-      });
-      if (failFast) {
-        throw new Error(`Chunk ${chunk.id} failed and fail-fast is enabled`);
-      }
-      continue;
-    }
-
-    let findings = [];
-    runJsonScript(stateScript, ['record-findings', statePath, findingsJsonPath, 'orchestrator', String(confidenceThreshold)]);
-    findings = readJson(findingsJsonPath);
-
-    if (fs.existsSync(factsJsonPath)) {
-      runJsonScript(stateScript, ['record-fact-card', statePath, chunk.id, factsJsonPath]);
-    } else {
-      const factCard = buildHeuristicFactCard({
-        chunkId: chunk.id,
-        scanFiles,
-        findings,
-        index
-      });
-      writeJson(factsJsonPath, factCard);
-      runJsonScript(stateScript, ['record-fact-card', statePath, chunk.id, factsJsonPath]);
-    }
-
-    runJsonScript(stateScript, ['hash-update', statePath, scanFilesJsonPath, 'scanned']);
-    runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'done']);
-    appendJournal(journalPath, {
-      event: 'chunk-done',
-      chunkId: chunk.id,
-      attemptsUsed: runResult.attemptsUsed
-    });
-  }
-}
-
 function prepareIndexAndScope({
   options,
   skillDir,
@@ -1060,7 +558,7 @@ function prepareIndexAndScope({
 }) {
   const useIndex = toBoolean(options['use-index'], false);
   const deltaMode = toBoolean(options['delta-mode'], false);
-  const deltaHops = toPositiveInt(options['delta-hops'], DEFAULT_DELTA_HOPS);
+  const deltaHops = toNonNegativeInt(options['delta-hops'], DEFAULT_DELTA_HOPS, '--delta-hops');
   const codeIndexScript = path.join(skillDir, 'scripts', 'code-index.cjs');
   const deltaModeScript = path.join(skillDir, 'scripts', 'delta-mode.cjs');
   const scopeDir = path.dirname(statePath);
@@ -1128,6 +626,12 @@ async function runPipeline(options) {
   if (!options['files-json']) {
     throw new Error('--files-json is required for run command');
   }
+  if (!options['worker-cmd']) {
+    throw new Error('--worker-cmd is required for run command; no no-op worker is available');
+  }
+  if (options.resume && options['run-id']) {
+    throw new Error('--resume and --run-id cannot be used together');
+  }
   const skillDir = resolveSkillDir(options);
   const preflightResult = preflight(options);
   if (!preflightResult.ok) {
@@ -1137,40 +641,76 @@ async function runPipeline(options) {
   const backend = preflightResult.backend.selected;
   const mode = options.mode || 'extended';
   const filesJsonPath = path.resolve(options['files-json']);
-  const statePath = path.resolve(options.state || '.bug-hunter/state.json');
-  const chunkSize = toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE);
-  const timeoutMs = toPositiveInt(options['timeout-ms'], DEFAULT_TIMEOUT_MS);
-  const maxRetries = toPositiveInt(options['max-retries'], DEFAULT_MAX_RETRIES);
-  const backoffMs = toPositiveInt(options['backoff-ms'], DEFAULT_BACKOFF_MS);
+  const resumeRunId = options.resume ? String(options.resume) : null;
+  const runId = resumeRunId || String(options['run-id'] || crypto.randomUUID());
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runId)) {
+    throw new Error('Run ID must use only letters, numbers, dot, underscore, or hyphen');
+  }
+  const statePath = path.resolve(
+    options.state || path.join('.bug-hunter', 'runs', runId, 'state.json')
+  );
+  const identityPath = `${statePath}.identity.json`;
+  const chunkSize = toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE, '--chunk-size');
+  const timeoutMs = toPositiveInt(options['timeout-ms'], DEFAULT_TIMEOUT_MS, '--timeout-ms');
+  const maxOutputBytes = toPositiveInt(
+    options['max-output-bytes'],
+    DEFAULT_MAX_OUTPUT_BYTES,
+    '--max-output-bytes'
+  );
+  const killGraceMs = toPositiveInt(
+    options['kill-grace-ms'],
+    DEFAULT_KILL_GRACE_MS,
+    '--kill-grace-ms'
+  );
+  const maxRetries = toNonNegativeInt(options['max-retries'], DEFAULT_MAX_RETRIES, '--max-retries');
+  const backoffMs = toNonNegativeInt(options['backoff-ms'], DEFAULT_BACKOFF_MS, '--backoff-ms');
   const failFast = toBoolean(options['fail-fast'], false);
-  const workerCmdTemplate = options['worker-cmd'] || 'node -e "process.exit(0)"';
-  const confidenceThreshold = toPositiveInt(options['confidence-threshold'], DEFAULT_CONFIDENCE_THRESHOLD);
-  const canarySize = toPositiveInt(options['canary-size'], DEFAULT_CANARY_SIZE);
-  const expansionCap = toPositiveInt(options['expansion-cap'], DEFAULT_EXPANSION_CAP);
+  const workerCmdTemplate = options['worker-cmd'];
+  parseCommand(fillTemplate(workerCmdTemplate, {
+    chunkId: 'preflight',
+    chunkFilesJson: 'preflight.json',
+    scanFilesJson: 'preflight.json',
+    findingsJson: 'preflight.json',
+    factsJson: 'preflight.json',
+    backend,
+    mode,
+    statePath,
+    skillDir
+  }));
+  const authorization = loadRefereeAuthorization(options['referee-path']);
+  const confidenceThreshold = toPositiveInt(
+    options['confidence-threshold'],
+    DEFAULT_CONFIDENCE_THRESHOLD,
+    '--confidence-threshold'
+  );
+  const canarySize = toPositiveInt(options['canary-size'], DEFAULT_CANARY_SIZE, '--canary-size');
+  const expansionCap = toPositiveInt(
+    options['expansion-cap'],
+    DEFAULT_EXPANSION_CAP,
+    '--expansion-cap'
+  );
   const expandOnLowConfidence = toBoolean(options['expand-on-low-confidence'], true);
-  const journalPath = path.resolve(options['journal-path'] || '.bug-hunter/run.log');
+  const journalPath = path.resolve(
+    options['journal-path'] || path.join(path.dirname(statePath), 'run.log')
+  );
   const stateScript = path.join(skillDir, 'scripts', 'bug-hunter-state.cjs');
   const deltaModeScript = path.join(skillDir, 'scripts', 'delta-mode.cjs');
   const chunksDir = path.resolve(path.dirname(statePath), 'chunks');
   const consistencyReportPath = path.resolve(options['consistency-report'] || path.join(path.dirname(statePath), 'consistency.json'));
   const fixPlanPath = path.resolve(options['fix-plan-path'] || path.join(path.dirname(statePath), 'fix-plan.json'));
+  const fixerScopePath = path.resolve(options['fixer-scope-path'] || path.join(path.dirname(statePath), 'fixer-scope.json'));
   const strategyPath = path.resolve(options['strategy-path'] || path.join(path.dirname(statePath), 'fix-strategy.json'));
   const strategyMarkdownPath = path.resolve(options['strategy-markdown-path'] || path.join(path.dirname(statePath), 'fix-strategy.md'));
   const coveragePath = path.resolve(options['coverage-path'] || path.join(path.dirname(statePath), 'coverage.json'));
   const coverageMarkdownPath = path.resolve(options['coverage-markdown-path'] || path.join(path.dirname(statePath), 'coverage.md'));
   const factsPath = path.resolve(options['facts-path'] || path.join(path.dirname(statePath), 'bug-hunter-facts.json'));
-  ensureDir(chunksDir);
 
-  appendJournal(journalPath, {
-    event: 'run-start',
-    mode,
-    backend,
-    statePath,
-    filesJsonPath,
-    timeoutMs,
-    maxRetries,
-    backoffMs
-  });
+  if (!resumeRunId && (fs.existsSync(statePath) || fs.existsSync(identityPath))) {
+    throw new Error(`State already exists; use --resume with its run ID or choose a new --run-id: ${statePath}`);
+  }
+  if (resumeRunId && (!fs.existsSync(statePath) || !fs.existsSync(identityPath))) {
+    throw new Error(`Cannot resume run ${resumeRunId}: state or identity is missing`);
+  }
 
   const scope = prepareIndexAndScope({
     options,
@@ -1180,9 +720,47 @@ async function runPipeline(options) {
     journalPath
   });
 
-  if (!fs.existsSync(statePath)) {
+  const runIdentity = buildRunIdentity({
+    runId,
+    mode,
+    backend,
+    filesJsonPath: scope.activeFilesJsonPath,
+    chunkSize,
+    timeoutMs,
+    maxRetries,
+    confidenceThreshold,
+    deltaMode: scope.deltaMode,
+    deltaHops: scope.deltaHops
+  });
+
+  if (resumeRunId) {
+    assertRunIdentity({
+      expected: runIdentity,
+      actual: readJson(identityPath),
+      identityPath
+    });
+    requeueResumableChunks({
+      statePath,
+      stateScript,
+      maxRetries
+    });
+  } else {
     runJsonScript(stateScript, ['init', statePath, mode, scope.activeFilesJsonPath, String(chunkSize)]);
+    writeJsonAtomic(identityPath, runIdentity);
   }
+
+  ensureDir(chunksDir);
+  appendJournal(journalPath, {
+    event: resumeRunId ? 'run-resume' : 'run-start',
+    runId,
+    mode,
+    backend,
+    statePath,
+    filesJsonPath,
+    timeoutMs,
+    maxRetries,
+    backoffMs
+  });
 
   let index = loadIndex(scope.indexPath);
   await processPendingChunks({
@@ -1192,6 +770,8 @@ async function runPipeline(options) {
     journalPath,
     workerCmdTemplate,
     timeoutMs,
+    maxOutputBytes,
+    killGraceMs,
     maxRetries,
     backoffMs,
     failFast,
@@ -1218,7 +798,7 @@ async function runPipeline(options) {
         scope.indexPath,
         lowConfidenceFilesJsonPath,
         selectedFilesJsonPath,
-        String(scope.deltaHops || DEFAULT_DELTA_HOPS)
+        String(scope.deltaHops ?? DEFAULT_DELTA_HOPS)
       ]);
       const expandedFiles = [
         ...toArray(expansion.expanded),
@@ -1248,6 +828,8 @@ async function runPipeline(options) {
             journalPath,
             workerCmdTemplate,
             timeoutMs,
+            maxOutputBytes,
+            killGraceMs,
             maxRetries,
             backoffMs,
             failFast,
@@ -1263,6 +845,7 @@ async function runPipeline(options) {
   }
 
   const finalState = readJson(statePath);
+  validateStateShape({ statePath, state: finalState });
   const status = runJsonScript(stateScript, ['status', statePath]);
   const consistency = buildConsistencyReport({
     bugLedger: toArray(finalState.bugLedger),
@@ -1283,7 +866,9 @@ async function runPipeline(options) {
     });
 
     return {
-      ok: true,
+      ok: false,
+      runId,
+      identityPath,
       backend,
       journalPath,
       statePath,
@@ -1297,6 +882,7 @@ async function runPipeline(options) {
       strategyPath: null,
       strategyMarkdownPath: null,
       fixPlanPath: null,
+      fixerScopePath: null,
       coveragePath: null,
       coverageMarkdownPath: null,
       factsPath,
@@ -1310,10 +896,105 @@ async function runPipeline(options) {
     };
   }
 
-  const fixStrategy = buildFixStrategy({
+  if (!authorization) {
+    const coverage = buildCoverageArtifact({
+      state: finalState,
+      fixPlan: null
+    });
+    const coverageValidation = validateArtifactValue({
+      artifactName: 'coverage',
+      value: coverage
+    });
+    if (!coverageValidation.ok) {
+      throw new Error(`Generated invalid coverage artifact: ${coverageValidation.errors.join('; ')}`);
+    }
+    writeJson(coveragePath, coverage);
+    ensureDir(path.dirname(coverageMarkdownPath));
+    fs.writeFileSync(coverageMarkdownPath, renderCoverageMarkdown(coverage), 'utf8');
+    writeJson(factsPath, finalState.factCards || {});
+    appendJournal(journalPath, {
+      event: 'fix-planning-skipped',
+      reason: 'no-validated-referee-artifact'
+    });
+    return {
+      ok: true,
+      runId,
+      identityPath,
+      backend,
+      journalPath,
+      statePath,
+      indexPath: scope.indexPath,
+      deltaMode: scope.deltaMode,
+      deltaSummary: scope.deltaResult ? {
+        selectedCount: (scope.deltaResult.selected || []).length,
+        expansionCandidatesCount: (scope.deltaResult.expansionCandidates || []).length
+      } : null,
+      consistencyReportPath,
+      strategyPath: null,
+      strategyMarkdownPath: null,
+      fixPlanPath: null,
+      fixerScopePath: null,
+      coveragePath,
+      coverageMarkdownPath,
+      factsPath,
+      status: status.summary,
+      consistency: {
+        conflicts: consistency.conflicts.length,
+        lowConfidenceFindings: consistency.lowConfidenceFindings
+      },
+      fixStrategy: null,
+      fixPlan: null
+    };
+  }
+
+  const authorizedFindings = selectRefereeAuthorizedFindings({
     bugLedger: toArray(finalState.bugLedger),
+    authorization
+  });
+  const authorizedConsistency = buildConsistencyReport({
+    bugLedger: authorizedFindings,
+    confidenceThreshold
+  });
+  const fixPlan = buildFixPlan({
+    bugLedger: authorizedFindings,
     confidenceThreshold,
-    consistency
+    canarySize,
+    consistency: authorizedConsistency
+  });
+  const fixPlanValidation = validateArtifactValue({
+    artifactName: 'fix-plan',
+    value: fixPlan
+  });
+  if (!fixPlanValidation.ok) {
+    throw new Error(`Generated invalid fix plan artifact: ${fixPlanValidation.errors.join('; ')}`);
+  }
+  writeJson(fixPlanPath, fixPlan);
+  runJsonScript(stateScript, ['set-fix-plan', statePath, fixPlanPath]);
+
+  const fixerScope = buildFixerScope({
+    runIdentity,
+    authorizedFindings,
+    fixPlan
+  });
+  const fixerScopeValidation = validateArtifactValue({
+    artifactName: 'fixer-scope',
+    value: fixerScope
+  });
+  if (!fixerScopeValidation.ok) {
+    throw new Error(`Generated invalid Fixer scope artifact: ${fixerScopeValidation.errors.join('; ')}`);
+  }
+  if (fs.existsSync(fixerScopePath)) {
+    const existingScope = readJson(fixerScopePath);
+    if (JSON.stringify(existingScope) !== JSON.stringify(fixerScope)) {
+      throw new Error(`Immutable Fixer scope already exists with different authorization: ${fixerScopePath}`);
+    }
+  } else {
+    writeJsonAtomic(fixerScopePath, fixerScope);
+  }
+
+  const fixStrategy = buildFixStrategy({
+    fixPlan,
+    confidenceThreshold
   });
   const fixStrategyValidation = validateArtifactValue({
     artifactName: 'fix-strategy',
@@ -1329,22 +1010,6 @@ async function runPipeline(options) {
     runTextScript(path.join(skillDir, 'scripts', 'render-report.cjs'), ['fix-strategy', strategyPath]),
     'utf8'
   );
-
-  const fixPlan = buildFixPlan({
-    bugLedger: toArray(finalState.bugLedger),
-    confidenceThreshold,
-    canarySize,
-    consistency
-  });
-  const fixPlanValidation = validateArtifactValue({
-    artifactName: 'fix-plan',
-    value: fixPlan
-  });
-  if (!fixPlanValidation.ok) {
-    throw new Error(`Generated invalid fix plan artifact: ${fixPlanValidation.errors.join('; ')}`);
-  }
-  writeJson(fixPlanPath, fixPlan);
-  runJsonScript(stateScript, ['set-fix-plan', statePath, fixPlanPath]);
 
   const coverage = buildCoverageArtifact({
     state: finalState,
@@ -1372,6 +1037,8 @@ async function runPipeline(options) {
 
   return {
     ok: true,
+    runId,
+    identityPath,
     backend,
     journalPath,
     statePath,
@@ -1385,6 +1052,7 @@ async function runPipeline(options) {
     strategyPath,
     strategyMarkdownPath,
     fixPlanPath,
+    fixerScopePath,
     coveragePath,
     coverageMarkdownPath,
     factsPath,
@@ -1417,6 +1085,9 @@ async function main() {
   if (command === 'run') {
     const result = await runPipeline(options);
     console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -1433,7 +1104,7 @@ async function main() {
     const skillDir = resolveSkillDir(options);
     const filesJsonPath = path.resolve(options['files-json']);
     const mode = options.mode || 'extended';
-    const chunkSize = toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE);
+    const chunkSize = toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE, '--chunk-size');
     const planPath = path.resolve(options['plan-path'] || '.bug-hunter/plan.json');
 
     const files = readJson(filesJsonPath);

@@ -2,81 +2,108 @@
 'use strict';
 
 /**
- * prepublish-guard.cjs
- *
- * Blocks `npm publish` unless:
- *   1. Git working tree is clean (no uncommitted changes)
- *   2. Current HEAD is pushed to origin (no unpushed commits)
- *   3. package.json version matches the git tag (if tag exists)
- *
- * This prevents the "published to npm but forgot to commit/push" problem.
- * Bypass with: SKIP_PREPUBLISH_GUARD=1 npm publish
+ * Publication is allowed only when the working tree is clean, HEAD exactly
+ * matches both its configured upstream and the package version tag.
  */
 
-const { execSync } = require('child_process');
+const childProcess = require('node:child_process');
+const path = require('node:path');
 
-if (process.env.SKIP_PREPUBLISH_GUARD === '1') {
-  console.log('⚠️  prepublish-guard: SKIPPED (SKIP_PREPUBLISH_GUARD=1)');
-  process.exit(0);
+const REPOSITORY_ROOT = path.resolve(__dirname, '..');
+
+function runGit(args) {
+  return childProcess.execFileSync('git', args, {
+    cwd: REPOSITORY_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 5000
+  }).trim();
 }
 
-const run = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
-
-const errors = [];
-
-// 1. Check for uncommitted changes
-try {
-  const status = run('git status --porcelain');
-  if (status) {
-    errors.push(
-      '❌ Uncommitted changes detected. Commit or stash before publishing.\n' +
-      status.split('\n').map(l => `   ${l}`).join('\n')
-    );
+function readGitProof({ label, args, errors }) {
+  try {
+    const value = runGit(args);
+    if (!value) {
+      errors.push(`Cannot prove ${label}: Git returned an empty value.`);
+      return null;
+    }
+    return value;
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    errors.push(`Cannot prove ${label}: ${details}`);
+    return null;
   }
-} catch {
-  errors.push('❌ Not a git repository or git not available.');
 }
 
-// 2. Check for unpushed commits
-try {
-  const unpushed = run('git log --oneline origin/main..HEAD 2>/dev/null');
-  if (unpushed) {
-    errors.push(
-      '❌ Unpushed commits. Run `git push` before publishing.\n' +
-      unpushed.split('\n').map(l => `   ${l}`).join('\n')
-    );
-  }
-} catch {
-  // If origin/main doesn't exist, skip this check
-}
+function main() {
+  const errors = [];
+  const packageJson = require(path.join(REPOSITORY_ROOT, 'package.json'));
+  const expectedTag = `v${packageJson.version}`;
 
-// 3. Version/tag consistency check
-try {
-  const version = require('../package.json').version;
-  const tagExists = (() => {
-    try { run(`git rev-parse v${version} 2>/dev/null`); return true; } catch { return false; }
-  })();
-  if (tagExists) {
-    const tagCommit = run(`git rev-parse v${version}`);
-    const headCommit = run('git rev-parse HEAD');
-    if (tagCommit !== headCommit) {
+  try {
+    const status = runGit(['status', '--porcelain']);
+    if (status) {
       errors.push(
-        `❌ Tag v${version} exists but points to a different commit.\n` +
-        `   Tag:  ${tagCommit.slice(0, 8)}\n` +
-        `   HEAD: ${headCommit.slice(0, 8)}\n` +
-        `   Bump the version or move the tag.`
+        `Uncommitted changes detected:\n${status.split('\n').map((line) => {
+          return `   ${line}`;
+        }).join('\n')}`
       );
     }
+  } catch (error) {
+    errors.push(
+      `Cannot prove a clean working tree: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
-} catch {
-  // Non-fatal
+
+  const headCommit = readGitProof({
+    label: 'HEAD identity',
+    args: ['rev-parse', '--verify', 'HEAD^{commit}'],
+    errors
+  });
+  const upstreamName = readGitProof({
+    label: 'the current branch upstream',
+    args: ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+    errors
+  });
+  const upstreamCommit = upstreamName ? readGitProof({
+    label: `upstream ${upstreamName}`,
+    args: ['rev-parse', '--verify', '@{upstream}^{commit}'],
+    errors
+  }) : null;
+  const tagCommit = readGitProof({
+    label: `exact tag ${expectedTag}`,
+    args: ['rev-parse', '--verify', `refs/tags/${expectedTag}^{commit}`],
+    errors
+  });
+
+  if (headCommit && upstreamCommit && headCommit !== upstreamCommit) {
+    errors.push(
+      `HEAD is not exactly pushed to ${upstreamName}.\n` +
+      `   HEAD:     ${headCommit}\n` +
+      `   Upstream: ${upstreamCommit}`
+    );
+  }
+  if (headCommit && tagCommit && headCommit !== tagCommit) {
+    errors.push(
+      `Tag ${expectedTag} does not point to HEAD.\n` +
+      `   HEAD: ${headCommit}\n` +
+      `   Tag:  ${tagCommit}`
+    );
+  }
+
+  if (errors.length > 0) {
+    console.error('\nprepublish-guard: publish blocked\n');
+    errors.map((error) => {
+      console.error(`- ${error}\n`);
+      return error;
+    });
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(
+    `prepublish-guard: clean tree, HEAD matches ${upstreamName} and ${expectedTag}`
+  );
 }
 
-if (errors.length > 0) {
-  console.error('\n🛑 prepublish-guard: publish blocked\n');
-  errors.forEach(e => console.error(e + '\n'));
-  console.error('Bypass with: SKIP_PREPUBLISH_GUARD=1 npm publish\n');
-  process.exit(1);
-}
-
-console.log('✅ prepublish-guard: clean tree, all pushed — safe to publish');
+main();

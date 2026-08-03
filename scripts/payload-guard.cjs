@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   createSchemaRef,
+  validateArtifactValue,
   validateSchemaRef
 } = require('./schema-runtime.cjs');
 
@@ -13,7 +14,14 @@ const REQUIRED_BY_ROLE = {
   hunter: ['skillDir', 'targetFiles', 'riskMap', 'techStack', 'outputSchema'],
   skeptic: ['skillDir', 'bugs', 'techStack', 'outputSchema'],
   referee: ['skillDir', 'findings', 'skepticResults', 'outputSchema'],
-  fixer: ['skillDir', 'bugs', 'techStack', 'outputSchema']
+  fixer: [
+    'skillDir',
+    'bugs',
+    'techStack',
+    'scopeManifest',
+    'commitAllowed',
+    'outputSchema'
+  ]
 };
 
 const TEMPLATES = {
@@ -82,6 +90,15 @@ const TEMPLATES = {
       }
     ],
     techStack: { framework: '', auth: '', database: '', dependencies: [] },
+    scopeManifest: {
+      schemaVersion: 1,
+      runId: 'run-1',
+      repositoryRoot: '/absolute/path/to/repository',
+      baseCommit: 'full-base-commit',
+      approvedBugIds: ['BUG-1'],
+      approvedFiles: ['/absolute/path/to/repository/src/example.ts']
+    },
+    commitAllowed: false,
     outputSchema: createSchemaRef('fix-report')
   }
 };
@@ -109,6 +126,13 @@ function validate(role, payload) {
     return {
       ok: false,
       errors: [`Unknown role: ${role}`]
+    };
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return {
+      ok: false,
+      errors: ['Payload must be a JSON object']
     };
   }
 
@@ -147,6 +171,33 @@ function validate(role, payload) {
   if ('outputSchema' in payload) {
     const schemaValidation = validateSchemaRef(payload.outputSchema);
     errors.push(...schemaValidation.errors);
+  }
+
+  if ('commitAllowed' in payload && typeof payload.commitAllowed !== 'boolean') {
+    errors.push('commitAllowed must be a boolean');
+  }
+
+  if ('scopeManifest' in payload) {
+    const scopeValidation = validateArtifactValue({
+      artifactName: 'fixer-scope',
+      value: payload.scopeManifest
+    });
+    errors.push(...scopeValidation.errors.map((error) => {
+      return `scopeManifest: ${error}`;
+    }));
+    if (scopeValidation.ok && Array.isArray(payload.bugs)) {
+      const approvedBugIds = new Set(payload.scopeManifest.approvedBugIds);
+      const approvedFiles = new Set(payload.scopeManifest.approvedFiles);
+      payload.bugs.map((bug, index) => {
+        if (!approvedBugIds.has(bug?.bugId)) {
+          errors.push(`bugs[${index}].bugId is outside scopeManifest`);
+        }
+        if (!approvedFiles.has(bug?.file)) {
+          errors.push(`bugs[${index}].file is outside scopeManifest`);
+        }
+        return bug;
+      });
+    }
   }
 
   return {

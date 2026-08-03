@@ -18,7 +18,7 @@ Before any phase, check for `.bug-hunter/triage.json` (written by Step 1). If pr
 
 ## Step 4: Run Recon
 
-Dispatch Recon using the standard dispatch pattern (see `_dispatch.md`, role=`recon`).
+Dispatch Recon using the standard dispatch pattern (see `dispatch.md`, role=`recon`).
 
 Same as Extended mode: Recon enriches triage data with tech stack and patterns. If no triage, Recon does full discovery.
 
@@ -45,7 +45,7 @@ For each chunk: dispatch Hunter, record findings, mark done — same pattern as 
 ### 5c. Cross-chunk consistency
 
 After all chunks complete:
-1. Merge findings from state into `.bug-hunter/findings.json`.
+1. Merge findings from state into `.bug-hunter/hunter-findings.json`.
 2. Run consistency check: look for duplicate BUG-IDs across chunks and conflicting claims on the same file/line.
 3. Resolve conflicts: keep the finding with the stronger evidence.
 
@@ -55,7 +55,7 @@ If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to Step 7 (Final Report) in S
 
 ## Step 6: Run Skeptic(s)
 
-Dispatch 1-2 Skeptics by directory using the standard dispatch pattern (see `_dispatch.md`, role=`skeptic`).
+Dispatch 1-2 Skeptics by directory using the standard dispatch pattern (see `dispatch.md`, role=`skeptic`).
 
 Split bugs by directory/service for focused scope. Merge results.
 
@@ -63,7 +63,7 @@ Split bugs by directory/service for focused scope. Merge results.
 
 ## Step 7: Run Referee
 
-Dispatch Referee using the standard dispatch pattern (see `_dispatch.md`, role=`referee`).
+Dispatch Referee using the standard dispatch pattern (see `dispatch.md`, role=`referee`).
 
 Pass merged Hunter findings + Skeptic challenges.
 

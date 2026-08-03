@@ -1,6 +1,6 @@
 ---
 name: bug-hunter
-description: "Adversarial bug hunting with a sequential-first pipeline (Recon, Hunter, Skeptic, Referee) that can optionally use safe read-only parallel triage. Finds, verifies, and auto-fixes real bugs by default (with --scan-only opt-out) using checkpointed verification and resume state for large codebases. Use this skill whenever the user wants bug finding, security audits, regression checks, or code review focused on runtime behavior."
+description: "Adversarial bug hunting with a sequential-first pipeline (Recon, Hunter, Skeptic, Referee) that can optionally use safe read-only parallel triage. Scans without mutation by default; fixing, autonomous edits, and commits each require explicit flags. Use this skill whenever the user wants bug finding, security audits, regression checks, or code review focused on runtime behavior."
 ---
 
 # Bug Hunt - Adversarial Bug Finding
@@ -24,11 +24,11 @@ Recon (map) --> Hunter (deep scan) --> Skeptic (challenge) --> Referee (final ve
              state + chunk checkpoints
 ```
 
-**Phase 2 — Fix & Verify (default when bugs are confirmed):**
+**Phase 2 — Fix & Verify (only with `--fix`):**
 ```
 Baseline --> Git branch --> sequential Fixer (single writer) --> targeted verify --> full verify --> report
                     ^                                                              |
-                    +------------------------ checkpoint commits + auto-revert -----+
+                    +---------------- scoped commits only with --auto-commit -------+
 ```
 
 For small scans (1-10 source files): runs single Hunter + single Skeptic (no parallelism overhead).
@@ -52,17 +52,17 @@ For large scans: process chunks sequentially with persistent state to avoid comp
 /bug-hunter --staged                    # Scan staged files (pre-commit check)
 /bug-hunter --scan-only src/            # Scan only, no code changes
 /bug-hunter --review src/               # Easy alias for --scan-only
-/bug-hunter --fix src/                   # Find bugs AND auto-fix them
+/bug-hunter --fix src/                   # Find bugs, then request approval for edits
 /bug-hunter --plan-only src/             # Build fix strategy + plan, but do not edit files
 /bug-hunter --plan src/                  # Easy alias for --plan-only
 /bug-hunter --safe src/                  # Easy alias for --fix --approve
 /bug-hunter --preview src/               # Easy alias for --fix --dry-run
-/bug-hunter --autonomous src/            # Alias for no-intervention auto-fix run
+/bug-hunter --autonomous src/            # Explicit no-intervention auto-fix run
+/bug-hunter --autonomous --auto-commit src/ # Also create approved-path commits
 /bug-hunter --fix -b feature-xyz        # Find + fix on branch diff
 /bug-hunter --fix --approve src/        # Find + fix, but ask before each fix
-/bug-hunter src/                         # Loops by default: audit + fix until all queued source files are covered
-/bug-hunter --no-loop src/               # Single-pass only, no iterating
-/bug-hunter --no-loop --scan-only src/   # Single-pass scan, no fixes, no loop
+/bug-hunter src/                         # Single-pass scan, no edits
+/bug-hunter --loop src/                  # Iterate until queued coverage is complete
 /bug-hunter --deps src/                 # Include dependency CVE scan
 /bug-hunter --threat-model src/         # Generate/use STRIDE threat model
 /bug-hunter --security-review src/      # Enterprise security workflow: threat model + CVEs + validation
@@ -77,13 +77,23 @@ The raw arguments are: $ARGUMENTS
 
 **Parse the arguments as follows:**
 
-0. Default `LOOP_MODE=true`. If arguments contain `--no-loop`: strip it from the arguments and set `LOOP_MODE=false`. The `--loop` flag is accepted for backwards compatibility but is a no-op (loop is already the default).
+0. Default `LOOP_MODE=false`. If arguments contain `--loop`: strip it and set
+   `LOOP_MODE=true`. `--no-loop` is accepted for backwards compatibility and
+   keeps `LOOP_MODE=false`.
 
-0b. Default `FIX_MODE=true`.
+0b. Default `FIX_MODE=false`, `APPROVE_MODE=false`, `AUTONOMOUS_MODE=false`,
+and `AUTO_COMMIT=false`.
 0c. If arguments contain `--scan-only`: strip it from the arguments and set `FIX_MODE=false`.
-0d. If arguments contain `--fix`: strip it from the arguments and set `FIX_MODE=true`. The remaining arguments are parsed normally below.
-0e. If arguments contain `--autonomous`: strip it from the arguments, set `AUTONOMOUS_MODE=true`, and force `FIX_MODE=true` (canary-first + confidence-gated).
-0f. If arguments contain `--approve`: strip it from the arguments and set `APPROVE_MODE=true`. When this flag is set, Fixer agents run in `mode: "default"` (user reviews and approves each edit). When not set, `APPROVE_MODE=false` and Fixers run autonomously.
+0d. If arguments contain `--fix`: strip it, set `FIX_MODE=true`, and set
+`APPROVE_MODE=true`.
+0e. If arguments contain `--autonomous`: strip it, set
+`AUTONOMOUS_MODE=true`, force `FIX_MODE=true`, and set `APPROVE_MODE=false`
+(canary-first + confidence-gated).
+0f. If arguments contain `--approve`: strip it, force `FIX_MODE=true`, and set
+`APPROVE_MODE=true`.
+0fa. If arguments contain `--auto-commit`: strip it and set
+`AUTO_COMMIT=true`. Reject this flag unless `FIX_MODE=true`. Stage only files
+in the validated Fixer scope; never use `git add -A`.
 0g. If arguments contain `--deps`: strip it and set `DEP_SCAN=true`. Dependency scanning runs package manager audit tools and checks if vulnerable APIs are actually called in the codebase.
 0h. If arguments contain `--threat-model`: strip it and set `THREAT_MODEL_MODE=true`. Generates a STRIDE threat model at `.bug-hunter/threat-model.md` if one doesn't exist, then feeds it to Recon + Hunter for targeted security analysis.
 0i. If arguments contain `--dry-run`: strip it and set `DRY_RUN_MODE=true`. Forces `FIX_MODE=true`. In dry-run mode, Phase 2 builds the fix plan and the Fixer reads code and outputs planned changes as unified diff previews, but no file edits, git commits, or lock acquisition occur. Produces `fix-report.json` with `"dry_run": true`.
@@ -111,7 +121,7 @@ The raw arguments are: $ARGUMENTS
    - Use `changedFiles` from the JSON output as the scan target (scan full file contents, not just the diff).
 
 2. If arguments contain `--staged`: this is **staged file mode**.
-   - Run `git diff --cached --name-only` via a shell command to get the list of staged files.
+   - Run `git diff --cached --name-only` with a shell command to get the list of staged files.
    - If the command fails, report the error to the user and stop.
    - If no files are staged, tell the user there are no staged changes to scan and stop.
    - The scan target is the list of staged files (scan their full contents, not just the diff).
@@ -119,7 +129,7 @@ The raw arguments are: $ARGUMENTS
 3. If arguments contain `-b <branch>`: this is **branch diff mode**.
    - Extract the branch name after `-b`.
    - If `--base <base-branch>` is also present, use that as the base branch. Otherwise default to `main`.
-   - Run `git diff --name-only <base>...<branch>` via a shell command to get the list of changed files.
+   - Run `git diff --name-only <base>...<branch>` with a shell command to get the list of changed files.
    - If the command fails (e.g. branch not found), report the error to the user and stop.
    - If no files changed, tell the user there are no changes to scan and stop.
    - The scan target is the list of changed files (scan their full contents, not just the diff).
@@ -179,16 +189,21 @@ Before doing anything else, verify the environment:
 
 1. **Resolve skill directory**: Determine `SKILL_DIR` dynamically.
    - Preferred: derive it from the absolute path of the current `SKILL.md` (`dirname` of this file).
-   - Fallback probe order: `$HOME/.agents/skills/bug-hunter`, `$HOME/.claude/skills/bug-hunter`, `$HOME/.codex/skills/bug-hunter`, `$HOME/.cursor/skills/bug-hunter`, `$HOME/.kiro/skills/bug-hunter`, `$HOME/.copilot/skills/bug-hunter`, `$HOME/.windsurf/skills/bug-hunter`, `$HOME/.opencode/skills/bug-hunter`.
-   - Use this path for ALL file reads and shell commands.
+   - Fallback probe order: `$HOME/.agents/skills/bug-hunter`,
+     `$HOME/.claude/skills/bug-hunter`, `$HOME/.codex/skills/bug-hunter`,
+     `$HOME/.cursor/skills/bug-hunter`, `$HOME/.kiro/skills/bug-hunter`,
+     `$HOME/.copilot/skills/bug-hunter`, `$HOME/.windsurf/skills/bug-hunter`,
+     `$HOME/.opencode/skills/bug-hunter`.
+   - Use this path for all file reads and shell commands.
 
-2. **Verify skill files exist**: Run `ls "$SKILL_DIR/skills/hunter/SKILL.md"` via Bash. If this fails, stop and tell the user: "Bug Hunter skill files not found. Reinstall the skill and retry."
+2. **Verify skill files exist**: Run
+   `ls "$SKILL_DIR/skills/hunter/SKILL.md"` with a shell command. If this fails,
+   stop and tell the user: "Bug Hunter skill files not found. Reinstall the
+   skill and retry."
 
-3. **Node.js availability**: Run `node --version` via a shell command.
-   - If available: set `NODEJS_AVAILABLE=true`. Full pipeline features enabled.
-   - If NOT available: set `NODEJS_AVAILABLE=false`. Warn the user:
-     "Node.js is not available. Schema validation, triage, doc-lookup, and experiment tracking will be skipped. The core pipeline (Recon -> Hunter -> Skeptic -> Referee) still works."
-   - Continue the pipeline — the core analysis is LLM-driven and does not require Node.js.
+3. **Node.js available**: Run `node --version` with a shell command. If it
+   fails, stop and tell the user: "Node.js 22 or newer is required. Please
+   install it to continue."
 
 3b. **Create output directory**:
     ```bash
@@ -269,13 +284,15 @@ Before doing anything else, verify the environment:
      })
      ```
 
-   **Option C2 — Native agent dispatch (Cursor, Copilot, Windsurf, Kiro):**
-   - If your runtime provides its own agent or tool dispatch mechanism (e.g., Cursor Composer agents, Copilot workspace tools, Kiro agent hooks), adapt the subagent-wrapper template to use your native dispatch.
-   - Set `AGENT_BACKEND = "native-dispatch"`
-   - The key contract: dispatch a task with the filled template as prompt, wait for completion, read the output file.
-   - If unsure how to dispatch, fall through to Option D.
+   **Option D — native agent dispatch (Cursor, Copilot, Windsurf, Kiro):**
+   - If the runtime provides its own agent/task dispatch mechanism, adapt
+     `templates/subagent-wrapper.md` to that mechanism.
+   - Set `AGENT_BACKEND = "native-dispatch"`.
+   - Dispatch the filled wrapper, wait for completion, then validate and read
+     the declared output file.
+   - If the runtime cannot satisfy that contract, use Option E.
 
-   **Option D — `local-sequential` (default — always works):**
+   **Option E — `local-sequential` (default — always works):**
    - Set `AGENT_BACKEND = "local-sequential"`
    - Read `SKILL_DIR/modes/local-sequential.md` for full instructions.
    - You run all phases (Recon, Hunter, Skeptic, Referee) yourself,
@@ -318,7 +335,7 @@ Then read `.bug-hunter/triage.json`. It contains:
 - `domainFileLists`: per-domain file lists (only present for large-codebase strategy)
 - `scanOrder`: priority-ordered list for Hunters
 - `tokenEstimate`: cost estimates for each pipeline phase
-- `needsLoop`: whether loop mode is needed for full coverage (loop is on by default; this indicates `--no-loop` would cause incomplete coverage)
+- `needsLoop`: whether multiple passes are needed for full coverage
 
 **Set these variables from the triage output:**
 ```
@@ -383,14 +400,16 @@ Dependencies: [N] HIGH/CRITICAL CVEs found | [R] reachable, [P] potentially reac
 
 If `.bug-hunter/dep-findings.json` exists with REACHABLE findings, include them in Hunter context as "Known Vulnerable Dependencies" — Hunter should verify if vulnerable APIs are called in scanned source files.
 
-### Step 2: Read prompt files on demand (context efficiency)
+### Step 2: Read role skills on demand (context efficiency)
 
 **Security-pack routing:**
 - If `PR_SECURITY_MODE=true`, read `SKILL_DIR/skills/commit-security-scan/SKILL.md` before the normal PR-review scan.
 - If `SECURITY_REVIEW_MODE=true`, read `SKILL_DIR/skills/security-review/SKILL.md` before the broader security audit flow.
 - If `VALIDATE_SECURITY_MODE=true`, read `SKILL_DIR/skills/vulnerability-validation/SKILL.md` before finalizing confirmed security findings.
 
-**MANDATORY**: You MUST read prompt files before passing them to subagents or executing them yourself. Do NOT skip this or act from memory. Use the absolute SKILL_DIR path resolved in Step 0.
+**MANDATORY**: You MUST read role skills from disk before passing them to
+subagents or executing them yourself. Do NOT skip this or act from memory. Use
+the absolute SKILL_DIR path resolved in Step 0.
 
 **Load only what you need for each phase — do NOT read all files upfront:**
 
@@ -400,9 +419,9 @@ If `.bug-hunter/dep-findings.json` exists with REACHABLE findings, include them 
 | Security review | `skills/security-review/SKILL.md` (if `SECURITY_REVIEW_MODE=true` or the user asks for an enterprise/full security audit) |
 | Threat Model (Step 1b) | `skills/threat-model-generation/SKILL.md` (only if THREAT_MODEL_MODE=true) |
 | Recon (Step 4) | `skills/recon/SKILL.md` (skip for single-file mode) |
-| Hunters (Step 5) | `skills/hunter/SKILL.md` + `prompts/examples/hunter-examples.md` |
+| Hunters (Step 5) | `skills/hunter/SKILL.md` + `skills/hunter/examples.md` |
 | Security validation | `skills/vulnerability-validation/SKILL.md` (if `VALIDATE_SECURITY_MODE=true` or confirmed security findings need exploitability validation) |
-| Skeptics (Step 6) | `skills/skeptic/SKILL.md` + `prompts/examples/skeptic-examples.md` |
+| Skeptics (Step 6) | `skills/skeptic/SKILL.md` + `skills/skeptic/examples.md` |
 | Referee (Step 7) | `skills/referee/SKILL.md` |
 | Fixers (Phase 2) | `skills/fixer/SKILL.md` (only if FIX_MODE=true) |
 
@@ -421,7 +440,7 @@ read({ path: "$SKILL_DIR/skills/hunter/SKILL.md" })
 #    - Write each finding in BUG-N format
 
 # 3. Write your canonical findings artifact to disk:
-write({ path: ".bug-hunter/findings.json", content: "<your findings json>" })
+write({ path: ".bug-hunter/hunter-findings.json", content: "<your findings json>" })
 ```
 
 #### Example B: subagent dispatch
@@ -435,22 +454,22 @@ read({ path: "$SKILL_DIR/templates/subagent-wrapper.md" })
 # 3. Fill the template with:
 #    - {ROLE_NAME} = "hunter"
 #    - {ROLE_DESCRIPTION} = "Bug Hunter — find behavioral bugs in source code"
-#    - {PROMPT_CONTENT} = <full contents of hunter.md>
+#    - {PROMPT_CONTENT} = <full contents of skills/hunter/SKILL.md>
 #    - {TARGET_DESCRIPTION} = "FindCoffee monorepo backend services"
 #    - {FILE_LIST} = <files from Recon risk map, CRITICAL first>
-#    - {RISK_MAP} = <risk map from .bug-hunter/recon.md>
+#    - {RISK_MAP} = <risk map from .bug-hunter/recon.json>
 #    - {TECH_STACK} = <framework, auth, DB from Recon>
-#    - {PHASE_SPECIFIC_CONTEXT} = <doc-lookup instructions from doc-lookup.md>
-#    - {OUTPUT_FILE_PATH} = ".bug-hunter/findings.json"
+#    - {PHASE_SPECIFIC_CONTEXT} = <doc-lookup instructions from skills/doc-lookup/SKILL.md>
+#    - {OUTPUT_FILE_PATH} = ".bug-hunter/hunter-findings.json"
 #    - {SKILL_DIR} = <absolute path>
 # 4. Dispatch:
 subagent({
   agent: "hunter-agent",
   task: "<the filled template>",
-  output: ".bug-hunter/findings.json"
+  output: ".bug-hunter/hunter-findings.json"
 })
 # 5. Read the output:
-read({ path: ".bug-hunter/findings.json" })
+read({ path: ".bug-hunter/hunter-findings.json" })
 ```
 
 When launching subagents, always pass `SKILL_DIR` explicitly in the task context so prompt commands like `node "$SKILL_DIR/scripts/doc-lookup.cjs"` resolve correctly. The `context7-api.cjs` script is kept as a fallback if `doc-lookup.cjs` fails.
@@ -463,7 +482,7 @@ If validation fails, do NOT launch the subagent. Fix the payload first.
 
 Any mode step that says "launch subagent" means "dispatch an agent task using `AGENT_BACKEND`". For `local-sequential`, "launch" means "execute that phase's instructions yourself."
 
-After reading each prompt, extract the key instructions and pass the content to subagents via their system prompts. You do not need to keep the full text in working memory.
+After reading each role skill, extract the key instructions and pass the content to subagents via their system prompts. You do not need to keep the full text in working memory.
 
 **Context pruning for subagents:** When passing bug lists to Skeptics, Fixers, or the Referee, only include the bugs assigned to that agent — not the full merged list. For each bug, include: BUG-ID, severity, file, lines, claim, evidence, runtime trigger, cross-references. Omit: the Hunter's internal reasoning, scan coverage stats, and any "FILES SCANNED/SKIPPED" metadata. This keeps subagent prompts lean.
 
@@ -503,15 +522,15 @@ node "$SKILL_DIR/scripts/experiment-loop.cjs" check-continue \
 ```
 If `continue` is false, stop the loop immediately. After each iteration, log the result with `log`. This is active by default — no `--experiment` flag needed.
 
-**CRITICAL — loop driver selection:** When `LOOP_MODE=true`:
-1. **Test for ralph-loop**: Try calling `ralph_start`. If it works, use ralph-loop as described in `modes/loop.md` (or `modes/fix-loop.md` for fix mode).
-2. **Fallback — self-driven loop**: If `ralph_start` is not available (tool does not exist in your runtime), read `SKILL_DIR/modes/loop-generic.md`. You will drive the loop yourself using `experiment-loop.cjs` for state tracking and stop-file safety.
-
-The experiment tracking (`experiment-loop.cjs`) runs in BOTH cases. The difference is who drives iteration: ralph-loop (external, Claude Code) or the agent itself (self-driven, all other runtimes).
+**CRITICAL — loop driver selection:** When `LOOP_MODE=true`, use
+`ralph_start`/`ralph_done` when those tools exist. Otherwise read
+`modes/loop-generic.md` and drive the guarded iterations yourself with
+`experiment-loop.cjs`. Never pretend a loop will continue without selecting
+one of these two drivers.
 
 Report the chosen mode to the user.
 
-**Then follow the steps in the loaded mode file.** Each mode file contains the specific steps for running Recon, Hunters, Skeptics, and Referee for that mode. Each mode also references `modes/_dispatch.md` for backend-specific dispatch patterns. Execute them in order.
+**Then follow the steps in the loaded mode file.** Each mode file contains the specific steps for running Recon, Hunters, Skeptics, and Referee for that mode. Each mode also references `modes/dispatch.md` for the backend-neutral dispatch contract. Execute them in order.
 
 **Branch-diff and staged optimization:** For `-b` and `--staged` modes, if the file count ≤ FILE_BUDGET, always use `small` or `parallel` mode regardless of total codebase size. The triage script already handles this since it only scans the provided target files.
 
@@ -584,14 +603,14 @@ If the coverage assessment shows ANY queued scannable source files were not scan
    - If total files ≤ FILE_BUDGET × 3: Output the report with a WARNING:
      ```
      ⚠️ PARTIAL COVERAGE: [N] queued source files were not scanned.
-     Run `/bug-hunter [path]` for complete coverage (loop is on by default).
+     Run `/bug-hunter --loop [path]` for complete queued coverage.
      Unscanned files: [list them]
      ```
    - If total files > FILE_BUDGET × 3: The report MUST include:
      ```
      🚨 LARGE CODEBASE: [N] source files (FILE_BUDGET: [B]).
      Single-pass audit covered [X]% of queued source files.
-     Use `/bug-hunter [path]` for full coverage (loop is on by default).
+     Use `/bug-hunter --loop [path]` for full queued coverage.
      ```
 
 3. Do NOT claim "audit complete" or "full coverage achieved" unless ALL queued scannable source files have status DONE. A partial audit is still valuable — report what you found honestly.
@@ -624,65 +643,68 @@ If zero bugs were confirmed, say so clearly — a clean report is a good result.
 
 ### 8. JSON output (always generated)
 
-After the markdown report, write a machine-readable findings file to `.bug-hunter/findings.json`:
+After Referee review, write the final machine-readable scan report to
+`.bug-hunter/scan-report.json`. Keep the Hunter array unchanged at
+`.bug-hunter/hunter-findings.json`.
 
 ```json
 {
-  "version": "3.0.0",
-  "scan_id": "scan-YYYY-MM-DD-HHmmss",
-  "scan_date": "<ISO 8601>",
+  "schemaVersion": 1,
+  "runId": "scan-YYYY-MM-DD-HHmmss",
+  "generatedAt": "<ISO 8601>",
   "mode": "<strategy>",
   "target": "<target path>",
-  "files_scanned": 0,
-  "threat_model_loaded": false,
-  "confirmed": [
-    {
-      "id": "BUG-1",
-      "severity": "CRITICAL",
-      "category": "security",
-      "stride": "Tampering",
-      "cwe": "CWE-89",
-      "file": "src/api/users.ts",
-      "lines": "45-49",
-      "claim": "SQL injection via unsanitized query parameter",
-      "reachability": "EXTERNAL",
-      "exploitability": "EASY",
-      "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
-      "cvss_score": 9.1,
-      "poc": { "payload": "...", "request": "...", "expected": "...", "actual": "..." }
-    }
-  ],
-  "dismissed": [
-    { "id": "BUG-3", "severity": "Medium", "category": "logic", "file": "...", "claim": "...", "reason": "..." }
-  ],
-  "dependencies": [],
-  "summary": {
-    "total_reported": 0, "confirmed": 0, "dismissed": 0,
-    "by_severity": { "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0 },
-    "by_stride": { "Tampering": 0, "InfoDisclosure": 0, "ElevationOfPrivilege": 0, "Spoofing": 0, "DoS": 0, "Repudiation": 0, "N/A": 0 },
-    "by_category": { "security": 0, "logic": 0, "error-handling": 0 }
-  }
+  "filesScanned": 0,
+  "threatModelLoaded": false,
+  "dependencies": { "status": "not-applicable" },
+  "counts": {
+    "findings": 0,
+    "confirmed": 0,
+    "dismissed": 0,
+    "manualReview": 0,
+    "unreviewed": 0
+  },
+  "confirmed": [],
+  "dismissed": [],
+  "manualReview": [],
+  "unreviewed": []
 }
 ```
 
 Rules for JSON output:
-- Non-security findings: `stride: "N/A"`, `cwe: "N/A"`, omit reachability/CVSS/PoC fields.
-- Security findings without CRITICAL/HIGH severity: omit CVSS and PoC fields.
-- `dependencies` array: populated only if `--deps` was used and `.bug-hunter/dep-findings.json` exists.
+- Validate Hunter and Referee artifacts before joining them.
+- Join only by stable `bugId`; duplicate or unknown IDs fail the report.
+- Preserve findings without a verdict under `unreviewed`.
+- Set dependency status to `complete`, `partial`, `unknown`, or
+  `not-applicable`; never turn a scanner failure into a clean result.
 - This JSON enables CI/CD gating, dashboard ingestion, and downstream patch generation.
 
-Also write the final markdown report to `.bug-hunter/report.md` as the
-canonical human-readable output. Generate it from the JSON artifacts with:
+Write run metadata to `.bug-hunter/scan-metadata.json`, then generate and
+validate the canonical report:
 
 ```bash
-node "$SKILL_DIR/scripts/render-report.cjs" report ".bug-hunter/findings.json" ".bug-hunter/referee.json" > ".bug-hunter/report.md"
+node "$SKILL_DIR/scripts/render-report.cjs" scan-report \
+  ".bug-hunter/hunter-findings.json" \
+  ".bug-hunter/referee.json" \
+  ".bug-hunter/scan-metadata.json" > ".bug-hunter/scan-report.json"
+node "$SKILL_DIR/scripts/schema-validate.cjs" scan-report \
+  ".bug-hunter/scan-report.json"
+```
+
+Also render `.bug-hunter/report.md` as a human-readable view:
+
+```bash
+node "$SKILL_DIR/scripts/render-report.cjs" report ".bug-hunter/hunter-findings.json" ".bug-hunter/referee.json" > ".bug-hunter/report.md"
 ```
 
 ---
 
 ## Self-Test Mode
 
-To validate the pipeline works end-to-end, run `/bug-hunter SKILL_DIR/test-fixture/` on the included test fixture. This directory contains a small Express app with 6 intentionally planted bugs (2 Critical, 3 Medium, 1 Low). Expected results:
+From a source checkout, run `/bug-hunter SKILL_DIR/test-fixture/` against the
+development fixture. The npm runtime package excludes the fixture and its
+answers. Score its Hunter artifact with
+`node evals/evaluate-fixture.cjs <findings-json>`. Expected results:
 - Recon should classify 3 files as CRITICAL, 1 as HIGH
 - Hunters should find all 6 bugs (possibly more false positives)
 - Skeptic should challenge at least 1 false positive
@@ -690,7 +712,8 @@ To validate the pipeline works end-to-end, run `/bug-hunter SKILL_DIR/test-fixtu
 
 If the pipeline finds fewer than 5 of the 6 planted bugs, the prompts need tuning. If it reports more than 3 false positives that survive to the Referee, the Skeptic prompt needs tightening.
 
-The test fixture source files ship with the skill. If using `--fix` mode on the fixture, initialize its git repo first: `bash SKILL_DIR/scripts/init-test-fixture.sh`
+If using `--fix` on the source-checkout fixture, create a disposable nested Git
+repository first. Never run fixture mutations against the parent checkout.
 
 ---
 

@@ -38,8 +38,11 @@ All pipeline agents are bundled as first-class skills under `skills/`:
 ## Usage
 
 ```
-/bug-hunter src/                   # scan a directory, auto-fix confirmed bugs
-/bug-hunter --scan-only src/       # report only, no code changes
+/bug-hunter src/                   # single-pass scan, no code changes
+/bug-hunter --fix src/             # reviewed fixing after verification
+/bug-hunter --autonomous src/      # explicitly allow unattended edits
+/bug-hunter --autonomous --auto-commit src/ # also allow scoped commits
+/bug-hunter --loop src/            # iterative complete-coverage scan
 /bug-hunter --pr current           # review the current PR
 /bug-hunter --pr-security          # PR security review with threat model + CVEs
 /bug-hunter --security-review src/ # enterprise security audit
@@ -64,7 +67,7 @@ git clone https://github.com/codexstar69/bug-hunter.git ~/.agents/skills/bug-hun
 npm install -g @aisuite/chub
 ```
 
-Requirements: Node.js 18+ recommended (core pipeline works without it). Works with Claude Code, Cursor, Codex CLI, Windsurf, Kiro, Copilot, Opencode, Pi — or any AI agent that can read files and run shell commands.
+Requirements: Node.js 22+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot.
 
 ## Documentation
 

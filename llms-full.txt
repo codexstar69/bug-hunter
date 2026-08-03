@@ -21,14 +21,14 @@ Recon (skills/recon/)
 
 ### Core Agent Skills
 
-| Skill | Lines | Purpose |
-|-------|-------|---------|
-| `skills/hunter/SKILL.md` | 172 | Deep behavioral code analysis — logic errors, security vulns, race conditions |
-| `skills/skeptic/SKILL.md` | 153 | Adversarial reviewer — challenges every finding, kills false positives |
-| `skills/referee/SKILL.md` | 143 | Independent arbiter — delivers verdicts with CVSS scoring and PoC |
-| `skills/fixer/SKILL.md` | 124 | Surgical code repair — minimal fixes respecting strategy classifications |
-| `skills/recon/SKILL.md` | 166 | Codebase reconnaissance — maps architecture, trust boundaries, risk priorities |
-| `skills/doc-lookup/SKILL.md` | 51 | Documentation access — Context Hub (chub) primary, Context7 fallback |
+| Skill | Purpose |
+|-------|---------|
+| `skills/hunter/SKILL.md` | Deep behavioral code analysis — logic errors, security vulns, race conditions |
+| `skills/skeptic/SKILL.md` | Adversarial reviewer — challenges every finding, kills false positives |
+| `skills/referee/SKILL.md` | Independent arbiter — delivers verdicts with CVSS scoring and PoC |
+| `skills/fixer/SKILL.md` | Surgical code repair — minimal fixes respecting strategy classifications |
+| `skills/recon/SKILL.md` | Codebase reconnaissance — maps architecture, trust boundaries, risk priorities |
+| `skills/doc-lookup/SKILL.md` | Documentation access — Context Hub (chub) primary, Context7 fallback |
 
 ### Security Skills
 
@@ -94,9 +94,9 @@ Critical and High security findings receive CVSS 3.1 base scores with attack vec
 
 | Flag | Description |
 |------|-------------|
-| (default) | Scan + auto-fix confirmed bugs |
-| `--scan-only` / `--review` | Report only, no code changes |
-| `--fix` | Explicitly enable auto-fix |
+| (default) | Single-pass scan, no code changes |
+| `--scan-only` / `--review` | Explicit report-only alias |
+| `--fix` | Enable reviewed fixing |
 | `--fix --approve` / `--safe` | Fix with human approval per edit |
 | `--plan-only` / `--plan` | Build strategy + plan, stop before edits |
 | `--dry-run` / `--preview` | Preview fixes as unified diffs |
@@ -109,7 +109,9 @@ Critical and High security findings receive CVSS 3.1 base scores with attack vec
 | `--validate-security` | Force vulnerability validation |
 | `--deps` | Include dependency CVE scan |
 | `--autonomous` | No-intervention auto-fix run |
-| `--no-loop` | Single pass (disable iterative coverage) |
+| `--auto-commit` | Allow scoped commits during an explicit fix run |
+| `--loop` | Iterate until queued coverage is complete |
+| `--no-loop` | Compatibility alias for the default single pass |
 | `--max-iterations <n>` | Hard cap on loop iterations (default: 10) |
 
 ## Output Files
@@ -117,10 +119,11 @@ Critical and High security findings receive CVSS 3.1 base scores with attack vec
 | File | Description |
 |------|-------------|
 | `.bug-hunter/triage.json` | File classification and scan strategy |
-| `.bug-hunter/recon.md` | Tech stack and risk map |
-| `.bug-hunter/findings.json` | Canonical Hunter findings |
+| `.bug-hunter/recon.json` | Canonical tech stack and risk map |
+| `.bug-hunter/hunter-findings.json` | Canonical Hunter findings |
 | `.bug-hunter/skeptic.json` | Canonical Skeptic challenges |
 | `.bug-hunter/referee.json` | Canonical Referee verdicts |
+| `.bug-hunter/scan-report.json` | Joined final report with run metadata |
 | `.bug-hunter/report.md` | Final human-readable report |
 | `.bug-hunter/fix-strategy.json` | Fix classification (safe-autofix/manual-review/etc) |
 | `.bug-hunter/fix-strategy.md` | Human-readable strategy |
@@ -161,7 +164,7 @@ bug-hunter/
 │   ├── threat-model-generation/
 │   └── vulnerability-validation/
 ├── modes/                 # Execution strategies by codebase size
-├── prompts/examples/      # Calibration examples for Hunter/Skeptic
+├── prompts/               # Generated compatibility copies of role skills
 ├── schemas/               # JSON Schema contracts for all artifacts
 ├── scripts/               # Node.js helpers (zero AI tokens)
 │   ├── run-bug-hunter.cjs    # Main orchestrator script
@@ -169,7 +172,7 @@ bug-hunter/
 │   ├── doc-lookup.cjs        # Context Hub + Context7 doc lookup
 │   ├── context7-api.cjs      # Context7 standalone fallback
 │   ├── prepublish-guard.cjs  # Publish safety net
-│   └── tests/                # Test suite (113 tests)
+│   └── tests/                # Executable regression suite
 ├── templates/             # Subagent launch template
 └── test-fixture/          # 6 planted bugs for validation
 ```
@@ -180,7 +183,7 @@ bug-hunter/
 npm install -g @codexstar/bug-hunter && bug-hunter install
 ```
 
-Requirements: Node.js 18+ recommended (core pipeline works without it). Works with Claude Code, Cursor, Codex CLI, Windsurf, Kiro, Copilot, Opencode, Pi — or any AI agent that can read files and run shell commands.
+Requirements: Node.js 22+. Works with Pi, Claude Code, Codex, Cursor, Windsurf, Kiro, Copilot.
 
 ## License
 

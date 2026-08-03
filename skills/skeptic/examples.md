@@ -1,6 +1,16 @@
+---
+title: Skeptic Validation Examples
+description: Calibration cases for adversarial finding review.
+prompt: |
+  launch parallel agnents and finish it all
+
+  Preserve the legacy Skeptic calibration content and make
+  @skills/skeptic/SKILL.md the canonical runtime source.
+---
+
 # Skeptic Validation Examples
 
-Calibration examples showing how to challenge Hunter findings. Study the reasoning process — the Skeptic's job is to kill false positives, not confirm real bugs.
+Role-skill calibration examples showing how to challenge Hunter findings. Study the reasoning process — the Skeptic's job is to kill false positives, not confirm real bugs.
 
 ---
 

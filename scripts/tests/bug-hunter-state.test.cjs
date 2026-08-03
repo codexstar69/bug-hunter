@@ -27,6 +27,8 @@ test('bug-hunter-state init/mark/hash/filter/record works end-to-end', () => {
   assert.equal(init.ok, true);
   assert.equal(init.summary.metrics.filesTotal, 2);
   assert.equal(init.summary.metrics.chunksTotal, 2);
+  assert.equal(init.summary.schemaVersion, 3);
+  assert.equal(fs.readdirSync(sandbox).some((entry) => entry.endsWith('.tmp')), false);
 
   const next = runJson('node', [stateScript, 'next-chunk', statePath]);
   assert.equal(next.done, false);
@@ -84,6 +86,7 @@ test('bug-hunter-state init/mark/hash/filter/record works end-to-end', () => {
   runJson('node', [stateScript, 'mark-chunk', statePath, 'chunk-1', 'done']);
   const status = runJson('node', [stateScript, 'status', statePath]);
   assert.equal(status.summary.metrics.chunksDone, 1);
+  assert.equal(status.summary.metrics.filesScanned, 0);
   assert.equal(status.summary.chunkStatus.done, 1);
 
   const state = readJson(statePath);
@@ -109,6 +112,54 @@ test('bug-hunter-state init/mark/hash/filter/record works end-to-end', () => {
   assert.equal(factCardResult.ok, true);
   const updatedState = readJson(statePath);
   assert.equal(updatedState.factCards['chunk-1'].apiContracts.length, 1);
+});
+
+test('bug-hunter-state counts only files explicitly recorded as scanned', () => {
+  const sandbox = makeSandbox('bug-hunter-state-file-accounting-');
+  const stateScript = resolveSkillScript('bug-hunter-state.cjs');
+  const existingFile = path.join(sandbox, 'existing.ts');
+  const missingFile = path.join(sandbox, 'missing.ts');
+  fs.writeFileSync(existingFile, 'const existing = true;\n', 'utf8');
+
+  const filesJson = path.join(sandbox, 'files.json');
+  writeJson(filesJson, [existingFile, missingFile]);
+  const statePath = path.join(sandbox, 'state.json');
+  runJson('node', [stateScript, 'init', statePath, 'extended', filesJson, '2']);
+
+  const filtered = runJson('node', [stateScript, 'hash-filter', statePath, filesJson]);
+  assert.deepEqual(filtered.scan, [existingFile]);
+  assert.deepEqual(filtered.missing, [missingFile]);
+
+  const scannedJson = path.join(sandbox, 'scanned.json');
+  writeJson(scannedJson, filtered.scan);
+  runJson('node', [stateScript, 'hash-update', statePath, scannedJson, 'scanned']);
+  runJson('node', [stateScript, 'mark-chunk', statePath, 'chunk-1', 'done']);
+
+  const state = readJson(statePath);
+  assert.equal(state.metrics.filesScanned, 1);
+  assert.equal(state.fileStates[existingFile].status, 'scanned');
+  assert.equal(state.fileStates[missingFile].status, 'missing');
+});
+
+test('bug-hunter-state preserves malformed state and reports a clear error', () => {
+  const sandbox = makeSandbox('bug-hunter-state-malformed-');
+  const stateScript = resolveSkillScript('bug-hunter-state.cjs');
+  const statePath = path.join(sandbox, 'state.json');
+  const malformedState = '{"schemaVersion":3,"chunks":[';
+  fs.writeFileSync(statePath, malformedState, 'utf8');
+
+  const result = require('node:child_process').spawnSync('node', [
+    stateScript,
+    'status',
+    statePath
+  ], {
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stderr}${result.stdout}`, /malformed JSON and was left unchanged/);
+  assert.equal(fs.readFileSync(statePath, 'utf8'), malformedState);
+  assert.equal(fs.readdirSync(sandbox).some((entry) => entry.endsWith('.tmp')), false);
 });
 
 test('bug-hunter-state rejects malformed findings artifacts', () => {

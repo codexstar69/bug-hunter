@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const test = require('node:test');
@@ -13,6 +14,28 @@ const {
 } = require('./test-utils.cjs');
 
 const SCRIPT = resolveSkillScript('experiment-loop.cjs');
+
+function git(args, cwd) {
+  return childProcess.execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe']
+  }).trim();
+}
+
+function makeGitFixture(prefix) {
+  const sandbox = makeSandbox(prefix);
+  const repo = path.join(sandbox, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  git(['init', '-b', 'main'], repo);
+  git(['config', 'user.email', 'test@test.com'], repo);
+  git(['config', 'user.name', 'Test'], repo);
+  fs.writeFileSync(path.join(repo, 'approved.txt'), 'baseline\n');
+  git(['add', '--', 'approved.txt'], repo);
+  git(['commit', '-m', 'initial'], repo);
+  assert.equal(git(['rev-parse', '--show-toplevel'], repo), fs.realpathSync(repo));
+  return { sandbox, repo };
+}
 
 // ---------------------------------------------------------------------------
 // init
@@ -734,10 +757,10 @@ test('log accepts --duration-ms and persists it', () => {
 });
 
 // ---------------------------------------------------------------------------
-// corrupt JSONL lines are skipped gracefully
+// corrupt JSONL lines are rejected
 // ---------------------------------------------------------------------------
 
-test('reconstructs state even with corrupt lines in JSONL', () => {
+test('rejects corrupt JSONL instead of reconstructing partial state', () => {
   const sandbox = makeSandbox('exp-corrupt-');
   const logPath = path.join(sandbox, 'experiment.jsonl');
 
@@ -753,11 +776,9 @@ test('reconstructs state even with corrupt lines in JSONL', () => {
   });
   fs.writeFileSync(logPath, `${configLine}\nNOT_JSON_LINE\n${resultLine}\n`);
 
-  const status = runJson('node', [SCRIPT, 'status', logPath]);
-  assert.equal(status.ok, true);
-  assert.equal(status.initialized, true);
-  assert.equal(status.totalRuns, 1);
-  assert.equal(status.bestMetric, 42);
+  const status = runRaw('node', [SCRIPT, 'status', logPath], { cwd: sandbox });
+  assert.notEqual(status.status, 0);
+  assert.match(status.stderr, /Corrupt JSONL.*:2/);
 });
 
 // ---------------------------------------------------------------------------
@@ -799,41 +820,145 @@ test('appendJsonl throws descriptive error on read-only directory', () => {
 // Step 2: Git helper hardening
 // ---------------------------------------------------------------------------
 
-test('log with auto-commit reports commitOk field', () => {
-  const sandbox = makeSandbox('exp-commitok-');
+test('default keep logging never creates a Git commit or changes the index', () => {
+  const { sandbox, repo } = makeGitFixture('exp-default-no-commit-');
   const logPath = path.join(sandbox, 'experiment.jsonl');
-  runJson('node', [SCRIPT, 'init', logPath, 'test', 'score', 'higher']);
+  runJson('node', [SCRIPT, 'init', logPath, 'test', 'score', 'higher'], { cwd: repo });
+  fs.writeFileSync(path.join(repo, 'approved.txt'), 'modified\n');
+  fs.writeFileSync(path.join(repo, 'unrelated.txt'), 'untracked\n');
 
-  // In sandbox (no git repo), auto-commit will fail but log should succeed
-  const result = runJson('node', [
-    SCRIPT, 'log', logPath, 'keep', '100',
-    '--auto-commit', 'true'
-  ]);
+  const headBefore = git(['rev-parse', 'HEAD'], repo);
+  const statusBefore = git(
+    ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+    repo
+  );
+  const result = runJson(
+    'node',
+    [SCRIPT, 'log', logPath, 'keep', '100', '--description', 'default'],
+    { cwd: repo }
+  );
+
   assert.equal(result.ok, true);
-  assert.equal(typeof result.commitOk, 'boolean');
-  // commitOk should be false since sandbox is not a git repo
-  assert.equal(result.commitOk, false);
+  assert.equal(result.commitOk, true);
+  assert.equal(result.commit, 'not-created');
+  assert.equal(git(['rev-parse', 'HEAD'], repo), headBefore);
+  assert.equal(
+    git(['status', '--porcelain=v1', '-z', '--untracked-files=all'], repo),
+    statusBefore
+  );
+  assert.equal(git(['diff', '--cached', '--name-only'], repo), '');
 });
 
-test('git failure does not break experiment loop', () => {
-  const sandbox = makeSandbox('exp-git-fail-');
+test('explicit auto-commit stages only approved paths', () => {
+  const { sandbox, repo } = makeGitFixture('exp-approved-commit-');
   const logPath = path.join(sandbox, 'experiment.jsonl');
-  runJson('node', [SCRIPT, 'init', logPath, 'test', 'score', 'higher']);
+  runJson('node', [SCRIPT, 'init', logPath, 'test', 'score', 'higher'], { cwd: repo });
+  fs.writeFileSync(path.join(repo, 'approved.txt'), 'modified\n');
 
-  // First keep (baseline)
-  const r1 = runJson('node', [SCRIPT, 'log', logPath, 'keep', '100', '--auto-commit', 'true']);
-  assert.equal(r1.ok, true);
-  assert.equal(r1.value, 100);
+  const result = runJson('node', [
+    SCRIPT,
+    'log',
+    logPath,
+    'keep',
+    '100',
+    '--description',
+    'approved change',
+    '--auto-commit',
+    'true',
+    '--allowed-paths',
+    '["approved.txt"]'
+  ], { cwd: repo });
 
-  // Second keep — still works despite git failures
-  const r2 = runJson('node', [SCRIPT, 'log', logPath, 'keep', '120', '--auto-commit', 'true']);
-  assert.equal(r2.ok, true);
-  assert.equal(r2.isBest, true);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'keep');
+  assert.equal(result.commitOk, true);
+  assert.equal(git(['show', '--pretty=', '--name-only', 'HEAD'], repo), 'approved.txt');
+  assert.equal(git(['status', '--porcelain'], repo), '');
+});
 
-  // Status still accurate
-  const status = runJson('node', [SCRIPT, 'status', logPath]);
-  assert.equal(status.totalRuns, 2);
-  assert.equal(status.kept, 2);
+test('explicit auto-commit refuses dirty paths outside the allowlist', () => {
+  const { sandbox, repo } = makeGitFixture('exp-dirty-baseline-');
+  const logPath = path.join(sandbox, 'experiment.jsonl');
+  runJson('node', [SCRIPT, 'init', logPath, 'test', 'score', 'higher'], { cwd: repo });
+  fs.writeFileSync(path.join(repo, 'approved.txt'), 'modified\n');
+  fs.writeFileSync(path.join(repo, 'unrelated.txt'), 'untracked\n');
+  const headBefore = git(['rev-parse', 'HEAD'], repo);
+
+  const result = runRaw('node', [
+    SCRIPT,
+    'log',
+    logPath,
+    'keep',
+    '100',
+    '--auto-commit',
+    'true',
+    '--allowed-paths',
+    '["approved.txt"]'
+  ], { cwd: repo });
+
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.ok, false);
+  assert.equal(output.status, 'checks_failed');
+  assert.equal(output.requestedStatus, 'keep');
+  assert.match(output.commitError, /unrelated\.txt/);
+  assert.equal(git(['rev-parse', 'HEAD'], repo), headBefore);
+  assert.equal(git(['diff', '--cached', '--name-only'], repo), '');
+  const entries = fs.readFileSync(logPath, 'utf8').trim().split('\n').map((line) => {
+    return JSON.parse(line);
+  });
+  assert.equal(entries.at(-1).status, 'checks_failed');
+  assert.equal(entries.at(-1).commitOk, false);
+});
+
+test('explicit auto-commit rejects symlink escapes', () => {
+  const { sandbox, repo } = makeGitFixture('exp-symlink-scope-');
+  const outsidePath = path.join(sandbox, 'outside.txt');
+  fs.writeFileSync(outsidePath, 'outside\n');
+  fs.symlinkSync(outsidePath, path.join(repo, 'escape.txt'));
+  const logPath = path.join(sandbox, 'experiment.jsonl');
+  runJson('node', [SCRIPT, 'init', logPath, 'test', 'score', 'higher'], { cwd: repo });
+
+  const result = runRaw('node', [
+    SCRIPT,
+    'log',
+    logPath,
+    'keep',
+    '100',
+    '--auto-commit',
+    'true',
+    '--allowed-paths',
+    '["escape.txt"]'
+  ], { cwd: repo });
+
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.status, 'checks_failed');
+  assert.match(output.commitError, /symlink/);
+});
+
+test('auto-commit failure is recorded as checks_failed, never keep', () => {
+  const sandbox = makeSandbox('exp-commitok-');
+  const logPath = path.join(sandbox, 'experiment.jsonl');
+  runJson('node', [SCRIPT, 'init', logPath, 'test', 'score', 'higher'], { cwd: sandbox });
+
+  const result = runRaw('node', [
+    SCRIPT, 'log', logPath, 'keep', '100',
+    '--auto-commit', 'true',
+    '--allowed-paths', '["approved.txt"]'
+  ], { cwd: sandbox });
+  assert.notEqual(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.commitOk, false);
+  assert.equal(output.status, 'checks_failed');
+  assert.equal(output.commit, 'not-created');
+  assert.equal(output.isBest, false);
+
+  const status = runJson('node', [SCRIPT, 'status', logPath], { cwd: sandbox });
+  assert.equal(status.totalRuns, 1);
+  assert.equal(status.kept, 0);
+  assert.equal(status.checksFailed, 1);
+  assert.equal(status.bestMetric, null);
 });
 
 // ---------------------------------------------------------------------------

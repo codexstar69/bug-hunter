@@ -1,7 +1,7 @@
 {
   "name": "@codexstar/bug-hunter",
   "version": "3.1.0",
-  "description": "Adversarial AI bug hunter — multi-agent pipeline finds security vulnerabilities, logic errors, and runtime bugs, then fixes them autonomously. Works with Claude Code, Cursor, Codex CLI, Copilot, Kiro, and more.",
+  "description": "Adversarial AI bug hunter — verifies security, logic, and runtime bugs, with explicit reviewed or autonomous fixing modes.",
   "license": "MIT",
   "main": "bin/bug-hunter",
   "type": "commonjs",
@@ -9,7 +9,7 @@
     "bug-hunter": "bin/bug-hunter"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "keywords": [
     "ai",
@@ -24,6 +24,8 @@
     "cursor",
     "codex",
     "copilot",
+    "windsurf",
+    "opencode",
     "kiro",
     "multi-agent",
     "adversarial",
@@ -31,13 +33,43 @@
   ],
   "files": [
     "bin/",
-    "scripts/",
-    "schemas/",
+    "scripts/bug-hunter-state.cjs",
+    "scripts/code-index.cjs",
+    "scripts/context7-api.cjs",
+    "scripts/delta-mode.cjs",
+    "scripts/dep-scan.cjs",
+    "scripts/doc-lookup.cjs",
+    "scripts/experiment-loop.cjs",
+    "scripts/fix-lock.cjs",
+    "scripts/generated-schema-validators.cjs",
+    "scripts/payload-guard.cjs",
+    "scripts/process-runner.cjs",
+    "scripts/pr-scope.cjs",
+    "scripts/render-report.cjs",
+    "scripts/run-bug-hunter.cjs",
+    "scripts/schema-catalog.cjs",
+    "scripts/schema-runtime.cjs",
+    "scripts/schema-validate.cjs",
+    "scripts/state-store.cjs",
+    "scripts/artifact-planner.cjs",
+    "scripts/chunk-scheduler.cjs",
+    "scripts/triage.cjs",
+    "scripts/worktree-harvest.cjs",
+    "schemas/coverage.schema.json",
+    "schemas/experiment.schema.json",
+    "schemas/findings.schema.json",
+    "schemas/fix-plan.schema.json",
+    "schemas/fix-report.schema.json",
+    "schemas/fix-strategy.schema.json",
+    "schemas/fixer-scope.schema.json",
+    "schemas/recon.schema.json",
+    "schemas/referee.schema.json",
+    "schemas/scan-report.schema.json",
+    "schemas/shared.schema.json",
+    "schemas/skeptic.schema.json",
     "prompts/",
     "templates/",
     "modes/",
-    "evals/",
-    "docs/",
     "agents/",
     "skills/",
     "SKILL.md",
@@ -48,7 +80,6 @@
     "CODE_OF_CONDUCT.md",
     "llms.txt",
     "llms-full.txt",
-    "test-fixture/",
     "LICENSE"
   ],
   "repository": {
@@ -62,11 +93,22 @@
   "publishConfig": {
     "access": "public"
   },
+  "packageManager": "pnpm@10.28.1",
   "scripts": {
     "prepublishOnly": "node scripts/prepublish-guard.cjs",
-    "prepack": "node --test scripts/tests/*.test.cjs",
+    "prepack": "pnpm check:generated && node --test scripts/tests/*.test.cjs",
     "test": "node --test scripts/tests/*.test.cjs",
+    "generate:schema-validators": "node scripts/generate-schema-validators.cjs",
+    "check:schema-validators": "node scripts/generate-schema-validators.cjs --check",
+    "generate:compat-prompts": "node scripts/generate-compat-prompts.cjs",
+    "check:compat-prompts": "node scripts/generate-compat-prompts.cjs --check",
+    "check:generated": "pnpm check:schema-validators && pnpm check:compat-prompts",
+    "verify:package": "node scripts/verify-package-inventory.cjs",
     "doctor": "node bin/bug-hunter doctor",
     "postinstall": "node -e \"console.log('\\n  Run: bug-hunter install    to set up the skill\\n  Run: bug-hunter doctor     to check your environment\\n')\""
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "esbuild": "^0.28.1"
   }
 }

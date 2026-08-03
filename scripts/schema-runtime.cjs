@@ -1,18 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-
-const SCHEMA_FILES = {
-  recon: 'recon.schema.json',
-  findings: 'findings.schema.json',
-  skeptic: 'skeptic.schema.json',
-  referee: 'referee.schema.json',
-  coverage: 'coverage.schema.json',
-  experiment: 'experiment.schema.json',
-  'fix-report': 'fix-report.schema.json',
-  'fix-plan': 'fix-plan.schema.json',
-  'fix-strategy': 'fix-strategy.schema.json',
-  shared: 'shared.schema.json'
-};
+const generatedValidators = require('./generated-schema-validators.cjs');
+const { SCHEMA_FILES, VALIDATOR_EXPORTS } = require('./schema-catalog.cjs');
 
 const SCHEMA_CACHE = new Map();
 
@@ -21,19 +10,19 @@ function getSchemaDir() {
 }
 
 function getKnownArtifacts() {
-  return Object.keys(SCHEMA_FILES).filter((name) => name !== 'shared');
+  return Object.keys(VALIDATOR_EXPORTS);
 }
 
 function getSchemaPath(artifactName) {
   const fileName = SCHEMA_FILES[artifactName];
-  if (!fileName) {
+  if (!fileName || !VALIDATOR_EXPORTS[artifactName]) {
     throw new Error(`Unknown artifact schema: ${artifactName}`);
   }
   return path.join(getSchemaDir(), fileName);
 }
 
 function loadArtifactSchema(artifactName) {
-  if (!SCHEMA_FILES[artifactName]) {
+  if (!VALIDATOR_EXPORTS[artifactName]) {
     throw new Error(`Unknown artifact schema: ${artifactName}`);
   }
   if (!SCHEMA_CACHE.has(artifactName)) {
@@ -87,173 +76,45 @@ function validateSchemaRef(reference) {
   return { ok: errors.length === 0, errors };
 }
 
-function describeType(value) {
-  if (Array.isArray(value)) {
-    return 'array';
-  }
-  if (value === null) {
-    return 'null';
-  }
-  return typeof value;
+function jsonPathFromInstancePath(instancePath) {
+  return String(instancePath || '').split('/').slice(1).reduce((jsonPath, rawPart) => {
+    const part = rawPart.replaceAll('~1', '/').replaceAll('~0', '~');
+    if (/^\d+$/.test(part)) {
+      return `${jsonPath}[${part}]`;
+    }
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(part)) {
+      return `${jsonPath}.${part}`;
+    }
+    return `${jsonPath}[${JSON.stringify(part)}]`;
+  }, '$');
 }
 
-function resolveRef(rootSchema, ref) {
-  if (!ref.startsWith('#/')) {
-    throw new Error(`Unsupported schema ref: ${ref}`);
+function formatValidationError(error) {
+  const jsonPath = jsonPathFromInstancePath(error.instancePath);
+  if (error.keyword === 'required' && error.params?.missingProperty) {
+    return `${jsonPath}.${error.params.missingProperty} is required`;
   }
-  const parts = ref
-    .slice(2)
-    .split('/')
-    .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'));
-  const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-  let current = rootSchema;
-  for (const part of parts) {
-    if (BLOCKED_KEYS.has(part)) {
-      throw new Error(`Unsafe schema ref segment: ${part}`);
-    }
-    if (!current || typeof current !== 'object' || !Object.prototype.hasOwnProperty.call(current, part)) {
-      throw new Error(`Unable to resolve schema ref: ${ref}`);
-    }
-    current = current[part];
+  if (error.keyword === 'additionalProperties' && error.params?.additionalProperty) {
+    return `${jsonPath}.${error.params.additionalProperty} is not allowed`;
   }
-  return current;
-}
-
-function validateAgainstSchema({ value, schema, rootSchema, jsonPath, errors }) {
-  if (schema.$ref) {
-    const resolved = resolveRef(rootSchema, schema.$ref);
-    validateAgainstSchema({ value, schema: resolved, rootSchema, jsonPath, errors });
-    return;
-  }
-
-  if (schema.const !== undefined && value !== schema.const) {
-    errors.push(`${jsonPath} must equal ${JSON.stringify(schema.const)}`);
-    return;
-  }
-
-  if (schema.enum && !schema.enum.includes(value)) {
-    errors.push(`${jsonPath} must be one of: ${schema.enum.join(', ')}`);
-    return;
-  }
-
-  if (schema.type === 'object') {
-    if (describeType(value) !== 'object') {
-      errors.push(`${jsonPath} must be an object`);
-      return;
-    }
-    const properties = schema.properties || {};
-    const required = schema.required || [];
-    for (const propertyName of required) {
-      if (!(propertyName in value)) {
-        errors.push(`${jsonPath}.${propertyName} is required`);
-      }
-    }
-    for (const [propertyName, propertyValue] of Object.entries(value)) {
-      if (properties[propertyName]) {
-        validateAgainstSchema({
-          value: propertyValue,
-          schema: properties[propertyName],
-          rootSchema,
-          jsonPath: `${jsonPath}.${propertyName}`,
-          errors
-        });
-        continue;
-      }
-      if (schema.additionalProperties === false) {
-        errors.push(`${jsonPath}.${propertyName} is not allowed`);
-      }
-    }
-    return;
-  }
-
-  if (schema.type === 'array') {
-    if (!Array.isArray(value)) {
-      errors.push(`${jsonPath} must be an array`);
-      return;
-    }
-    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) {
-      errors.push(`${jsonPath} must contain at least ${schema.minItems} item(s)`);
-    }
-    if (schema.items) {
-      value.forEach((item, index) => {
-        validateAgainstSchema({
-          value: item,
-          schema: schema.items,
-          rootSchema,
-          jsonPath: `${jsonPath}[${index}]`,
-          errors
-        });
-      });
-    }
-    return;
-  }
-
-  if (schema.type === 'string') {
-    if (typeof value !== 'string') {
-      errors.push(`${jsonPath} must be a string`);
-      return;
-    }
-    if (Number.isInteger(schema.minLength) && value.length < schema.minLength) {
-      errors.push(`${jsonPath} must not be empty`);
-    }
-    if (schema.pattern) {
-      const matcher = new RegExp(schema.pattern);
-      if (!matcher.test(value)) {
-        errors.push(`${jsonPath} must match ${schema.pattern}`);
-      }
-    }
-    return;
-  }
-
-  if (schema.type === 'number') {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      errors.push(`${jsonPath} must be a number`);
-      return;
-    }
-    if (typeof schema.minimum === 'number' && value < schema.minimum) {
-      errors.push(`${jsonPath} must be >= ${schema.minimum}`);
-    }
-    if (typeof schema.maximum === 'number' && value > schema.maximum) {
-      errors.push(`${jsonPath} must be <= ${schema.maximum}`);
-    }
-    return;
-  }
-
-  if (schema.type === 'integer') {
-    if (!Number.isInteger(value)) {
-      errors.push(`${jsonPath} must be an integer`);
-      return;
-    }
-    if (typeof schema.minimum === 'number' && value < schema.minimum) {
-      errors.push(`${jsonPath} must be >= ${schema.minimum}`);
-    }
-    if (typeof schema.maximum === 'number' && value > schema.maximum) {
-      errors.push(`${jsonPath} must be <= ${schema.maximum}`);
-    }
-    return;
-  }
-
-  if (schema.type === 'boolean' && typeof value !== 'boolean') {
-    errors.push(`${jsonPath} must be a boolean`);
-  }
+  const suffix = error.message ? ` ${error.message}` : ' is invalid';
+  return `${jsonPath}${suffix}`;
 }
 
 function validateArtifactValue({ artifactName, value }) {
   const { schema, schemaPath } = loadArtifactSchema(artifactName);
-  const errors = [];
-  validateAgainstSchema({
-    value,
-    schema,
-    rootSchema: schema,
-    jsonPath: '$',
-    errors
-  });
+  const validatorName = VALIDATOR_EXPORTS[artifactName];
+  const validate = generatedValidators[validatorName];
+  if (typeof validate !== 'function') {
+    throw new Error(`Generated validator is missing for artifact: ${artifactName}`);
+  }
+  const ok = validate(value);
   return {
-    ok: errors.length === 0,
+    ok,
     artifact: artifactName,
     schemaVersion: schema.schemaVersion,
     schemaFile: path.relative(path.resolve(__dirname, '..'), schemaPath),
-    errors
+    errors: ok ? [] : (validate.errors || []).map(formatValidationError)
   };
 }
 

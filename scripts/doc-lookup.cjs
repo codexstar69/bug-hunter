@@ -11,7 +11,7 @@
  *   doc-lookup.cjs get    <library-or-id> <query> [--lang js|py]
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
@@ -21,6 +21,7 @@ const path = require('path');
 const CONTEXT7_API_BASE = 'https://context7.com/api/v2';
 const CONTEXT7_TIMEOUT_MS = 15000;
 const CHUB_TIMEOUT_MS = 10000;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 // ── Context7 fallback (unchanged from context7-api.cjs) ────────────────────
 
@@ -44,19 +45,45 @@ function context7Request(apiPath, params = {}) {
     const headers = { 'User-Agent': 'BugHunter-DocLookup/2.0' };
     if (CONTEXT7_KEY) headers['Authorization'] = `Bearer ${CONTEXT7_KEY}`;
 
+    let settled = false;
+    const settle = ({ error, value }) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(value);
+    };
     const req = https.get(url, { headers }, (res) => {
       let data = '';
-      res.on('data', (c) => (data += c));
+      let responseBytes = 0;
+      res.on('data', (chunk) => {
+        responseBytes += chunk.length;
+        if (responseBytes > MAX_RESPONSE_BYTES) {
+          req.destroy(new Error(`Context7 response exceeded ${MAX_RESPONSE_BYTES} bytes`));
+          return;
+        }
+        data += chunk;
+      });
       res.on('end', () => {
         if (res.statusCode === 200) {
-          try { resolve(JSON.parse(data)); } catch { resolve(data); }
-        } else {
-          reject(new Error(`Context7 ${res.statusCode}: ${data.slice(0, 200)}`));
+          try {
+            settle({ value: JSON.parse(data) });
+          } catch (error) {
+            settle({ value: data });
+          }
+          return;
         }
+        settle({ error: new Error(`Context7 ${res.statusCode}: ${data.slice(0, 200)}`) });
       });
     });
     req.setTimeout(CONTEXT7_TIMEOUT_MS, () => req.destroy(new Error('Context7 timeout')));
-    req.on('error', reject);
+    req.on('error', (error) => {
+      settle({ error });
+    });
   });
 }
 
@@ -64,41 +91,43 @@ function context7Request(apiPath, params = {}) {
 
 function chubAvailable() {
   try {
-    execSync('chub --help', { stdio: 'ignore', timeout: 3000 });
+    execFileSync('chub', ['--help'], {
+      maxBuffer: MAX_RESPONSE_BYTES,
+      stdio: 'ignore',
+      timeout: 3000
+    });
     return true;
-  } catch {
+  } catch (error) {
     return false;
   }
 }
 
-function shellQuote(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
-
 function chubSearch(library) {
   try {
-    const raw = execSync(`chub search ${shellQuote(library)} --json`, {
+    const raw = execFileSync('chub', ['search', String(library), '--json'], {
       encoding: 'utf8',
+      maxBuffer: MAX_RESPONSE_BYTES,
       timeout: CHUB_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe']
     });
     const parsed = JSON.parse(raw);
     return parsed.results || [];
-  } catch {
+  } catch (error) {
     return [];
   }
 }
 
 function chubGet(id, lang) {
   try {
-    const langFlag = lang ? ` --lang ${shellQuote(lang)}` : '';
-    const raw = execSync(`chub get ${shellQuote(id)}${langFlag}`, {
+    const args = ['get', String(id), ...(lang ? ['--lang', String(lang)] : [])];
+    const raw = execFileSync('chub', args, {
       encoding: 'utf8',
+      maxBuffer: MAX_RESPONSE_BYTES,
       timeout: CHUB_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe']
     });
     return raw;
-  } catch {
+  } catch (error) {
     return null;
   }
 }
@@ -260,9 +289,6 @@ async function getFromContext7(libraryId, query) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const command = process.argv[2];
-const args = process.argv.slice(3);
-
 function parseCliOpts(args) {
   const opts = {};
   const positional = [];
@@ -278,7 +304,9 @@ function parseCliOpts(args) {
   return { positional, opts };
 }
 
-(async () => {
+async function main() {
+  const command = process.argv[2];
+  const args = process.argv.slice(3);
   if (command === 'search') {
     const [library, ...queryParts] = args;
     const query = queryParts.join(' ');
@@ -288,7 +316,12 @@ function parseCliOpts(args) {
     }
     const result = await search(library, query);
     console.log(JSON.stringify(result, null, 2));
-  } else if (command === 'get' || command === 'context') {
+    if (result.error) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (command === 'get' || command === 'context') {
     // 'context' alias for backward compat with context7-api.cjs
     const { positional, opts } = parseCliOpts(args);
     const [idOrLib, ...queryParts] = positional;
@@ -310,11 +343,31 @@ function parseCliOpts(args) {
     } else {
       console.log(JSON.stringify(result, null, 2));
     }
-  } else {
-    console.error('Usage: doc-lookup.cjs <search|get> <args...>');
-    console.error('  search <library> <query>         — find docs across chub + Context7');
-    console.error('  get <id-or-lib> <query> [opts]   — fetch docs (chub first, Context7 fallback)');
-    console.error('  context <id> <query>             — alias for get (backward compat)');
-    process.exit(1);
+    if (result.error) {
+      process.exitCode = 1;
+    }
+    return;
   }
-})();
+  console.error('Usage: doc-lookup.cjs <search|get> <args...>');
+  console.error('  search <library> <query>         — find docs across chub + Context7');
+  console.error('  get <id-or-lib> <query> [opts]   — fetch docs (chub first, Context7 fallback)');
+  console.error('  context <id> <query>             — alias for get (backward compat)');
+  process.exit(1);
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  MAX_RESPONSE_BYTES,
+  context7Request,
+  get,
+  getFromContext7,
+  pickLang,
+  search
+};

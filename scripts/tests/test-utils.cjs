@@ -1,7 +1,25 @@
 const childProcess = require('child_process');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+
+const createdSandboxes = new Set();
+
+function cleanupSandboxes() {
+  [...createdSandboxes]
+    .sort((a, b) => b.length - a.length)
+    .map((sandbox) => {
+      try {
+        fs.rmSync(sandbox, { recursive: true, force: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Failed to clean test sandbox ${sandbox}: ${message}\n`);
+      }
+      return sandbox;
+    });
+  createdSandboxes.clear();
+}
+
+process.once('exit', cleanupSandboxes);
 
 function runJson(cmd, args, options = {}) {
   const result = childProcess.spawnSync(cmd, args, {
@@ -33,7 +51,9 @@ function runRaw(cmd, args, options = {}) {
 function makeSandbox(prefix = 'bug-hunter-test-') {
   const tmpBase = path.resolve('tmp');
   fs.mkdirSync(tmpBase, { recursive: true });
-  return fs.mkdtempSync(path.join(tmpBase, prefix));
+  const sandbox = fs.mkdtempSync(path.join(tmpBase, prefix));
+  createdSandboxes.add(sandbox);
+  return sandbox;
 }
 
 function writeJson(filePath, value) {
@@ -56,6 +76,7 @@ function shellQuote(value) {
 }
 
 module.exports = {
+  cleanupSandboxes,
   readJson,
   resolveSkillScript,
   runJson,

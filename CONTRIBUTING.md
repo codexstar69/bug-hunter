@@ -5,8 +5,8 @@ Thanks for your interest in contributing. Bug Hunter is an open-source adversari
 ## Ways to Contribute
 
 - **Report bugs** — open an issue with reproduction steps
-- **Improve prompts** — the agent prompts in `prompts/` are the core of Bug Hunter's accuracy; PRs that reduce false positives or catch more real bugs are highly valued
-- **Add calibration examples** — `prompts/examples/` contains few-shot examples that tune agent behavior; more real-world examples improve precision
+- **Improve role skills** — the agent instructions in `skills/` are the core of Bug Hunter's accuracy; PRs that reduce false positives or catch more real bugs are highly valued
+- **Add calibration examples** — `skills/hunter/examples.md` and `skills/skeptic/examples.md` tune agent behavior; more real-world examples improve precision
 - **Improve scripts** — the Node.js helpers in `scripts/` handle triage, state, and orchestration; performance and reliability improvements welcome
 - **Documentation** — fix typos, clarify instructions, add usage examples
 
@@ -43,7 +43,9 @@ npm install -g @aisuite/chub
 
 ## Prompt Changes
 
-Changes to agent prompts (`prompts/*.md`) have outsized impact. When submitting prompt changes:
+Changes to role skills (`skills/*/SKILL.md`) have outsized impact. The files in
+`prompts/` are generated compatibility copies and must not be edited directly.
+When submitting role-skill changes:
 
 - Describe the false positive or missed bug that motivated the change
 - Show before/after behavior if possible

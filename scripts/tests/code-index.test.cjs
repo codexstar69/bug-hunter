@@ -70,3 +70,40 @@ test('code-index query-bugs cleans up temp seed files after failures', () => {
   assert.notEqual(result.status, 0);
   assert.equal(fs.existsSync(path.join(sandbox, '.seed-files.tmp.json')), false);
 });
+
+test('code-index resolves side-effect JavaScript and relative Python imports', () => {
+  const sandbox = makeSandbox('code-index-imports-');
+  const codeIndex = resolveSkillScript('code-index.cjs');
+  const filesJson = path.join(sandbox, 'files.json');
+  const indexPath = path.join(sandbox, 'index.json');
+  const entryFile = path.join(sandbox, 'src', 'entry.js');
+  const setupFile = path.join(sandbox, 'src', 'setup.js');
+  const moduleFile = path.join(sandbox, 'pkg', 'sub', 'module.py');
+  const siblingFile = path.join(sandbox, 'pkg', 'sub', 'sibling.py');
+  const sharedFile = path.join(sandbox, 'pkg', 'shared.py');
+
+  try {
+    [
+      [entryFile, "import './setup.js';\n"],
+      [setupFile, 'globalThis.ready = true;\n'],
+      [moduleFile, 'from .sibling import run\nfrom ..shared import value\n'],
+      [siblingFile, 'def run():\n    return True\n'],
+      [sharedFile, 'value = True\n']
+    ].map(([filePath, content]) => {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, content, 'utf8');
+      return filePath;
+    });
+
+    writeJson(filesJson, [entryFile, setupFile, moduleFile, siblingFile, sharedFile]);
+    const buildResult = runJson('node', [codeIndex, 'build', indexPath, filesJson, sandbox]);
+    assert.equal(buildResult.ok, true);
+
+    const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+    assert.deepEqual(index.files[entryFile].dependencies, [setupFile]);
+    assert.deepEqual(index.files[moduleFile].dependencies, [sharedFile, siblingFile].sort());
+    assert.deepEqual(index.files[moduleFile].unresolvedDependencies, []);
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});

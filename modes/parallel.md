@@ -18,13 +18,13 @@ Before any phase, check for `.bug-hunter/triage.json` (written by Step 1). If pr
 
 ## Step 4: Run Recon
 
-Dispatch Recon using the standard dispatch pattern (see `_dispatch.md`, role=`recon`).
+Dispatch Recon using the standard dispatch pattern (see `dispatch.md`, role=`recon`).
 
 **If triage data exists**, tell Recon to use the triage risk map and only identify tech stack + patterns. Pass the triage JSON path as phase-specific context.
 
 **If no triage data**, Recon does full file discovery and classification.
 
-After Recon completes, read `.bug-hunter/recon.md` to extract the risk map, tech stack, and FILE_BUDGET.
+After Recon completes, read `.bug-hunter/recon.json` to extract the risk map, tech stack, and FILE_BUDGET.
 
 Report architecture summary to user.
 
@@ -61,16 +61,16 @@ Launch two scout Hunters in parallel on CRITICAL+HIGH files only:
 
 ## Step 5-deep: Run Deep Hunter
 
-Dispatch Hunter using the standard dispatch pattern (see `_dispatch.md`, role=`hunter`).
+Dispatch Hunter using the standard dispatch pattern (see `dispatch.md`, role=`hunter`).
 
 Pass to the Hunter:
 - File list in risk-map order. If triage exists, use `triage.scanOrder`.
 - Risk map from Recon (or triage).
 - Tech stack from Recon.
 - If scout hints exist (from Step 5), use them to prioritize certain code sections, but scan all files regardless.
-- `doc-lookup.md` contents as phase-specific context.
+- `skills/doc-lookup/SKILL.md` contents as phase-specific context.
 
-After completion, read `.bug-hunter/findings.json`.
+After completion, read `.bug-hunter/hunter-findings.json`.
 
 **Merge scout + deep findings:** If scout pass ran, compare scout findings with deep Hunter findings. Promote any scout-only findings (bugs the deep Hunter missed) into the findings list for Skeptic review.
 
@@ -86,7 +86,7 @@ Same as small mode: compare FILES SCANNED vs risk map, then re-scan any missed q
 
 ## Step 6: Run Skeptic
 
-Dispatch Skeptic using the standard dispatch pattern (see `_dispatch.md`, role=`skeptic`).
+Dispatch Skeptic using the standard dispatch pattern (see `dispatch.md`, role=`skeptic`).
 
 For parallel mode, you may split into two Skeptics by directory if findings span multiple services:
 - Skeptic-A: bugs in service/directory A
@@ -100,7 +100,7 @@ If only one service/directory: use a single Skeptic.
 
 ## Step 7: Run Referee
 
-Dispatch Referee using the standard dispatch pattern (see `_dispatch.md`, role=`referee`).
+Dispatch Referee using the standard dispatch pattern (see `dispatch.md`, role=`referee`).
 
 Pass the merged Hunter findings + Skeptic challenges.
 

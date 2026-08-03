@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "fixture": "test-fixture",
+  "expected": [
+    {
+      "id": "fixture-sql-injection",
+      "file": "auth.js",
+      "severities": ["Critical", "High"],
+      "keywordGroups": [["sql", "query"], ["injection", "concatenat"]]
+    },
+    {
+      "id": "fixture-hardcoded-jwt-secret",
+      "file": "auth.js",
+      "severities": ["Critical", "High"],
+      "keywordGroups": [["jwt", "token"], ["secret", "hardcod"]]
+    },
+    {
+      "id": "fixture-admin-authorization",
+      "file": "auth.js",
+      "severities": ["High", "Medium"],
+      "keywordGroups": [["admin", "role"], ["authoriz", "truthy", "equality"]]
+    },
+    {
+      "id": "fixture-pagination-offset",
+      "file": "users.js",
+      "severities": ["Medium", "Low"],
+      "keywordGroups": [["paginat", "offset"], ["off-by-one", "first page", "page"]]
+    },
+    {
+      "id": "fixture-silent-delete-failure",
+      "file": "users.js",
+      "severities": ["Medium", "Low"],
+      "keywordGroups": [["delete", "error"], ["swallow", "success", "ignored"]]
+    },
+    {
+      "id": "fixture-bcrypt-input-type",
+      "file": "users.js",
+      "severities": ["High", "Medium"],
+      "keywordGroups": [["bcrypt", "password"], ["type", "non-string", "validation"]]
+    }
+  ]
+}
