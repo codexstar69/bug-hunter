@@ -52,6 +52,7 @@ Optional slash form:
 | GitHub Copilot | `copilot` |
 | Windsurf | `windsurf` |
 | OpenCode | `opencode` |
+| Factory Droid CLI | `droid` |
 
 Use an explicit target. Verify with `doctor --agent <target>`.
 

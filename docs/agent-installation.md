@@ -44,8 +44,30 @@ manifest are preserved.
 | GitHub Copilot | `copilot` | `~/.copilot/skills/bug-hunter` |
 | Windsurf | `windsurf` | `~/.windsurf/skills/bug-hunter` |
 | OpenCode | `opencode` | `~/.opencode/skills/bug-hunter` |
+| Factory Droid CLI | `droid` | `~/.factory/skills/bug-hunter` |
 
 Install into several targets by running the command once for each target.
+
+## Factory Droid CLI
+
+The `droid` target installs into the personal skill directory that Droid reads
+for every repository:
+
+```bash
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent droid
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent droid
+```
+
+Droid also loads skills from these locations:
+
+- `<repo>/.factory/skills/bug-hunter` — checked into one repository. Install it
+  with `--path "$PWD/.factory/skills/bug-hunter"`.
+- `~/.agents/skills/bug-hunter` — legacy shared location, which the `agents`
+  target already uses.
+
+Project-scoped skills take precedence over personal ones, so avoid installing
+both unless the repository must pin its own version. Restart `droid` after
+installing, then request a scan in natural language or with `/bug-hunter`.
 
 ## Verify a target
 

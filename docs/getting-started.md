@@ -41,6 +41,7 @@ Use another target when needed:
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent claude-code
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent cursor
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent copilot
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent droid
 ```
 
 See [agent installation](agent-installation.md) for every supported target.

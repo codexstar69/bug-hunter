@@ -15,7 +15,7 @@ A clear description of what went wrong.
 1. Target codebase (language/framework):
 2. Command used: `/bug-hunter ...`
 3. Mode: (single-file / small / parallel / loop)
-4. Agent runtime: (Pi / Claude Code / Codex / Cursor / other)
+4. Agent runtime: (Pi / Claude Code / Codex / Cursor / Factory Droid CLI / other)
 
 ## Expected behavior
 
