@@ -32,7 +32,8 @@ const AGENT_DIRS = [
   { agent: 'kiro', dir: path.join(os.homedir(), '.kiro', 'skills', SKILL_NAME) },
   { agent: 'copilot', dir: path.join(os.homedir(), '.copilot', 'skills', SKILL_NAME) },
   { agent: 'windsurf', dir: path.join(os.homedir(), '.windsurf', 'skills', SKILL_NAME) },
-  { agent: 'opencode', dir: path.join(os.homedir(), '.opencode', 'skills', SKILL_NAME) }
+  { agent: 'opencode', dir: path.join(os.homedir(), '.opencode', 'skills', SKILL_NAME) },
+  { agent: 'droid', dir: path.join(os.homedir(), '.factory', 'skills', SKILL_NAME) }
 ];
 
 function usage() {
@@ -46,7 +47,7 @@ function usage() {
 
   Options:
     --agent <name>    Target agent: claude-code, codex, cursor, kiro, copilot,
-                      windsurf, opencode, agents
+                      windsurf, opencode, droid (Factory Droid CLI), agents
     --path <dir>      Exact custom skill directory (overrides --agent)
     --skip-doctor     Do not run the environment check after installation
 

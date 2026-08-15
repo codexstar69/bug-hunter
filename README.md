@@ -65,9 +65,12 @@ That is the recommended first run. It is scan-only.
 | Kiro | `kiro` |
 | Windsurf | `windsurf` |
 | OpenCode | `opencode` |
+| Factory Droid CLI | `droid` |
 | Other file-based agents | `agents` |
 
 Always pass `--agent` when more than one coding agent is installed. Auto-detection is available, but an explicit target prevents installation into the wrong skill directory.
+
+Factory Droid CLI (`droid`) installs into `~/.factory/skills/bug-hunter` and loads the skill for every repository. Use `--path "$PWD/.factory/skills/bug-hunter"` instead when the skill should be checked into a single repository. Droid also reads the legacy `~/.agents/skills` location, so an existing `--agent agents` install already works there.
 
 See [agent installation](docs/agent-installation.md) for paths, source installs, updates, removal, and custom targets.
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Factory Droid CLI support: `install --agent droid` and `doctor --agent droid`
+  target `~/.factory/skills/bug-hunter`, and the docs cover Droid's
+  project-scoped `.factory/skills` and legacy `~/.agents/skills` locations.
+
+### Changed
+
+- Skill description, preflight directory probe, and orchestration backend notes
+  list Factory Droid CLI alongside the other supported coding agents.
+
 ## [3.1.1] - 2026-08-04
 
 ### Added

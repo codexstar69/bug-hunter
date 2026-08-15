@@ -1,6 +1,6 @@
 ---
 name: bug-hunter
-description: "Adversarial bug hunting with a sequential-first pipeline (Recon, Hunter, Skeptic, Referee) that can optionally use safe read-only parallel triage. Scans without mutation by default; fixing, autonomous edits, and commits each require explicit flags. Use this skill whenever the user wants bug finding, security audits, regression checks, or code review focused on runtime behavior."
+description: "Adversarial bug hunting with a sequential-first pipeline (Recon, Hunter, Skeptic, Referee) that can optionally use safe read-only parallel triage. Scans without mutation by default; fixing, autonomous edits, and commits each require explicit flags. Runs in any skills-capable coding agent, including Claude Code, Factory Droid CLI (droid), Codex, Cursor, Copilot, Kiro, Windsurf, and OpenCode. Use this skill whenever the user wants bug finding, security audits, regression checks, or code review focused on runtime behavior."
 ---
 
 # Bug Hunt - Adversarial Bug Finding
@@ -193,7 +193,8 @@ Before doing anything else, verify the environment:
      `$HOME/.claude/skills/bug-hunter`, `$HOME/.codex/skills/bug-hunter`,
      `$HOME/.cursor/skills/bug-hunter`, `$HOME/.kiro/skills/bug-hunter`,
      `$HOME/.copilot/skills/bug-hunter`, `$HOME/.windsurf/skills/bug-hunter`,
-     `$HOME/.opencode/skills/bug-hunter`.
+     `$HOME/.opencode/skills/bug-hunter`, `$HOME/.factory/skills/bug-hunter`
+     (Factory Droid CLI), `.factory/skills/bug-hunter` (Droid project scope).
    - Use this path for all file reads and shell commands.
 
 2. **Verify skill files exist**: Run
@@ -274,7 +275,7 @@ Before doing anything else, verify the environment:
      })
      ```
 
-   **Option C — `interactive_shell` (Claude Code, Codex, other CLI agents):**
+   **Option C — `interactive_shell` (Claude Code, Codex, Factory Droid CLI, other CLI agents):**
    - Set `AGENT_BACKEND = "interactive_shell"`
    - Dispatch pattern:
      ```
