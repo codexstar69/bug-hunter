@@ -23,3 +23,11 @@ Added the hidden-label benchmark scorer, adaptive policy, safe hybrid verifier, 
 ## Iteration 2 — measurable world-class protocol — sealed gate passed
 
 The sealed world-class check passed with the complete regression suite, deterministic hidden-label benchmark gate, generated validators and compatibility prompts, adaptive policy fixture, hybrid verification fixture, retrieval planning fixture, preflight, and package inventory. The GitHub Actions commit removes its temporary transport; one human-authored ledger commit will trigger the final pull-request checks on the exact resulting tree.
+
+## Iteration 4 — verified implementation published — passed
+
+GitHub Actions re-ran the sealed check and published production commit `50befb6c89056e9faeed74cf8077856a5aa54249` after all 209 tests, the benchmark gate, adaptive-plan fixture, hybrid verifier, retrieval planner, preflight, and package inventory passed. The authorized GitHub connector then added the benchmark quality gate to the normal Node.js 24 CI lane and removed the temporary apply workflow. The production runner, scheduler, schemas, generated validators, benchmark fixtures, evidence cache, verification system, retrieval planner, documentation, and package scripts are now tracked on the pull-request branch.
+
+## Iteration 5 — final pull-request head verification — in progress
+
+The implementation ledger now has only the final verification item open. This append-only entry triggers the pull-request Node.js 22/24 CI matrix and the immutable sealed world-class gate on the complete tree, including the permanent benchmark CI step and cleanup of all temporary transport.
