@@ -8,9 +8,14 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
   publish-npm:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -52,8 +57,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify generated runtime assets
+        run: pnpm check:generated
+
       - name: Run tests
         run: pnpm test
+
+      - name: Run benchmark quality gate
+        run: pnpm benchmark:gate
+
+      - name: Run runtime preflight
+        run: node scripts/run-bug-hunter.cjs preflight --skill-dir .
+
+      - name: Inspect package inventory
+        run: pnpm verify:package
 
       - name: Verify source provenance
         run: node scripts/prepublish-guard.cjs
