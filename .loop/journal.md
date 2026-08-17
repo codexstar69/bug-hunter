@@ -75,3 +75,7 @@ On head `8088a10928bea6e2257bff8f33fb51788eb89608`, the PR-triggered sealed prec
 ## Iteration 15 — post-hardening resume audit — in progress
 
 A final static review found that a source mutation correctly fails the current chunk but can become the new baseline after `--resume` because the original pre-worker hash is overwritten or discarded on failure. The same review found that chunk status can still label a pending file as done in coverage, and the root-containment predicate rejects valid in-repository names beginning with `..`. Focused regressions will be added before patching these three edge cases.
+
+## Iteration 16 — post-hardening regressions — failed as expected
+
+The new tests preserved all 190 prior passes and failed exactly three assertions: a clean worker executed successfully after resuming source drift; a done chunk with a pending file produced `COMPLETE`; and `normalizeRunFiles` rejected an in-repository `..valid-source.js`. The test harness itself was corrected and rerun before accepting the coverage failure. Production changes now target only these confirmed behaviors.
