@@ -2,17 +2,28 @@
 
 ## Purpose
 
-Bug Hunter is a file-based skill for AI coding agents. It audits code through
-adversarial review:
+Bug Hunter is a measurable, precision-first skill for AI coding agents. It
+combines deterministic scoping with adversarial model review, exact source
+integrity, bounded retrieval, optional hybrid verification, and explicit
+mutation authority.
 
-1. Triage classifies file risk.
-2. Recon maps architecture and trust boundaries.
-3. Hunter records evidence-backed bug claims.
-4. Documentation lookup checks version-sensitive behavior.
-5. Skeptic tries to disprove each claim.
-6. Referee issues final verdicts.
-7. The pipeline writes canonical JSON and a human-readable report.
-8. Fix planning and fixing run only when explicitly requested.
+The core flow is:
+
+1. Triage classifies source risk without model tokens.
+2. Adaptive policy chooses a bounded execution profile when adaptive inputs are
+   supplied or `auto` policy is requested.
+3. Recon maps architecture, stack, trust boundaries, and high-risk paths.
+4. Retrieval planning ranks direct files, symbols, cross-references,
+   dependencies, dependents, and trust-boundary context under hard budgets.
+5. Hunter records evidence-backed runtime, logic, concurrency, data, and
+   security claims.
+6. Documentation lookup verifies version-sensitive framework assumptions.
+7. Skeptic tries to disprove each finding.
+8. Referee owns `REAL_BUG`, `NOT_A_BUG`, or `MANUAL_REVIEW` verdicts.
+9. Optional required hybrid verification runs before mutation authorization.
+10. The pipeline joins canonical JSON into the final machine-readable and
+    human-readable reports.
+11. Fix planning and fixing run only with explicit mutation authority.
 
 ## Interface boundary
 
@@ -26,12 +37,27 @@ bug-hunter --version
 bug-hunter --help
 ```
 
-The terminal CLI does not scan repositories.
+The terminal CLI installs and verifies the skill. It does not scan repositories.
 
-Agent request:
+Latest published package:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+Current GitHub source:
+
+```bash
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
+```
+
+Portable agent request:
 
 ```text
 Use the bug-hunter skill to scan this repository. Do not edit files.
+Return the final report and call out every manual-review or unreviewed item.
 ```
 
 Optional slash form:
@@ -54,99 +80,185 @@ Optional slash form:
 | OpenCode | `opencode` |
 | Factory Droid CLI | `droid` |
 
-Use an explicit target. Verify with `doctor --agent <target>`.
+Use an explicit target when practical. Verify with `doctor --agent <target>`.
 
-## Skill arguments
+## Public skill arguments
 
 | Argument | Behavior |
 |---|---|
-| no arguments | Scan current repository without edits |
-| `<path>` | Scan one path |
+| no arguments | Single-pass scan of the current repository without edits |
+| `<path>` | Scan one file or directory |
 | `-b <branch>` | Scan a branch diff |
 | `--base <branch>` | Select branch-diff base |
-| `--staged` | Review staged files |
+| `--staged` | Review staged source files |
 | `--pr [current\|recent\|N]` | Review a pull request |
-| `--pr-security` | Pull-request security workflow |
-| `--scan-only`, `--review` | Request report-only behavior; do not combine with mutation flags |
+| `--pr-security` | PR-scoped security workflow |
+| `--scan-only`, `--review` | Request report-only behavior |
+| `--loop` | Continue until queued coverage is complete |
+| `--no-loop` | Explicitly keep single-pass behavior |
 | `--plan-only`, `--plan` | Build strategy and plan, then stop |
-| `--fix` | Permit reviewed fixes |
+| `--fix` | Permit the reviewed fix phase |
 | `--approve` | Request the host's reviewed/default permission mode |
 | `--safe` | Alias for `--fix --approve` |
-| `--dry-run`, `--preview` | Build strategy and plan without source edits |
+| `--dry-run`, `--preview` | Build remediation output without source edits |
 | `--autonomous` | Permit unattended fixing |
-| `--auto-commit` | Grant commit permission during authorized fixing |
-| `--loop` | Continue until queued coverage is complete |
+| `--auto-commit` | Separately grant commit permission |
 | `--deps` | Audit supported Node.js dependencies |
 | `--threat-model` | Generate or load a STRIDE threat model |
 | `--security-review` | Full bundled security workflow |
-| `--validate-security` | Force security-finding validation |
+| `--validate-security` | Add focused vulnerability validation |
 
-Internal script options such as `--worker-cmd`, `--max-iterations`, and
-`--confidence-threshold` are not top-level skill arguments.
+Internal runner options such as `--worker-cmd`, `--max-iterations`,
+`--confidence-threshold`, `--max-source-tokens`, `--adaptive-profile`,
+`--benchmark-report`, `--verification-plan`, and `--evidence-cache` are not
+public top-level skill arguments unless an integration explicitly drives
+`scripts/run-bug-hunter.cjs`.
+
+## Precision-first invariants
+
+- Triage and indexing use the same source classifier.
+- Risk order is preserved through state initialization, indexing, delta scope,
+  and low-confidence expansion.
+- Adaptive chunks are built from the combined estimated tokens of the actual
+  assigned files, not a global average-file-count guess.
+- An oversized file is isolated and marked instead of silently bloating a mixed
+  chunk.
+- Assigned source is realpath-contained in the repository and content-hashed.
+- Findings can reference only the current worker's assigned source files.
+- Source mutation, deletion, unreadability, or scope escape fails the chunk
+  closed before findings and completion state are committed.
+- Resume keeps the original source baseline; changed source cannot silently
+  become the new evidence identity.
+- Coverage derives from per-file evidence rather than parent chunk status.
+- Duplicate observations preserve the strongest evidence and union useful
+  cross-references/security metadata.
+
+## Adaptive profiles
+
+`adaptive-policy.cjs` can persist one of four profile selections in
+`.bug-hunter/adaptive-plan.json`:
+
+- `fast` — low-latency, low-token review for narrow/low-risk work;
+- `balanced` — default Pareto point for general repository review;
+- `assurance` — deeper retrieval/review/verification for release or security
+  work;
+- `auto` — select among those profiles from deterministic risk and available
+  benchmark metrics.
+
+Explicit caller limits override adaptive defaults. Adaptive planning never
+expands source scope or mutation authority.
+
+## Retrieval and evidence reuse
+
+`retrieval-planner.cjs` starts from named hypotheses and mandatory evidence,
+then admits optional symbol/dependency/dependent/trust-boundary context while
+file and token budgets remain. Every selected item records why it was selected.
+
+`evidence-cache.cjs` reuses fact context only when protocol identity, role,
+relevant options, hypothesis identity, and exact source hashes match. Cache hits
+are hints, not findings, and never replace current source-integrity checks.
+
+## Hybrid verification
+
+`hybrid-verifier.cjs` executes approved checks as inert argv arrays with
+`shell: false`, repository containment, secret stripping, output redaction,
+timeouts, and total budgets. Supported plans can include tests, type checks,
+static checks, builds, reproductions, fuzzing, and security-static checks.
+
+Required check failure or unavailability makes verification fail closed and
+prevents Fixer authorization. Passing checks are evidence, not proof that no bug
+exists.
 
 ## Safety contract
 
-- Scan-only is the default.
-- Only Referee-confirmed bug IDs can enter a fix plan.
-- Fixer scope binds repository root, base commit, bug IDs, and file paths.
-- Claimed line ranges remain review context in the fix plan.
-- Referee timeout or invalid output marks findings unreviewed and disables
-  fixing for them.
-- Git safety failure stops Phase 2.
-- Requested worktree isolation never falls back to direct edits.
+- Scan-only and single-pass are the default.
+- Only Referee-confirmed bug IDs can enter remediation planning.
+- `manual-review`, larger-refactor, architectural-remediation, and report-only
+  entries cannot become executable Fixer authorization.
+- Fixer scope binds repository root, base commit, approved bug IDs, and approved
+  files.
+- Referee timeout/invalid output keeps findings unresolved and non-writable.
+- Required verification failure prevents Fixer planning.
+- Git/preservation failure stops mutation.
+- Requested worktree isolation never silently falls back to direct edits.
 - Cleanup preserves a worktree when safe removal cannot be proven.
 - Commit permission is independent from edit permission.
 
-## Output contract
+## Canonical output contract
 
-Canonical files under `.bug-hunter/`:
+Artifacts under `.bug-hunter/` include:
 
 | File | Meaning |
 |---|---|
-| `triage.json` | Risk classification |
-| `recon.json` | Stack and attack surface |
-| `hunter-findings.json` | Hunter claims |
-| `skeptic.json` | Challenges |
+| `triage.json` | Deterministic risk map, scan order, and budget inputs |
+| `adaptive-plan.json` | Context/review/verification/early-stop policy |
+| `recon.json` | Stack, attack surface, and trust-boundary context |
+| `retrieval-plan.json` | Hypothesis-ranked evidence under hard budgets |
+| `hunter-findings.json` | Canonical Hunter claims |
+| `skeptic.json` | Adversarial challenges |
 | `referee.json` | Final verdicts |
+| `verification-report.json` | Hybrid verification evidence and required-check state |
 | `scan-report.json` | Joined final result |
-| `coverage.json` | Coverage state |
-| `fix-strategy.json` | Remediation classes |
-| `fix-plan.json` | Authorized fix stages |
-| `fixer-scope.json` | Mutation boundary |
-| `fix-report.json` | Patch and check results |
-| `report.md` | Human-readable final report |
+| `coverage.json` | Per-file coverage state |
+| `fix-strategy.json` | Remediation classifications |
+| `fix-plan.json` | Canary/rollout plan for executable entries |
+| `fixer-scope.json` | Immutable mutation boundary |
+| `fix-report.json` | Patch, verification, rollback, and final statuses |
+| `benchmark-report.json` | Precision/recall/calibration/stability/cost/latency metrics |
+| `report.md` | Human-readable view of the final scan result |
 
-JSON files are canonical. Markdown files are rendered views.
+JSON files are canonical. Markdown files are rendered or explanatory views.
 
 ## Result rules
 
 - `confirmed`: Referee accepted the finding.
-- `dismissed`: evidence disproved the finding.
-- `manual-review`: automatic remediation is not authorized.
+- `dismissed`: available evidence disproved the finding.
+- `manual-review`: a human decision or wider remediation is required.
 - `unreviewed`: adversarial review did not complete.
 - `scanner-unsupported`: the requested dependency scanner is not implemented
-  for the ecosystem.
+  for that ecosystem.
 
-Do not report a clean result when manual-review or unreviewed items remain.
+Do not report a clean result while confirmed, manual-review, unreviewed, failed
+coverage, or required-verification failure remains for the requested scope.
 
 ## Language and dependency scope
 
-Agent source analysis supports common JavaScript, TypeScript, Python, Go, Rust,
-Java, Kotlin, Ruby, PHP, C#, Swift, C, and C++ repositories.
+Agent source analysis supports JavaScript, TypeScript, Python, Go, Rust, Java,
+Kotlin, Ruby, PHP, C#, Swift, Scala, C, and C++ through repository evidence and
+model reasoning.
 
-Bundled dependency parsing and reachability support JavaScript and TypeScript
-projects using npm, pnpm, Yarn, or Bun lockfiles. Python, Go, and Rust
-dependency ecosystems return `scanner-unsupported`.
+Bundled dependency parsing/reachability currently supports JavaScript and
+TypeScript projects using npm, pnpm, Yarn, or Bun lockfiles. Other ecosystems
+return `scanner-unsupported`; Bug Hunter does not guess them clean.
+
+## Quality and benchmarking
+
+The repository quality command is:
+
+```bash
+pnpm quality:world-class
+```
+
+It checks generated validators/prompts, the complete Node test suite, the
+benchmark quality gate, runtime preflight, and package inventory.
+
+The bundled benchmark fixture validates the scoring and gate machinery. It is
+not an independent claim of universal superiority. External claims should use
+unseen repositories, blinded labels, repeated runs, disclosed model/runtime
+versions, and comparable baseline scanners.
 
 ## Canonical references
 
-- `SKILL.md`: parser and orchestration contract
+- `SKILL.md`: public parser and orchestration contract
 - `modes/dispatch.md`: delegated backend contract
 - `modes/fix-pipeline.md`: mutation workflow
-- `schemas/*.schema.json`: artifact contracts
+- `skills/*/SKILL.md`: canonical role instructions
+- `schemas/*.schema.json`: canonical artifact contracts
+- `docs/precision-protocol.md`: fail-closed evidence protocol
+- `docs/world-class-protocol.md`: benchmark/adaptive/retrieval/verification design
 - `docs/getting-started.md`: first run
 - `docs/agent-installation.md`: install and verify
 - `docs/usage-guide.md`: prompts and workflows
 - `docs/cli-reference.md`: public interfaces
-- `docs/how-it-works.md`: model and outputs
+- `docs/how-it-works.md`: architecture and outputs
 - `docs/troubleshooting.md`: recovery
