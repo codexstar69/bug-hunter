@@ -14,3 +14,7 @@ Reviewed the orchestration scripts, schemas, role skills, tests, CI, and package
 ## Iteration 1 — loop setup — expected failing gate
 
 Created the sealed completion check. On the setup tree it must fail with the assertion that `scripts/source-config.cjs` is missing. The one-shot patch workflow verifies this expected failure before applying changes.
+
+## Iteration 2 — schema generation — failed
+
+The setup assertion failed exactly as expected and the complete patch payload applied cleanly. Ajv then rejected the generated findings schema in strict mode because the conditional CWE `pattern` did not repeat its string `type`. The payload was corrected to use `{ "type": "string", "pattern": "^CWE-[0-9]+$" }`; the sealed check remains unchanged.
