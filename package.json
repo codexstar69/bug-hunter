@@ -1,7 +1,7 @@
 {
   "name": "@codexstar/bug-hunter",
   "version": "3.2.0",
-  "description": "Adversarial AI bug hunter — verifies security, logic, and runtime bugs, with explicit reviewed or autonomous fixing modes.",
+  "description": "Measurable adversarial AI bug hunter with precision-first review, adaptive evidence retrieval, hybrid verification, and explicitly authorized fixing.",
   "license": "MIT",
   "main": "bin/bug-hunter",
   "type": "commonjs",
@@ -19,6 +19,9 @@
     "security",
     "vulnerability",
     "code-review",
+    "precision",
+    "benchmarking",
+    "verification",
     "auto-fix",
     "claude-code",
     "cursor",
