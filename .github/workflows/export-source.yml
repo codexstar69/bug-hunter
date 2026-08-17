@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   export:
-    if: "github.event.head_commit.message == 'tooling: export wrapped source snapshot'"
+    if: "github.event.head_commit.message == 'tooling: export wrapped source snapshot v2'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -42,6 +42,6 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- .loop/source-snapshot.tgz.b64 .loop/source-snapshot.sha256 .loop/source-snapshot.parts .loop/source-snapshot.part-*
+          git add -- .loop/source-snapshot.sha256 .loop/source-snapshot.parts .loop/source-snapshot.part-*
           git commit -m 'tooling: wrapped source snapshot'
           git push origin HEAD:loop/precision-bug-hunting-protocol
