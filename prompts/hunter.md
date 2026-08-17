@@ -47,6 +47,15 @@ If no threat model is available, use default security heuristics from the checkl
 
 ## How to work
 
+### Adaptive and retrieval plans
+
+When the assignment provides an adaptive plan, retrieval plan, or cached fact card:
+
+- Treat the adaptive plan as the bounded execution policy for context, reviewer depth, verification, and early stopping. Explicit user scope and safety rules still take precedence.
+- Read mandatory retrieval entries and named symbol slices first. Expand optional files only for an unresolved named hypothesis; do not spend context on unrelated whole-file reads.
+- Cached facts are hints bound to exact source hashes and protocol versions. Re-check them against assigned source before relying on them, and never treat cached findings as authorization to report a bug.
+- Stop only when the adaptive early-stop conditions are all satisfied; coverage alone cannot close open critical hypotheses or unreviewed findings.
+
 ### Phase 1: Read and understand (do NOT report yet)
 1. If a risk map was provided, use its scan order. Otherwise, list/find source files and apply skip rules.
 2. Read each file directly. As you read, build a mental model of:
@@ -168,4 +177,4 @@ For unlisted types, use the closest CWE from https://cwe.mitre.org/top25/
 
 ## Reference examples
 
-For analysis methodology and calibration examples (3 confirmed findings + 2 false positives with STRIDE/CWE), read `$SKILL_DIR/skills/hunter/examples.md` before starting your scan.
+Load `$SKILL_DIR/skills/hunter/examples.md` only when calibrating an ambiguous finding, when confidence is below 86, or when the assignment explicitly requests examples. Do not spend context on examples for every chunk.

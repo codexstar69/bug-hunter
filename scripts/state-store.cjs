@@ -37,14 +37,45 @@ function writeJsonAtomic(filePath, value) {
   }
 }
 
-function normalizeFiles(files) {
+function isOutsideRoot(repositoryRoot, candidatePath) {
+  const relative = path.relative(repositoryRoot, candidatePath);
+  return relative === '..'
+    || relative.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relative);
+}
+
+function normalizeRunFiles(files, repositoryRoot, options = {}) {
   if (!Array.isArray(files)) {
     throw new Error('Run scope must be an array of file paths');
   }
-  return [...new Set(files.map((filePath) => path.resolve(String(filePath))))].sort();
+  const canonicalRoot = fs.realpathSync(repositoryRoot);
+  const allowMissing = options.allowMissing === true;
+  const normalized = [];
+  const seen = new Set();
+
+  for (const filePath of files) {
+    const resolved = path.resolve(String(filePath));
+    let canonical = resolved;
+    if (fs.existsSync(resolved)) {
+      canonical = fs.realpathSync(resolved);
+      if (!fs.statSync(canonical).isFile()) {
+        throw new Error(`Run scope entry is not a regular file: ${filePath}`);
+      }
+    } else if (!allowMissing) {
+      throw new Error(`Run scope file does not exist: ${filePath}`);
+    }
+    if (isOutsideRoot(canonicalRoot, canonical)) {
+      throw new Error(`Run scope file is outside the repository root: ${filePath}`);
+    }
+    if (!seen.has(canonical)) {
+      seen.add(canonical);
+      normalized.push(canonical);
+    }
+  }
+  return normalized;
 }
 
-function gitIdentity() {
+function getRepositoryIdentity() {
   const result = childProcess.spawnSync('git', ['rev-parse', '--show-toplevel', 'HEAD'], {
     cwd: process.cwd(),
     encoding: 'utf8',
@@ -77,14 +108,24 @@ function buildRunIdentity({
   backend,
   filesJsonPath,
   chunkSize,
+  maxSourceTokens,
+  tokenBudgetEnforced,
   timeoutMs,
   maxRetries,
   confidenceThreshold,
   deltaMode,
-  deltaHops
+  deltaHops,
+  adaptivePlanHash,
+  retrievalPlanHash,
+  adaptiveRequestHash,
+  retrievalRequestHash,
+  verificationPlanHash,
+  evidenceCacheProtocol
 }) {
-  const files = normalizeFiles(readJson(filesJsonPath));
-  const repository = gitIdentity();
+  const repository = getRepositoryIdentity();
+  const files = normalizeRunFiles(readJson(filesJsonPath), repository.repositoryRoot, {
+    allowMissing: true
+  });
   return {
     schemaVersion: 1,
     runId,
@@ -99,7 +140,15 @@ function buildRunIdentity({
       deltaHops,
       deltaMode,
       maxRetries,
-      timeoutMs
+      maxSourceTokens,
+      timeoutMs,
+      tokenBudgetEnforced,
+      ...(adaptivePlanHash ? { adaptivePlanHash } : {}),
+      ...(retrievalPlanHash ? { retrievalPlanHash } : {}),
+      ...(adaptiveRequestHash ? { adaptiveRequestHash } : {}),
+      ...(retrievalRequestHash ? { retrievalRequestHash } : {}),
+      ...(verificationPlanHash ? { verificationPlanHash } : {}),
+      ...(evidenceCacheProtocol ? { evidenceCacheProtocol } : {})
     })
   };
 }
@@ -155,6 +204,8 @@ function requeueResumableChunks({ statePath, stateScript, maxRetries }) {
 module.exports = {
   assertRunIdentity,
   buildRunIdentity,
+  getRepositoryIdentity,
+  normalizeRunFiles,
   requeueResumableChunks,
   validateStateShape,
   writeJsonAtomic

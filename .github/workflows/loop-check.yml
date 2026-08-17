@@ -1,0 +1,37 @@
+name: Precision protocol gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify sealed check hash
+        run: |
+          actual="$(sha256sum .loop/check.sh | awk '{print $1}')"
+          expected="$(sed -n 's/^SHA-256: `\([a-f0-9]*\)`$/\1/p' .loop/task.md)"
+          test -n "$expected"
+          test "$actual" = "$expected"
+
+      - name: Run sealed gate
+        run: bash .loop/check.sh

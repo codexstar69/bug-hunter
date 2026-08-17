@@ -4,10 +4,15 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { validateArtifactValue } = require('./schema-runtime.cjs');
+const {
+  DEFAULT_SOURCE_TOKEN_BUDGET,
+  MAX_FILES_PER_CHUNK,
+  buildSourceChunks
+} = require('./source-config.cjs');
 
 const VALID_CHUNK_STATUS = new Set(['pending', 'in_progress', 'done', 'failed']);
 const VALID_FILE_STATUS = new Set(['pending', 'scanned', 'missing', 'unreadable', 'skipped', 'failed']);
-const DEFAULT_CHUNK_SIZE = 30;
+const DEFAULT_CHUNK_SIZE = MAX_FILES_PER_CHUNK;
 
 function nowIso() {
   return new Date().toISOString();
@@ -65,23 +70,24 @@ function flushDirectory(directoryPath) {
   }
 }
 
-function splitChunks(files, chunkSize) {
-  const chunks = [];
-  let index = 0;
-  while (index < files.length) {
-    const filesSlice = files.slice(index, index + chunkSize);
-    chunks.push({
-      id: `chunk-${chunks.length + 1}`,
-      files: filesSlice,
+function splitChunks(files, chunkSize, maxSourceTokens, enforceTokenBudget) {
+  return buildSourceChunks(files, {
+    maxFiles: chunkSize,
+    maxSourceTokens,
+    enforceTokenBudget
+  }).map((plannedChunk, index) => {
+    return {
+      id: `chunk-${index + 1}`,
+      files: plannedChunk.files,
+      estimatedSourceTokens: plannedChunk.estimatedSourceTokens,
+      oversized: plannedChunk.oversized,
       status: 'pending',
       retries: 0,
       startedAt: null,
       completedAt: null,
       lastError: null
-    });
-    index += chunkSize;
-  }
-  return chunks;
+    };
+  });
 }
 
 function nextChunkNumber(chunks) {
@@ -99,9 +105,21 @@ function nextChunkNumber(chunks) {
   return maxId + 1;
 }
 
-function buildInitialState({ mode, chunkSize, files }) {
-  const normalizedFiles = [...new Set(files)].sort();
+function buildInitialState({
+  mode,
+  chunkSize,
+  maxSourceTokens,
+  enforceTokenBudget,
+  files
+}) {
+  const normalizedFiles = [...new Set(files.map((filePath) => String(filePath)))];
   const initializedAt = nowIso();
+  const chunks = splitChunks(
+    normalizedFiles,
+    chunkSize,
+    maxSourceTokens,
+    enforceTokenBudget
+  );
   return {
     schemaVersion: 3,
     generation: 0,
@@ -109,19 +127,21 @@ function buildInitialState({ mode, chunkSize, files }) {
     createdAt: initializedAt,
     updatedAt: initializedAt,
     chunkSize,
+    maxSourceTokens,
+    enforceTokenBudget,
     runtime: {
       parallelDisabled: false
     },
     metrics: {
       filesTotal: normalizedFiles.length,
       filesScanned: 0,
-      chunksTotal: Math.ceil(normalizedFiles.length / chunkSize),
+      chunksTotal: chunks.length,
       chunksDone: 0,
       findingsTotal: 0,
       findingsUnique: 0,
       lowConfidenceFindings: 0
     },
-    chunks: splitChunks(normalizedFiles, chunkSize),
+    chunks,
     fileStates: Object.fromEntries(normalizedFiles.map((filePath) => {
       return [filePath, {
         status: 'pending',
@@ -167,6 +187,12 @@ function saveState(statePath, state) {
 }
 
 function normalizeFileStates(state) {
+  if (!Number.isInteger(state.maxSourceTokens) || state.maxSourceTokens <= 0) {
+    state.maxSourceTokens = DEFAULT_SOURCE_TOKEN_BUDGET;
+  }
+  if (typeof state.enforceTokenBudget !== 'boolean') {
+    state.enforceTokenBudget = false;
+  }
   if (!state.fileStates || typeof state.fileStates !== 'object' || Array.isArray(state.fileStates)) {
     const filePaths = Array.isArray(state.chunks)
       ? [...new Set(state.chunks.flatMap((chunk) => {
@@ -184,16 +210,39 @@ function normalizeFileStates(state) {
   updateFileMetrics(state);
 }
 
-function setFileStatus({ state, filePath, status, hash }) {
+function setFileStatus({
+  state,
+  filePath,
+  status,
+  hash,
+  initialHash,
+  observedHash,
+  clearObservedHash = false
+}) {
   if (!VALID_FILE_STATUS.has(status)) {
     throw new Error(`Invalid file status: ${status}`);
   }
+  const previous = state.fileStates[filePath]
+    && typeof state.fileStates[filePath] === 'object'
+    && !Array.isArray(state.fileStates[filePath])
+    ? state.fileStates[filePath]
+    : {};
   const nextState = {
+    ...previous,
     status,
     updatedAt: nowIso()
   };
   if (hash) {
     nextState.hash = hash;
+  }
+  if (initialHash) {
+    nextState.initialHash = initialHash;
+  }
+  if (observedHash) {
+    nextState.observedHash = observedHash;
+  }
+  if (clearObservedHash) {
+    delete nextState.observedHash;
   }
   state.fileStates[filePath] = nextState;
 }
@@ -209,13 +258,19 @@ function updateFileMetrics(state) {
 }
 
 function hashFile(filePath) {
-  const stat = fs.statSync(filePath);
-  const maxHashBytes = 10 * 1024 * 1024;
-  if (stat.size > maxHashBytes) {
-    return `size-${stat.size}-mtime-${stat.mtimeMs}`;
+  const hash = crypto.createHash('sha256');
+  const fileDescriptor = fs.openSync(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(1024 * 1024);
+    let bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.length, null);
+    while (bytesRead > 0) {
+      hash.update(buffer.subarray(0, bytesRead));
+      bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.length, null);
+    }
+    return hash.digest('hex');
+  } finally {
+    fs.closeSync(fileDescriptor);
   }
-  const data = fs.readFileSync(filePath);
-  return crypto.createHash('sha256').update(data).digest('hex');
 }
 
 function summarize(state) {
@@ -257,13 +312,15 @@ function severityRank(severity) {
 
 function usage() {
   console.error('Usage:');
-  console.error('  bug-hunter-state.cjs init <statePath> <mode> <filesJsonPath> [chunkSize]');
+  console.error('  bug-hunter-state.cjs init <statePath> <mode> <filesJsonPath> [chunkSize] [maxSourceTokens] [enforceTokenBudget]');
   console.error('  bug-hunter-state.cjs status <statePath>');
   console.error('  bug-hunter-state.cjs next-chunk <statePath>');
   console.error('  bug-hunter-state.cjs mark-chunk <statePath> <chunkId> <pending|in_progress|done|failed> [error]');
   console.error('  bug-hunter-state.cjs record-findings <statePath> <findingsJsonPath> [source] [confidenceThreshold]');
   console.error('  bug-hunter-state.cjs hash-filter <statePath> <filesJsonPath>');
+  console.error('  bug-hunter-state.cjs hash-verify <statePath> <filesJsonPath>');
   console.error('  bug-hunter-state.cjs hash-update <statePath> <filesJsonPath> [status]');
+  console.error('  bug-hunter-state.cjs commit-chunk <statePath> <chunkId> <filesJsonPath> <findingsJsonPath> <factCardJsonPath> [confidenceThreshold] [source]');
   console.error('  bug-hunter-state.cjs append-files <statePath> <filesJsonPath>');
   console.error('  bug-hunter-state.cjs record-fact-card <statePath> <chunkId> <factCardJsonPath>');
   console.error('  bug-hunter-state.cjs set-consistency <statePath> <consistencyJsonPath>');
@@ -288,6 +345,193 @@ function toConfidenceScore(value) {
   return parsed;
 }
 
+function uniqueBugId(state, requestedBugId, key) {
+  const requested = String(requestedBugId || '').trim();
+  const collision = state.bugLedger.find((entry) => {
+    return entry.bugId === requested && entry.key !== key;
+  });
+  if (!collision) {
+    return requested;
+  }
+  const suffix = crypto.createHash('sha256').update(key).digest('hex').slice(0, 8).toUpperCase();
+  let candidate = `${requested}-${suffix}`;
+  let counter = 2;
+  while (state.bugLedger.some((entry) => entry.bugId === candidate && entry.key !== key)) {
+    candidate = `${requested}-${suffix}-${counter}`;
+    counter += 1;
+  }
+  return candidate;
+}
+
+function mergeFindingsIntoState({ state, findings, source, confidenceThreshold }) {
+  let inserted = 0;
+  let updated = 0;
+
+  for (const finding of findings) {
+    const file = String(finding.file || '').trim();
+    const lines = String(finding.lines || '').trim();
+    const claim = String(finding.claim || '').trim();
+    const severity = String(finding.severity || 'Low');
+    const category = String(finding.category || '').trim();
+    const evidence = String(finding.evidence || '').trim();
+    const runtimeTrigger = String(finding.runtimeTrigger || '').trim();
+    const crossReferences = Array.isArray(finding.crossReferences)
+      ? finding.crossReferences.map((entry) => String(entry)).filter(Boolean)
+      : [];
+    const confidenceScore = toConfidenceScore(finding.confidenceScore);
+    const confidenceLabel = finding.confidenceLabel
+      ? String(finding.confidenceLabel)
+      : undefined;
+    const requestedBugId = String(finding.bugId || '').trim();
+    const key = `${file}|${lines}|${claim}`;
+    const existing = state.bugLedger.find((entry) => entry.key === key);
+
+    if (!existing) {
+      const bugId = uniqueBugId(state, requestedBugId, key);
+      state.bugLedger.push({
+        key,
+        bugId,
+        severity,
+        file,
+        lines,
+        category,
+        claim,
+        evidence,
+        runtimeTrigger,
+        crossReferences,
+        confidenceScore,
+        ...(confidenceLabel ? { confidenceLabel } : {}),
+        ...(finding.stride ? { stride: String(finding.stride) } : {}),
+        ...(finding.cwe ? { cwe: String(finding.cwe) } : {}),
+        status: 'open',
+        source,
+        updatedAt: nowIso()
+      });
+      inserted += 1;
+      continue;
+    }
+
+    const existingRank = severityRank(existing.severity);
+    const incomingRank = severityRank(severity);
+    const existingConfidence = toConfidenceScore(existing.confidenceScore);
+    const incomingStronger = confidenceScore !== null
+      && (existingConfidence === null || confidenceScore > existingConfidence);
+
+    if (incomingRank > existingRank) {
+      existing.severity = severity;
+    }
+    if (existing.category !== 'security') {
+      if (category === 'security' || incomingStronger) {
+        existing.category = category || existing.category;
+      }
+    }
+    if (incomingStronger) {
+      existing.evidence = evidence || existing.evidence;
+      existing.runtimeTrigger = runtimeTrigger || existing.runtimeTrigger;
+      existing.confidenceScore = confidenceScore;
+      if (confidenceLabel) {
+        existing.confidenceLabel = confidenceLabel;
+      }
+    } else if (existingConfidence === null && confidenceScore !== null) {
+      existing.confidenceScore = confidenceScore;
+    }
+    existing.crossReferences = [...new Set([
+      ...(Array.isArray(existing.crossReferences) ? existing.crossReferences : []),
+      ...crossReferences
+    ])];
+    if (category === 'security' || existing.category === 'security') {
+      if ((!existing.stride || incomingStronger) && finding.stride) {
+        existing.stride = String(finding.stride);
+      }
+      if ((!existing.cwe || incomingStronger) && finding.cwe) {
+        existing.cwe = String(finding.cwe);
+      }
+    }
+    existing.updatedAt = nowIso();
+    existing.source = source;
+    updated += 1;
+  }
+
+  state.metrics.findingsTotal += findings.length;
+  state.metrics.findingsUnique = state.bugLedger.length;
+  state.metrics.lowConfidenceFindings = state.bugLedger.filter((entry) => {
+    return entry.confidenceScore === null
+      || entry.confidenceScore === undefined
+      || Number(entry.confidenceScore) < confidenceThreshold;
+  }).length;
+  return { inserted, updated };
+}
+
+function normalizedFactCard(chunkId, factCard) {
+  return {
+    chunkId,
+    updatedAt: nowIso(),
+    apiContracts: Array.isArray(factCard.apiContracts) ? factCard.apiContracts : [],
+    authAssumptions: Array.isArray(factCard.authAssumptions) ? factCard.authAssumptions : [],
+    invariants: Array.isArray(factCard.invariants) ? factCard.invariants : []
+  };
+}
+
+function verifyPendingFiles({ state, files }) {
+  const verified = [];
+  const changed = [];
+  const missing = [];
+  const unreadable = [];
+  const hashes = {};
+
+  for (const filePath of files) {
+    const normalized = String(filePath);
+    if (!fs.existsSync(normalized)) {
+      missing.push(normalized);
+      setFileStatus({ state, filePath: normalized, status: 'missing' });
+      continue;
+    }
+    try {
+      const currentHash = hashFile(normalized);
+      const fileState = state.fileStates[normalized] || {};
+      const expectedHash = fileState.hash;
+      const initialHash = fileState.initialHash || expectedHash;
+      if (!expectedHash || expectedHash !== currentHash) {
+        changed.push(normalized);
+        setFileStatus({
+          state,
+          filePath: normalized,
+          status: 'failed',
+          hash: expectedHash || currentHash,
+          initialHash: initialHash || currentHash,
+          observedHash: currentHash
+        });
+        continue;
+      }
+      hashes[normalized] = currentHash;
+      verified.push(normalized);
+    } catch {
+      unreadable.push(normalized);
+      setFileStatus({ state, filePath: normalized, status: 'unreadable' });
+    }
+  }
+  return { verified, changed, missing, unreadable, hashes };
+}
+
+function markChunkFailed(state, chunk, errorMessage) {
+  chunk.status = 'failed';
+  chunk.lastError = errorMessage || 'unknown';
+  const failedAt = nowIso();
+  for (const filePath of chunk.files) {
+    const normalized = String(filePath);
+    const fileState = state.fileStates[normalized];
+    if (!fileState || fileState.status === 'pending') {
+      state.fileStates[normalized] = {
+        ...(fileState || {}),
+        status: 'failed',
+        updatedAt: failedAt
+      };
+    }
+  }
+  state.metrics.chunksDone = state.chunks.filter((entry) => entry.status === 'done').length;
+  updateFileMetrics(state);
+}
+
 function main() {
   const [command, ...args] = process.argv.slice(2);
 
@@ -297,7 +541,14 @@ function main() {
   }
 
   if (command === 'init') {
-    const [statePath, mode, filesJsonPath, chunkSizeRaw] = args;
+    const [
+      statePath,
+      mode,
+      filesJsonPath,
+      chunkSizeRaw,
+      maxSourceTokensRaw,
+      enforceTokenBudgetRaw
+    ] = args;
     if (!statePath || !mode || !filesJsonPath) {
       usage();
       process.exit(1);
@@ -308,10 +559,21 @@ function main() {
     const chunkSize = Number.isInteger(chunkSizeParsed) && chunkSizeParsed > 0
       ? chunkSizeParsed
       : DEFAULT_CHUNK_SIZE;
+    const maxSourceTokensParsed = Number.parseInt(maxSourceTokensRaw || '', 10);
+    const maxSourceTokens = Number.isInteger(maxSourceTokensParsed) && maxSourceTokensParsed > 0
+      ? maxSourceTokensParsed
+      : DEFAULT_SOURCE_TOKEN_BUDGET;
+    const enforceTokenBudget = String(enforceTokenBudgetRaw || 'false').toLowerCase() === 'true';
     if (fs.existsSync(statePath)) {
       readState(statePath);
     }
-    const state = buildInitialState({ mode, chunkSize, files });
+    const state = buildInitialState({
+      mode,
+      chunkSize,
+      maxSourceTokens,
+      enforceTokenBudget,
+      files
+    });
     saveState(statePath, state);
     console.log(JSON.stringify({
       ok: true,
@@ -375,7 +637,10 @@ function main() {
           return !fileState || fileState.status === 'pending';
         })
         .map((filePath) => {
-          return [String(filePath), {
+          const normalized = String(filePath);
+          const fileState = state.fileStates[normalized];
+          return [normalized, {
+            ...(fileState || {}),
             status: 'failed',
             updatedAt: failedAt
           }];
@@ -407,74 +672,16 @@ function main() {
     if (!validation.ok) {
       throw new Error(`Invalid findings artifact: ${validation.errors.join('; ')}`);
     }
-
-    let inserted = 0;
-    let updated = 0;
-    for (const finding of findings) {
-      const file = String(finding.file || '').trim();
-      const lines = String(finding.lines || '').trim();
-      const claim = String(finding.claim || '').trim();
-      const severity = String(finding.severity || 'Low');
-      const category = String(finding.category || '').trim();
-      const evidence = String(finding.evidence || '').trim();
-      const runtimeTrigger = String(finding.runtimeTrigger || '').trim();
-      const crossReferences = Array.isArray(finding.crossReferences) ? finding.crossReferences : [];
-      const confidenceScore = toConfidenceScore(finding.confidenceScore);
-      const bugId = String(finding.bugId || '').trim();
-      const key = `${file}|${lines}|${claim}`;
-      const existing = state.bugLedger.find((entry) => entry.key === key);
-      if (!existing) {
-        state.bugLedger.push({
-          key,
-          bugId,
-          severity,
-          file,
-          lines,
-          category,
-          claim,
-          evidence,
-          runtimeTrigger,
-          crossReferences,
-          confidenceScore,
-          status: 'open',
-          source,
-          updatedAt: nowIso()
-        });
-        inserted += 1;
-        continue;
-      }
-      const existingRank = severityRank(existing.severity);
-      const incomingRank = severityRank(severity);
-      if (incomingRank > existingRank) {
-        existing.severity = severity;
-      }
-      if (!existing.bugId && bugId) {
-        existing.bugId = bugId;
-      }
-      existing.category = category || existing.category;
-      existing.evidence = evidence || existing.evidence;
-      existing.runtimeTrigger = runtimeTrigger || existing.runtimeTrigger;
-      existing.crossReferences = crossReferences.length > 0 ? crossReferences : existing.crossReferences;
-      if (existing.confidenceScore === null && confidenceScore !== null) {
-        existing.confidenceScore = confidenceScore;
-      } else if (existing.confidenceScore !== null && confidenceScore !== null) {
-        existing.confidenceScore = Math.max(existing.confidenceScore, confidenceScore);
-      }
-      existing.updatedAt = nowIso();
-      existing.source = source;
-      updated += 1;
-    }
-
-    state.metrics.findingsTotal += findings.length;
-    state.metrics.findingsUnique = state.bugLedger.length;
-    state.metrics.lowConfidenceFindings = state.bugLedger.filter((entry) => {
-      return entry.confidenceScore === null || entry.confidenceScore < confidenceThreshold;
-    }).length;
+    const merged = mergeFindingsIntoState({
+      state,
+      findings,
+      source,
+      confidenceThreshold
+    });
     saveState(statePath, state);
     console.log(JSON.stringify({
       ok: true,
-      inserted,
-      updated,
+      ...merged,
       metrics: state.metrics
     }, null, 2));
     return;
@@ -492,43 +699,177 @@ function main() {
 
     const scan = [];
     const skip = [];
+    const changed = [];
     const missing = [];
+    const unreadable = [];
 
     for (const filePath of files) {
       const normalized = String(filePath);
       if (!fs.existsSync(normalized)) {
         missing.push(normalized);
-        setFileStatus({
-          state,
-          filePath: normalized,
-          status: 'missing'
-        });
+        setFileStatus({ state, filePath: normalized, status: 'missing' });
         continue;
       }
-      const currentHash = hashFile(normalized);
-      const previous = state.hashCache[normalized];
-      if (previous && previous.hash === currentHash) {
-        skip.push(normalized);
-        setFileStatus({
-          state,
-          filePath: normalized,
-          status: 'skipped',
-          hash: currentHash
-        });
-      } else {
-        scan.push(normalized);
-        setFileStatus({
-          state,
-          filePath: normalized,
-          status: 'pending',
-          hash: currentHash
-        });
+      try {
+        const currentHash = hashFile(normalized);
+        const fileState = state.fileStates[normalized] || {};
+        const initialHash = fileState.initialHash || currentHash;
+        if (fileState.initialHash && fileState.initialHash !== currentHash) {
+          changed.push(normalized);
+          setFileStatus({
+            state,
+            filePath: normalized,
+            status: 'failed',
+            hash: fileState.hash || fileState.initialHash,
+            initialHash: fileState.initialHash,
+            observedHash: currentHash
+          });
+          continue;
+        }
+        const previous = state.hashCache[normalized];
+        if (previous && previous.hash === currentHash) {
+          skip.push(normalized);
+          setFileStatus({
+            state,
+            filePath: normalized,
+            status: 'skipped',
+            hash: currentHash,
+            initialHash,
+            clearObservedHash: true
+          });
+        } else {
+          scan.push(normalized);
+          setFileStatus({
+            state,
+            filePath: normalized,
+            status: 'pending',
+            hash: currentHash,
+            initialHash,
+            clearObservedHash: true
+          });
+        }
+      } catch {
+        unreadable.push(normalized);
+        setFileStatus({ state, filePath: normalized, status: 'unreadable' });
       }
     }
 
     updateFileMetrics(state);
     saveState(statePath, state);
-    console.log(JSON.stringify({ ok: true, scan, skip, missing }, null, 2));
+    console.log(JSON.stringify({ ok: true, scan, skip, changed, missing, unreadable }, null, 2));
+    return;
+  }
+
+  if (command === 'hash-verify') {
+    const [statePath, filesJsonPath] = args;
+    if (!statePath || !filesJsonPath) {
+      usage();
+      process.exit(1);
+    }
+    const state = readState(statePath);
+    const files = readJson(filesJsonPath);
+    assertArray(files, 'filesJson');
+    const result = verifyPendingFiles({ state, files });
+    if (result.changed.length > 0 || result.missing.length > 0 || result.unreadable.length > 0) {
+      updateFileMetrics(state);
+      saveState(statePath, state);
+    }
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
+  if (command === 'commit-chunk') {
+    const [
+      statePath,
+      chunkId,
+      filesJsonPath,
+      findingsJsonPath,
+      factCardJsonPath,
+      confidenceThresholdRaw,
+      source = 'orchestrator'
+    ] = args;
+    if (!statePath || !chunkId || !filesJsonPath || !findingsJsonPath || !factCardJsonPath) {
+      usage();
+      process.exit(1);
+    }
+    const confidenceThreshold = Number.isInteger(Number.parseInt(String(confidenceThresholdRaw || ''), 10))
+      ? Number.parseInt(confidenceThresholdRaw, 10)
+      : 75;
+    const state = readState(statePath);
+    const chunk = state.chunks.find((entry) => entry.id === chunkId);
+    if (!chunk) {
+      throw new Error(`Unknown chunk id: ${chunkId}`);
+    }
+    const files = readJson(filesJsonPath);
+    const findings = readJson(findingsJsonPath);
+    const factCard = readJson(factCardJsonPath);
+    assertArray(files, 'filesJson');
+    const validation = validateArtifactValue({ artifactName: 'findings', value: findings });
+    if (!validation.ok) {
+      throw new Error(`Invalid findings artifact: ${validation.errors.join('; ')}`);
+    }
+    const allowedFiles = new Set(files.map((filePath) => path.resolve(String(filePath))));
+    const outsideFinding = findings.find((finding) => {
+      return !allowedFiles.has(path.resolve(String(finding.file || '')));
+    });
+    if (outsideFinding) {
+      const errorMessage = `Finding is outside the assigned chunk scope: ${outsideFinding.file}`;
+      markChunkFailed(state, chunk, errorMessage);
+      saveState(statePath, state);
+      console.log(JSON.stringify({ ok: false, error: errorMessage }, null, 2));
+      return;
+    }
+    const verification = verifyPendingFiles({ state, files });
+    if (verification.changed.length > 0
+      || verification.missing.length > 0
+      || verification.unreadable.length > 0) {
+      const errorMessage = 'Assigned source changed, disappeared, or became unreadable during worker execution';
+      markChunkFailed(state, chunk, errorMessage);
+      saveState(statePath, state);
+      console.log(JSON.stringify({
+        ok: false,
+        error: errorMessage,
+        verification
+      }, null, 2));
+      return;
+    }
+    const merged = mergeFindingsIntoState({
+      state,
+      findings,
+      source,
+      confidenceThreshold
+    });
+    for (const filePath of files) {
+      const normalized = String(filePath);
+      const currentHash = verification.hashes[normalized];
+      state.hashCache[normalized] = {
+        hash: currentHash,
+        status: 'scanned',
+        scannedAt: nowIso()
+      };
+      const fileState = state.fileStates[normalized] || {};
+      setFileStatus({
+        state,
+        filePath: normalized,
+        status: 'scanned',
+        hash: currentHash,
+        initialHash: fileState.initialHash || currentHash,
+        clearObservedHash: true
+      });
+    }
+    state.factCards[chunkId] = normalizedFactCard(chunkId, factCard);
+    chunk.status = 'done';
+    chunk.completedAt = nowIso();
+    chunk.lastError = null;
+    state.metrics.chunksDone = state.chunks.filter((entry) => entry.status === 'done').length;
+    updateFileMetrics(state);
+    saveState(statePath, state);
+    console.log(JSON.stringify({
+      ok: true,
+      chunkId,
+      ...merged,
+      metrics: state.metrics
+    }, null, 2));
     return;
   }
 
@@ -546,31 +887,36 @@ function main() {
     }
     const updatedFiles = [];
     const missing = [];
+    const unreadable = [];
 
     for (const filePath of files) {
       const normalized = String(filePath);
       if (!fs.existsSync(normalized)) {
         missing.push(normalized);
+        setFileStatus({ state, filePath: normalized, status: 'missing' });
+        continue;
+      }
+      try {
+        const currentHash = hashFile(normalized);
+        state.hashCache[normalized] = {
+          hash: currentHash,
+          status: cacheStatus,
+          scannedAt: nowIso()
+        };
+        const fileState = state.fileStates[normalized] || {};
         setFileStatus({
           state,
           filePath: normalized,
-          status: 'missing'
+          status: cacheStatus,
+          hash: currentHash,
+          initialHash: fileState.initialHash || currentHash,
+          clearObservedHash: true
         });
-        continue;
+        updatedFiles.push(normalized);
+      } catch {
+        unreadable.push(normalized);
+        setFileStatus({ state, filePath: normalized, status: 'unreadable' });
       }
-      const currentHash = hashFile(normalized);
-      state.hashCache[normalized] = {
-        hash: currentHash,
-        status: cacheStatus,
-        scannedAt: nowIso()
-      };
-      setFileStatus({
-        state,
-        filePath: normalized,
-        status: cacheStatus,
-        hash: currentHash
-      });
-      updatedFiles.push(normalized);
     }
 
     updateFileMetrics(state);
@@ -579,6 +925,7 @@ function main() {
       ok: true,
       updated: updatedFiles.length,
       missing,
+      unreadable,
       updatedFiles
     }, null, 2));
     return;
@@ -595,16 +942,19 @@ function main() {
     assertArray(files, 'filesJson');
     const existing = new Set(state.chunks.flatMap((chunk) => chunk.files));
     const toAppend = [...new Set(files.map((filePath) => String(filePath)))]
-      .filter((filePath) => !existing.has(filePath))
-      .sort();
+      .filter((filePath) => !existing.has(filePath));
     if (toAppend.length === 0) {
       console.log(JSON.stringify({ ok: true, appended: 0, chunksAdded: 0 }, null, 2));
       return;
     }
 
     const chunkNumberStart = nextChunkNumber(state.chunks);
-    const newChunks = splitChunks(toAppend, state.chunkSize)
-      .map((chunk, index) => {
+    const newChunks = splitChunks(
+      toAppend,
+      state.chunkSize,
+      state.maxSourceTokens,
+      state.enforceTokenBudget
+    ).map((chunk, index) => {
         return {
           ...chunk,
           id: `chunk-${chunkNumberStart + index}`

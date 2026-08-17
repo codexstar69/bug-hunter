@@ -1,0 +1,24 @@
+# Progress
+
+- [x] Centralize supported source extensions and align triage with code-index.
+- [x] Preserve risk-prioritized file order through state initialization and expansion.
+- [x] Add adaptive source-token chunk sizing with an explicit override.
+- [x] Fail closed when assigned files disappear and keep coverage truthful.
+- [x] Tighten findings schema for non-empty cross-references and security evidence.
+- [x] Remove the Hunter/Skeptic rate-limit contradiction and make examples conditional.
+- [x] Add precision-protocol documentation and regression tests.
+- [x] Regenerate validators and pass the sealed loop check.
+- [x] Open a draft PR and confirm GitHub Actions passes.
+- [x] Audit scope integrity from discovery through Referee and Fixer authorization.
+- [x] Preserve risk order through delta selection and low-confidence expansion.
+- [x] Enforce the source-token budget on every actual chunk, including mixed-size inputs.
+- [x] Align extensionless shebang discovery with indexing and dependency expansion.
+- [x] Audit state, hash-cache, retry, resume, and failure semantics for stale or false coverage.
+- [x] Add adversarial regression tests for every confirmed deep-audit defect.
+- [x] Re-run the sealed gate and confirm all PR-triggered CI checks pass.
+- [x] Preserve the original pre-worker source hash across failed retries and resume.
+- [x] Reject resumed chunks when assigned source content drifted after a failed worker.
+- [x] Ensure chunk status alone can never report a pending file as completed coverage.
+- [x] Accept valid in-repository paths whose basename starts with two dots while still rejecting escapes.
+- [x] Add regression tests for the post-hardening resume and coverage edge cases.
+- [x] Re-run the sealed gate and final PR-triggered CI checks.

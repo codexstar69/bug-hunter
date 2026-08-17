@@ -61,12 +61,18 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
 
   for (const fileName of [
     'shared.cjs',
+    'source-config.cjs',
     'run-bug-hunter.cjs',
     'bug-hunter-state.cjs',
     'process-runner.cjs',
     'state-store.cjs',
     'artifact-planner.cjs',
     'chunk-scheduler.cjs',
+    'benchmark-suite.cjs',
+    'adaptive-policy.cjs',
+    'hybrid-verifier.cjs',
+    'evidence-cache.cjs',
+    'retrieval-planner.cjs',
     'payload-guard.cjs',
     'schema-validate.cjs',
     'schema-runtime.cjs',
@@ -86,6 +92,10 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
     'skeptic.schema.json',
     'referee.schema.json',
     'coverage.schema.json',
+    'benchmark-report.schema.json',
+    'adaptive-plan.schema.json',
+    'verification-report.schema.json',
+    'retrieval-plan.schema.json',
     'fix-report.schema.json',
     'fix-plan.schema.json',
     'fix-strategy.schema.json',
@@ -1011,7 +1021,7 @@ test('run-bug-hunter resumes only the matching explicit run identity', () => {
     "const attempts = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1;",
     "fs.writeFileSync(attemptsPath, String(attempts));",
     'if (attempts <= 2) process.exit(1);',
-    "fs.writeFileSync(findingsPath, JSON.stringify([{ bugId: 'BUG-resume', severity: 'Low', category: 'logic', file: 'source.ts', lines: '1', claim: 'resume succeeds', evidence: 'source.ts:1 evidence', runtimeTrigger: 'Run worker', crossReferences: [], confidenceScore: 90 }]));"
+    "fs.writeFileSync(findingsPath, JSON.stringify([{ bugId: 'BUG-resume', severity: 'Low', category: 'logic', file: 'source.ts', lines: '1', claim: 'resume succeeds', evidence: 'source.ts:1 evidence', runtimeTrigger: 'Run worker', crossReferences: ['Single file'], confidenceScore: 90 }]));"
   ].join('\n'), 'utf8');
   const baseArgs = [
     runner,

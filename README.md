@@ -731,6 +731,10 @@ The main files are:
 | `threat-model.md` | Threat-model run | STRIDE boundaries, assets, flows, and threats |
 | `dep-findings.json` | Dependency run | Audit results, scanner status, and reachability |
 | `state.json` | Persisted scan | Queue, attempts, file outcomes, findings, and plan reference |
+| `adaptive-plan.json` | Every orchestrated run | Risk- and benchmark-derived context, review, verification, and early-stop policy |
+| `retrieval-plan.json` | Indexed run | Hypothesis-ranked files and symbol slices under a hard context budget |
+| `verification-report.json` | Hybrid verification requested | Compiler, test, build, static, or fuzz results tied to findings |
+| `benchmark-report.json` | Benchmark gate | Precision, recall, calibration, stability, cost, latency, and Pareto metrics |
 
 See [outputs](docs/how-it-works.md#output-contract) for the complete artifact contract.
 
@@ -838,7 +842,7 @@ bug-hunter/
 │   ├── threat-model-generation/
 │   └── vulnerability-validation/
 ├── schemas/                    # Canonical JSON artifact contracts
-├── scripts/                    # Deterministic triage, state, process, and safety tools
+├── scripts/                    # Triage, state, benchmark, retrieval, verification, cache, and safety tools
 ├── templates/                  # Payload and report templates
 └── test-fixture/               # Source-only benchmark with planted bugs
 ```
@@ -853,6 +857,7 @@ and CI checks that generated files stay in sync.
 - [Usage guide](docs/usage-guide.md)
 - [CLI reference](docs/cli-reference.md)
 - [How it works](docs/how-it-works.md)
+- [Measurable world-class protocol](docs/world-class-protocol.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
@@ -867,6 +872,7 @@ From a source checkout:
 pnpm install --frozen-lockfile
 pnpm check:generated
 pnpm test
+pnpm benchmark:gate
 node scripts/run-bug-hunter.cjs preflight --skill-dir .
 pnpm verify:package
 ```
@@ -875,6 +881,8 @@ The regression suite covers orchestration, schemas, state, PR scope,
 dependency parsing, fix authorization, locks, worktrees, installation,
 packaging, and bundled security routing. Use `pnpm test` for the current count
 instead of relying on a copied number in documentation.
+
+The source repository also contains a deterministic hidden-label benchmark harness. Its bundled labels are a calibration fixture, not proof of universal superiority; production claims should use privately held historical bugs and clean repositories. See [the measurable protocol](docs/world-class-protocol.md).
 
 The planted-bug fixture exists only in the source repository and is useful for
 behavioral calibration:

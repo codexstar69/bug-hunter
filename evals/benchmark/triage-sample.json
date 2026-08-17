@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-08-17T00:00:00.000Z",
+  "target": ".",
+  "totalFiles": 84,
+  "scannableFiles": 72,
+  "fileBudget": 12,
+  "plannedChunkCount": 7,
+  "strategy": "large-codebase",
+  "riskMap": {
+    "critical": [
+      "src/auth/session.ts",
+      "src/api/webhook.ts"
+    ],
+    "high": [
+      "src/api/users.ts",
+      "src/db/account-repository.ts",
+      "src/jobs/payment-worker.ts"
+    ],
+    "medium": [
+      "src/lib/validation.ts"
+    ],
+    "low": [],
+    "context-only": [
+      "src/auth/session.test.ts"
+    ]
+  },
+  "domains": [
+    {
+      "path": "src/auth",
+      "tier": "CRITICAL",
+      "fileCount": 9
+    },
+    {
+      "path": "src/api",
+      "tier": "HIGH",
+      "fileCount": 18
+    }
+  ]
+}

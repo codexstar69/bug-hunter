@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "verification-report",
+  "title": "Bug Hunter Hybrid Verification Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "artifact", "ok", "generatedAt", "repositoryRoot",
+    "validation", "checks", "summary", "findingEvidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "artifact": { "const": "verification-report" },
+    "ok": { "type": "boolean" },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "repositoryRoot": { "type": "string", "minLength": 1 },
+    "totalBudgetMs": { "type": "integer", "minimum": 1 },
+    "validation": {
+      "type": "object",
+      "required": ["ok", "errors", "normalizedChecks"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "normalizedChecks": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id", "kind", "required", "command", "cwd", "status", "passed",
+          "exitCode", "signal", "errorCode", "durationMs", "stdout", "stderr",
+          "outputTruncated", "findingIds", "confidenceDelta"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "cwd": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "TIMEOUT", "UNAVAILABLE", "ERROR", "SKIPPED_BUDGET"] },
+          "passed": { "type": "boolean" },
+          "exitCode": { "type": ["integer", "null"] },
+          "signal": { "type": ["string", "null"] },
+          "errorCode": { "type": ["string", "null"] },
+          "durationMs": { "type": "integer", "minimum": 0 },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" },
+          "outputTruncated": { "type": "boolean" },
+          "findingIds": { "type": "array", "items": { "type": "string" } },
+          "confidenceDelta": { "type": "number" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "passed", "failed", "unavailable", "timeout", "skippedBudget", "requiredFailures", "durationMs"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "unavailable": { "type": "integer", "minimum": 0 },
+        "timeout": { "type": "integer", "minimum": 0 },
+        "skippedBudget": { "type": "integer", "minimum": 0 },
+        "requiredFailures": { "type": "integer", "minimum": 0 },
+        "durationMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findingEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["findingId", "confidenceDelta", "passedChecks", "failedChecks", "unavailableChecks"],
+        "properties": {
+          "findingId": { "type": "string", "minLength": 1 },
+          "confidenceDelta": { "type": "number" },
+          "passedChecks": { "type": "array", "items": { "type": "string" } },
+          "failedChecks": { "type": "array", "items": { "type": "string" } },
+          "unavailableChecks": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

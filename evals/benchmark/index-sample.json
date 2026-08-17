@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "root": ".",
+  "files": {
+    "scripts/run-bug-hunter.cjs": {
+      "relativePath": "scripts/run-bug-hunter.cjs",
+      "estimatedTokens": 10500,
+      "symbols": [
+        "runPipeline",
+        "buildCoverageArtifact",
+        "prepareIndexAndScope"
+      ],
+      "dependencies": [
+        "scripts/chunk-scheduler.cjs",
+        "scripts/state-store.cjs",
+        "scripts/artifact-planner.cjs"
+      ],
+      "dependents": [
+        "scripts/tests/run-bug-hunter.test.cjs"
+      ],
+      "trustBoundaries": [
+        "external-input"
+      ]
+    },
+    "scripts/chunk-scheduler.cjs": {
+      "relativePath": "scripts/chunk-scheduler.cjs",
+      "estimatedTokens": 3400,
+      "symbols": [
+        "processPendingChunks",
+        "normalizeFindingsToScope"
+      ],
+      "dependencies": [
+        "scripts/process-runner.cjs",
+        "scripts/schema-runtime.cjs"
+      ],
+      "dependents": [
+        "scripts/run-bug-hunter.cjs"
+      ],
+      "trustBoundaries": []
+    },
+    "scripts/state-store.cjs": {
+      "relativePath": "scripts/state-store.cjs",
+      "estimatedTokens": 2500,
+      "symbols": [
+        "buildRunIdentity",
+        "normalizeRunFiles"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "scripts/run-bug-hunter.cjs"
+      ],
+      "trustBoundaries": [
+        "filesystem"
+      ]
+    },
+    "scripts/artifact-planner.cjs": {
+      "relativePath": "scripts/artifact-planner.cjs",
+      "estimatedTokens": 3100,
+      "symbols": [
+        "buildFixerScope",
+        "buildFixPlan"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "scripts/run-bug-hunter.cjs"
+      ],
+      "trustBoundaries": []
+    }
+  }
+}

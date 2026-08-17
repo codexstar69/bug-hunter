@@ -41,7 +41,7 @@ Use tech stack info (from Recon) to inform analysis — e.g., Express+helmet →
 If a finding matches ANY of these patterns, mark it DISPROVE immediately with the rule number. Do not re-read code or construct counter-arguments — these are settled false-positive classes:
 
 1. DoS/resource exhaustion without demonstrated business impact or amplification
-2. Rate limiting concerns (informational only, not a bug)
+2. Generic rate-limiting suggestions without a concrete reachable attack path, measurable amplification, or security consequence. Do not auto-dismiss credential stuffing, OTP/reset abuse, account-lockout bypass, or attacker-triggered expensive operations; analyze those normally.
 3. Memory/CPU exhaustion without a concrete external attack path
 4. Memory safety issues in memory-safe languages (Rust safe code, Go, Java)
 5. Findings reported exclusively in test files (`*.test.*`, `*.spec.*`, `__tests__/`)
@@ -157,4 +157,4 @@ Use sparingly — only when a DISPROVE hinges on a framework behavior claim you 
 
 ## Reference examples
 
-For validation methodology examples (2 confirmed + 2 false positives correctly caught + 1 manual review), read `$SKILL_DIR/skills/skeptic/examples.md` before starting your challenges.
+Load `$SKILL_DIR/skills/skeptic/examples.md` only for ambiguous challenges, confidence below 86, or explicit calibration requests. Do not spend context on examples for settled cases.

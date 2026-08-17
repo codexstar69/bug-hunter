@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "retrieval-plan",
+  "title": "Bug Hunter Retrieval Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "artifact", "generatedAt", "budgets", "estimatedTokens",
+    "selectedFileCount", "omittedFileCount", "selected", "omitted",
+    "budgetExceededByMandatoryFiles", "instructions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "artifact": { "const": "retrieval-plan" },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "budgets": { "type": "object" },
+    "estimatedTokens": { "type": "integer", "minimum": 0 },
+    "selectedFileCount": { "type": "integer", "minimum": 0 },
+    "omittedFileCount": { "type": "integer", "minimum": 0 },
+    "selected": { "type": "array", "items": { "type": "object" } },
+    "omitted": { "type": "array", "items": { "type": "object" } },
+    "budgetExceededByMandatoryFiles": { "type": "boolean" },
+    "instructions": { "type": "array", "items": { "type": "string" } }
+  }
+}

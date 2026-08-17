@@ -29,6 +29,7 @@ const options = parseArgs(process.argv.slice(2));
 const chunkId = options['chunk-id'] || 'chunk';
 const attemptsFile = options['attempts-file'];
 const findingsJson = options['findings-json'];
+const scanFilesJson = options['scan-files-json'];
 
 if (!attemptsFile) {
   console.error('attempts-file is required');
@@ -50,15 +51,25 @@ if (attempts[chunkId] === 1) {
 }
 
 if (findingsJson) {
+  if (!scanFilesJson) {
+    console.error('scan-files-json is required when findings-json is provided');
+    process.exit(1);
+  }
+  const scanFiles = JSON.parse(fs.readFileSync(path.resolve(scanFilesJson), 'utf8'));
+  const assignedFile = scanFiles[0];
+  if (!assignedFile) {
+    console.error(`no assigned source file for ${chunkId}`);
+    process.exit(1);
+  }
   const payload = [
     {
       bugId: `BUG-${chunkId}`,
       severity: 'Medium',
       category: 'logic',
-      file: `src/retry-${chunkId}.ts`,
-      lines: '10-11',
+      file: assignedFile,
+      lines: '1',
       claim: `retry-success-${chunkId}`,
-      evidence: `src/retry-${chunkId}.ts:10-11 retry success evidence`,
+      evidence: `${assignedFile}:1 retry success evidence`,
       runtimeTrigger: `Retry attempt for ${chunkId}`,
       crossReferences: ['Single file'],
       confidenceScore: 88

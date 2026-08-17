@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "bug-hunter-behavioral-core-v1",
+  "description": "Public metadata for the deterministic Bug Hunter behavioral benchmark. Ground-truth labels are stored separately and are never provided to the scanner.",
+  "requiredProfiles": [
+    "balanced"
+  ],
+  "requiredRepeats": 2,
+  "matchThreshold": 0.7,
+  "thresholds": {
+    "minPrecision": 0.95,
+    "minRecall": 0.9,
+    "minF1": 0.92,
+    "minSeverityWeightedRecall": 0.92,
+    "minCoverage": 1,
+    "minRepeatStability": 0.9,
+    "maxFalsePositivesPerKloc": 0.2,
+    "maxMedianTokensPerTruePositive": 30000,
+    "maxP95DurationMs": 180000,
+    "maxExpectedCalibrationError": 0.15,
+    "maxMeanSeverityRankError": 0.25
+  },
+  "cases": [
+    {
+      "id": "auth-boundary-js",
+      "language": "javascript",
+      "framework": "express",
+      "kloc": 2.4,
+      "tags": [
+        "security",
+        "authorization",
+        "cross-file"
+      ],
+      "sourceFiles": [
+        "src/routes.js",
+        "src/auth.js",
+        "src/service.js"
+      ]
+    },
+    {
+      "id": "api-contract-ts",
+      "language": "typescript",
+      "framework": "fastify",
+      "kloc": 4.1,
+      "tags": [
+        "api-contract",
+        "nullability",
+        "cross-file"
+      ],
+      "sourceFiles": [
+        "src/handler.ts",
+        "src/client.ts",
+        "src/types.ts"
+      ]
+    },
+    {
+      "id": "concurrency-go",
+      "language": "go",
+      "framework": "net-http",
+      "kloc": 3.8,
+      "tags": [
+        "concurrency",
+        "data-integrity"
+      ],
+      "sourceFiles": [
+        "internal/store/store.go",
+        "internal/api/handler.go"
+      ]
+    },
+    {
+      "id": "clean-python-api",
+      "language": "python",
+      "framework": "fastapi",
+      "kloc": 2,
+      "tags": [
+        "negative",
+        "clean",
+        "security"
+      ],
+      "sourceFiles": [
+        "app/routes.py",
+        "app/auth.py",
+        "app/models.py"
+      ]
+    }
+  ]
+}

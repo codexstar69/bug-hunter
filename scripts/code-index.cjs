@@ -4,21 +4,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const SOURCE_EXTENSIONS = [
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.py',
-  '.go',
-  '.rs',
-  '.java',
-  '.kt',
-  '.rb',
-  '.php'
-];
+const {
+  SOURCE_EXTENSION_LIST,
+  inferSourceExtension,
+  isSupportedSourceFile,
+  isTestSourcePath
+} = require('./source-config.cjs');
 
 const JS_CALL_KEYWORDS = new Set([
   'if',
@@ -64,21 +55,11 @@ function sha256(input) {
 }
 
 function isSupportedSource(filePath) {
-  return SOURCE_EXTENSIONS.includes(path.extname(filePath));
+  return isSupportedSourceFile(filePath);
 }
 
 function isTestFile(filePath) {
-  const normalized = filePath.replace(/\\/g, '/');
-  return (
-    normalized.includes('/__tests__/') ||
-    normalized.includes('/tests/') ||
-    normalized.endsWith('.test.ts') ||
-    normalized.endsWith('.test.tsx') ||
-    normalized.endsWith('.test.js') ||
-    normalized.endsWith('.spec.ts') ||
-    normalized.endsWith('.spec.tsx') ||
-    normalized.endsWith('.spec.js')
-  );
+  return isTestSourcePath(filePath);
 }
 
 function inferRiskHint(relativePath) {
@@ -232,8 +213,8 @@ function resolveRelativeImport(specifier, fromFilePath, fileSet) {
   const base = path.resolve(fromDir, specifier);
   const candidates = [
     base,
-    ...SOURCE_EXTENSIONS.map((ext) => `${base}${ext}`),
-    ...SOURCE_EXTENSIONS.map((ext) => path.join(base, `index${ext}`))
+    ...SOURCE_EXTENSION_LIST.map((ext) => `${base}${ext}`),
+    ...SOURCE_EXTENSION_LIST.map((ext) => path.join(base, `index${ext}`))
   ];
   for (const candidate of candidates) {
     if (fileSet.has(candidate)) {
@@ -296,7 +277,7 @@ function expandByHops({ seeds, index, hops }) {
     }
     frontier = next;
   }
-  return [...selected].sort();
+  return [...selected];
 }
 
 function buildIndex(indexPath, filesJsonPath, repoRootInput) {
@@ -307,8 +288,7 @@ function buildIndex(indexPath, filesJsonPath, repoRootInput) {
   const repoRoot = path.resolve(repoRootInput || process.cwd());
   const files = [...new Set(filesRaw.map((filePath) => normalizeFilePath(filePath)))]
     .filter((filePath) => fs.existsSync(filePath))
-    .filter((filePath) => isSupportedSource(filePath))
-    .sort();
+    .filter((filePath) => isSupportedSource(filePath));
   const fileSet = new Set(files);
   const filesIndex = {};
   const reverseDepsMap = new Map();
@@ -316,7 +296,7 @@ function buildIndex(indexPath, filesJsonPath, repoRootInput) {
 
   for (const filePath of files) {
     const content = fs.readFileSync(filePath, 'utf8');
-    const extension = path.extname(filePath);
+    const extension = inferSourceExtension(filePath, content);
     const importsRaw = extractImports(content, extension);
     const symbols = extractSymbols(content, extension);
     const calls = extractCalls(content, extension);
