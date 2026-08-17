@@ -75,3 +75,16 @@ test('current agent-facing files do not resurrect historical runtime defaults', 
   assert.match(currentGuidance, /hunter-findings\.json/);
   assert.match(currentGuidance, /single-pass/i);
 });
+
+test('README distinguishes exact current source from a potentially lagging npm release', () => {
+  const readme = read('README.md');
+  const sourceCommand = 'npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex';
+  const npmCommand = 'npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex';
+  const sourceIndex = readme.indexOf(sourceCommand);
+  const npmIndex = readme.indexOf(npmCommand);
+
+  assert.match(readme, /exact current GitHub source documented here/i);
+  assert.match(readme, /latest published npm release[\s\S]{0,100}may lag current GitHub source/i);
+  assert.equal(sourceIndex >= 0, true);
+  assert.equal(npmIndex > sourceIndex, true);
+});
