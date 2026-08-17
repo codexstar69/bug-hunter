@@ -1,11 +1,19 @@
 # Bug Hunter
 
-Bug Hunter is an adversarial code-audit skill for AI coding agents. The default
-run scans and reports without editing files.
+Bug Hunter is a measurable, adversarial code-audit skill for AI coding agents.
+The default run scans and reports without editing files. Hunter makes concrete
+claims, Skeptic challenges them, and Referee owns the final verdict.
 
 ## Start
 
-Install and verify for the intended agent:
+For the latest published package, install and verify the intended agent:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+To use the current GitHub `main` source instead of the published package:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
@@ -16,7 +24,7 @@ Then ask the coding agent:
 
 ```text
 Use the bug-hunter skill to scan this repository. Do not edit files.
-Return the final report and call out every item that needs manual review.
+Return the final report and call out every manual-review or unreviewed item.
 ```
 
 The `bug-hunter` terminal command installs and verifies the skill. Scans are
@@ -24,27 +32,61 @@ requested inside the coding agent. There is no `bug-hunter scan` shell command.
 
 ## Safety
 
-- No flags means scan-only.
-- `--plan` builds a remediation plan without edits.
+- No flags means scan-only and single-pass.
+- `--loop` continues until queued coverage is complete.
+- `--plan` builds remediation strategy and plan artifacts without edits.
 - `--fix --approve` requests the host's reviewed/default permission mode.
 - `--preview` builds strategy and fix-plan output without source edits.
 - `--autonomous` explicitly permits unattended edits.
 - `--auto-commit` separately grants commit permission for the approved plan.
-- Referee or preservation failure disables fixing for the affected scope.
+- Referee, source-integrity, required-verification, or preservation failure
+  disables fixing for the affected scope.
+
+## Precision and adaptive execution
+
+The runtime is precision-first and fail-closed:
+
+- deterministic triage preserves risk order before model work;
+- adaptive token-bounded chunks avoid mixed-context overflow;
+- `fast`, `balanced`, and `assurance` profiles tune retrieval/review depth;
+- hypothesis-driven retrieval prioritizes direct evidence and trust boundaries;
+- exact content-addressed evidence reuse never bypasses current source hashes;
+- required hybrid verification fails closed before Fixer authorization;
+- missing, changed, or escaped assigned files cannot be reported as covered.
 
 ## Pipeline
 
-Triage -> Recon -> Hunter -> documentation checks -> Skeptic -> Referee ->
-report -> optional plan -> optional approved Fixer -> verification
+Triage -> adaptive plan -> Recon -> retrieval -> Hunter -> documentation checks
+-> Skeptic -> Referee -> optional hybrid verification -> report -> optional plan
+-> optional approved Fixer -> post-fix verification
 
 Only the Referee can confirm findings. Invalid or incomplete review is reported
 as `manual-review` or `unreviewed`, never as clean.
+
+## Canonical artifacts
+
+Important files under `.bug-hunter/` include:
+
+- `triage.json` — deterministic risk map and scan order
+- `adaptive-plan.json` — profile, context, review, and verification policy
+- `retrieval-plan.json` — hypothesis-ranked evidence under hard budgets
+- `hunter-findings.json` — canonical Hunter claims
+- `skeptic.json` — adversarial challenges
+- `referee.json` — final verdicts
+- `verification-report.json` — bounded hybrid verification evidence
+- `scan-report.json` — joined final result
+- `coverage.json` — per-file coverage state
+- `fix-strategy.json`, `fix-plan.json`, `fixer-scope.json`, `fix-report.json`
+- `benchmark-report.json` — precision/recall/calibration/cost/latency metrics
+
+JSON is canonical; Markdown files are rendered views.
 
 ## Common agent arguments
 
 ```text
 /bug-hunter
 /bug-hunter src/auth
+/bug-hunter --loop src/
 /bug-hunter --staged
 /bug-hunter --pr
 /bug-hunter --pr-security
@@ -54,16 +96,29 @@ as `manual-review` or `unreviewed`, never as clean.
 ```
 
 Dependency parsing and reachability support JavaScript and TypeScript projects
-using npm, pnpm, Yarn, or Bun lockfiles. Other ecosystems return
-`scanner-unsupported`.
+using npm, pnpm, Yarn, or Bun lockfiles. Unsupported ecosystems return
+`scanner-unsupported`; that is not a clean result.
+
+## Quality gate
+
+Repository changes should pass:
+
+```bash
+pnpm quality:world-class
+```
+
+The bundled benchmark fixture validates the measurement contract; it is not an
+independent claim of universal superiority. See `docs/world-class-protocol.md`.
 
 ## Read next
 
-- `README.md`: product overview and start path
+- `README.md`: product overview and public release summary
 - `docs/getting-started.md`: complete first run
-- `docs/agent-installation.md`: targets, update, custom paths
+- `docs/agent-installation.md`: published-package and current-source installs
 - `docs/usage-guide.md`: portable prompts and workflows
 - `docs/cli-reference.md`: installer commands and skill arguments
-- `docs/how-it-works.md`: roles, trust boundaries, outputs
+- `docs/how-it-works.md`: roles, adaptive execution, trust boundaries, outputs
+- `docs/precision-protocol.md`: fail-closed evidence protocol
+- `docs/world-class-protocol.md`: benchmark/adaptive/retrieval/verification design
 - `docs/troubleshooting.md`: failure recovery
 - `SKILL.md`: canonical orchestration contract
