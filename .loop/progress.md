@@ -21,4 +21,4 @@
 - [x] Ensure chunk status alone can never report a pending file as completed coverage.
 - [x] Accept valid in-repository paths whose basename starts with two dots while still rejecting escapes.
 - [x] Add regression tests for the post-hardening resume and coverage edge cases.
-- [ ] Re-run the sealed gate and final PR-triggered CI checks.
+- [x] Re-run the sealed gate and final PR-triggered CI checks.

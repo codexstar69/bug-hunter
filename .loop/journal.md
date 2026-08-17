@@ -91,3 +91,7 @@ longer collide with the parent-directory escape check.
 ## Iteration 18 — final 193-test PR-head verification — in progress
 
 The verified resume-hardening commit `0a293c4361ab46da24daaacd68bdda0432afedec` was created by GitHub Actions, so this append-only human-authored ledger commit triggers the pull-request Node 22/24 matrix and sealed precision gate on the exact 193-test hardened tree.
+
+## Iteration 19 — final 193-test PR-head verification — passed
+
+On head `4a767fecbea7bb2d43e477e08f5e4d774bd16231`, the PR-triggered sealed precision gate passed, Node 22 CI passed, and Node 24 CI passed including generated-asset checks, preflight, package inventory, executable-bit, version, and help verification. Every ledger item is complete; this atomic ledger-close commit changes no production or test code.
