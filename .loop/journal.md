@@ -26,3 +26,7 @@ The corrected payload was uploaded as one long compressed Base64 line, but GitHu
 ## Iteration 4 — regression gate — failed
 
 The chunked patch transport and SHA check passed, the patch applied, and generated assets were current. The actual sealed check failed with four regressions: a newline-escaping SyntaxError in the new test, two existing security fixtures missing newly required STRIDE/CWE fields, and one resume fixture emitting an empty cross-reference list. The workflow also lacked `pipefail`, so its step metadata incorrectly reported success. The next retry fixes all four fixtures and makes pipeline failure propagation explicit.
+
+## Iteration 5 — precision protocol test — failed
+
+The exact reconstructed patcher passed its SHA-256 and syntax checks. All production changes and all 175 pre-existing tests passed. The sole remaining failure was a malformed regular expression in the new protocol regression test: the slash in `OTP/reset` was not preserved through the patcher's template literal. The patcher now emits an escaped slash, and the sealed gate remains unchanged.
