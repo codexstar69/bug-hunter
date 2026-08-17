@@ -11,3 +11,4 @@
 - [x] Add deterministic fixtures and adversarial regression tests for every new contract.
 - [x] Add package scripts, package inventory entries, CI quality gate, and implementation documentation.
 - [x] Run the sealed loop check and all PR-triggered checks on the final head.
+- [x] Remove temporary apply/export workflows and source-snapshot transport from the final tree.

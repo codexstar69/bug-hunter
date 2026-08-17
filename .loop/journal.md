@@ -35,3 +35,7 @@ The implementation ledger now has only the final verification item open. This ap
 ## Iteration 6 — final pull-request head verification — passed
 
 On head `7d167221b905aa8e947e00fd25e3e875e1428908`, the immutable sealed world-class gate passed, Node.js 22 CI passed, and Node.js 24 CI passed with the benchmark quality gate, generated-runtime checks, full 209-test suite, preflight, package inventory, executable-bit, version, and help checks. Every persistent progress item is complete. This append-only ledger-close commit changes no production, benchmark, schema, or test behavior and is the final verification target.
+
+## Iteration 7 — cleanup claim correction and exact-tree verification — in progress
+
+The prior ledger-close entry overstated cleanup: the temporary `export-source.yml` workflow and the `.loop/source-snapshot.*` transport files were still present. This atomic correction removes those helper artifacts, records the cleanup explicitly in the progress ledger, and triggers the immutable sealed gate plus the Node.js 22/24 pull-request matrix on the exact cleaned implementation tree. No production, benchmark, schema, package, or test behavior changes.
