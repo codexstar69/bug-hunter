@@ -78,20 +78,13 @@ jobs:
       - name: Record sealed success
         run: node .loop/record-world-class-pass.cjs
 
-      - name: Remove temporary transport
-        run: rm -rf .loop/world-class-payload .loop/world-class-patcher-fix.b64 .loop/apply-world-class-core.cjs .loop/record-world-class-pass.cjs .github/workflows/world-class-apply.yml
-
-      - name: Commit verified implementation
+      - name: Commit verified production implementation
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- \
             .loop/progress.md \
             .loop/journal.md \
-            .loop/world-class-payload \
-            .loop/world-class-patcher-fix.b64 \
-            .github/workflows/world-class-apply.yml \
-            .github/workflows/ci.yml \
             README.md \
             package.json \
             docs/world-class-protocol.md \
@@ -121,6 +114,10 @@ jobs:
             scripts/tests/schema-runtime.test.cjs \
             skills/hunter/SKILL.md \
             prompts/hunter.md
+          git rm -r -- \
+            .loop/world-class-payload \
+            .loop/world-class-patcher-fix.b64
+          rm -f .loop/apply-world-class-core.cjs .loop/record-world-class-pass.cjs
           git diff --cached --check
-          git commit -m 'loop: iteration 3 - measurable world-class protocol'
+          git commit -m 'loop: iteration 4 - measurable world-class protocol'
           git push origin HEAD:loop/precision-bug-hunting-protocol
