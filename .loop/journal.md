@@ -71,3 +71,7 @@ The verified hardening commit was created by GitHub Actions, whose workflow toke
 ## Iteration 14 — final PR-head verification — passed
 
 On head `8088a10928bea6e2257bff8f33fb51788eb89608`, the PR-triggered sealed precision gate passed, Node 22 CI passed, and Node 24 CI passed including package inventory, executable-bit, version, and help checks. This append-only entry records the verified result and triggers one final unchanged-code check on the completed loop ledger.
+
+## Iteration 15 — post-hardening resume audit — in progress
+
+A final static review found that a source mutation correctly fails the current chunk but can become the new baseline after `--resume` because the original pre-worker hash is overwritten or discarded on failure. The same review found that chunk status can still label a pending file as done in coverage, and the root-containment predicate rejects valid in-repository names beginning with `..`. Focused regressions will be added before patching these three edge cases.
