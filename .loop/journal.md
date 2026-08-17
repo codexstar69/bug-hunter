@@ -18,3 +18,7 @@ Created the sealed completion check. On the setup tree it must fail with the ass
 ## Iteration 2 — schema generation — failed
 
 The setup assertion failed exactly as expected and the complete patch payload applied cleanly. Ajv then rejected the generated findings schema in strict mode because the conditional CWE `pattern` did not repeat its string `type`. The payload was corrected to use `{ "type": "string", "pattern": "^CWE-[0-9]+$" }`; the sealed check remains unchanged.
+
+## Iteration 3 — patch transport — failed
+
+The corrected payload was uploaded as one long compressed Base64 line, but GitHub Actions detected a gzip CRC/length mismatch before executing it. No repository source changes were applied. The transport is being replaced with ordered 1.8 KB parts that are locally concatenated, decoded, decompressed, and byte-compared before publication.
