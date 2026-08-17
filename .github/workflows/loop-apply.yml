@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: "github.event.head_commit.message == 'loop: setup - precision-first bug hunting'"
+    if: "github.event.head_commit.message == 'loop: retry precision patch 2'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -62,7 +62,7 @@ jobs:
       - name: Record passing gate
         run: |
           {
-            printf '\n## Iteration 3 - sealed completion gate - passed\n\n'
+            printf '\n## Iteration 4 - sealed completion gate - passed\n\n'
             printf '```text\n'
             cat /tmp/loop-check-output.txt
             printf '```\n'
@@ -95,5 +95,5 @@ jobs:
             package.json \
             SKILL.md
           git diff --cached --check
-          git commit -m 'loop: iteration 2 - precision-first bug hunting'
+          git commit -m 'loop: iteration 3 - precision-first bug hunting'
           git push origin HEAD:loop/precision-bug-hunting-protocol
