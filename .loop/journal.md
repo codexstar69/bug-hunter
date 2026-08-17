@@ -67,3 +67,7 @@ authorization excludes manual-review and report-only findings.
 ## Iteration 13 — final PR-head verification — in progress
 
 The verified hardening commit was created by GitHub Actions, whose workflow token cannot recursively trigger pull-request workflows. This ledger-only commit intentionally triggers the Node 22/24 CI matrix and the sealed precision gate on the exact hardened tree.
+
+## Iteration 14 — final PR-head verification — passed
+
+On head `8088a10928bea6e2257bff8f33fb51788eb89608`, the PR-triggered sealed precision gate passed, Node 22 CI passed, and Node 24 CI passed including package inventory, executable-bit, version, and help checks. This append-only entry records the verified result and triggers one final unchanged-code check on the completed loop ledger.
