@@ -33,6 +33,10 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Run benchmark quality gate
+        if: matrix.node-version == 24
+        run: pnpm benchmark:gate
+
       - name: Run preflight check
         run: node scripts/run-bug-hunter.cjs preflight --skill-dir .
 
