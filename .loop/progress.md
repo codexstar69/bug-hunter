@@ -10,4 +10,4 @@
 - [x] Integrate adaptive plans, verification reports, and evidence cache into the core runner and scheduler.
 - [x] Add deterministic fixtures and adversarial regression tests for every new contract.
 - [x] Add package scripts, package inventory entries, CI quality gate, and implementation documentation.
-- [ ] Run the sealed loop check and all PR-triggered checks on the final head.
+- [x] Run the sealed loop check and all PR-triggered checks on the final head.
