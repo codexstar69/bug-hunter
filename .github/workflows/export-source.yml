@@ -6,21 +6,18 @@ on:
       - loop/precision-bug-hunting-protocol
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   export:
-    if: "github.event.head_commit.message == 'tooling: export wrapped source snapshot v2'"
+    if: "github.event.head_commit.message == 'tooling: upload source artifact'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Build compact source archive
         run: |
           set -euo pipefail
-          rm -f .loop/source-snapshot.tgz.b64 .loop/source-snapshot.part-* .loop/source-snapshot.parts
           tar \
             --exclude=.git \
             --exclude=node_modules \
@@ -32,16 +29,11 @@ jobs:
             --exclude=.loop/source-snapshot.parts \
             --exclude=.loop/source-snapshot.sha256 \
             -czf /tmp/bug-hunter-source.tgz .
-          base64 -w 2000 /tmp/bug-hunter-source.tgz > /tmp/bug-hunter-source.tgz.b64
-          split -l 10 -d -a 3 /tmp/bug-hunter-source.tgz.b64 .loop/source-snapshot.part-
-          find .loop -maxdepth 1 -type f -name 'source-snapshot.part-*' -printf '%f\n' | sort > .loop/source-snapshot.parts
-          sha256sum /tmp/bug-hunter-source.tgz | awk '{print $1}' > .loop/source-snapshot.sha256
 
-      - name: Commit transport snapshot
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- .loop/source-snapshot.sha256 .loop/source-snapshot.parts .loop/source-snapshot.part-*
-          git commit -m 'tooling: wrapped source snapshot'
-          git push origin HEAD:loop/precision-bug-hunting-protocol
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: bug-hunter-source-snapshot
+          path: /tmp/bug-hunter-source.tgz
+          if-no-files-found: error
+          retention-days: 1
