@@ -1,6 +1,6 @@
 {
   "name": "@codexstar/bug-hunter",
-  "version": "3.1.1",
+  "version": "3.2.0",
   "description": "Adversarial AI bug hunter — verifies security, logic, and runtime bugs, with explicit reviewed or autonomous fixing modes.",
   "license": "MIT",
   "main": "bin/bug-hunter",
