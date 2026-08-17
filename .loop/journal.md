@@ -7,3 +7,7 @@ The previous precision-first loop completed with 193 passing tests and is being 
 ## Iteration 1 — preserve completed precision-first loop — passed
 
 The prior sealed loop files were copied byte-for-byte into `.loop-history/precision-first-2026-08-17/` before the new task was initialized. The archive contains the original task, check, progress ledger, and append-only journal, while the active `.loop/` now belongs only to the measurable world-class protocol task.
+
+## Iteration 2 — resume and diagnose implementation apply — failed, root cause isolated
+
+The active check seal was verified before resuming: `.loop/check.sh` hashes to `51f16f795feecfbe7896d51da3684c7da09777984b1c81c2323136fb14ca18ee`, matching `.loop/task.md`. The implementation payload also passed its own SHA-256 check and extracted successfully. The apply step failed deterministically in `.loop/apply-world-class-core.cjs`: the runner integration asserted that the scheduler call-site pattern must occur twice, while the current precision-hardened `scripts/run-bug-hunter.cjs` contains one matching production call site. No implementation files were committed. A fresh source snapshot is being exported so the integration patch can be corrected and verified locally rather than weakening the sealed check.
