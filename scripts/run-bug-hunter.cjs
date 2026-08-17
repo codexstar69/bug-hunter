@@ -18,6 +18,8 @@ const {
 const {
   assertRunIdentity,
   buildRunIdentity,
+  getRepositoryIdentity,
+  normalizeRunFiles,
   requeueResumableChunks,
   validateStateShape,
   writeJsonAtomic
@@ -32,7 +34,8 @@ const {
 const { processPendingChunks } = require('./chunk-scheduler.cjs');
 const {
   DEFAULT_SOURCE_TOKEN_BUDGET,
-  MAX_FILES_PER_CHUNK
+  MAX_FILES_PER_CHUNK,
+  buildSourceChunks
 } = require('./source-config.cjs');
 
 const BACKEND_PRIORITY = ['spawn_agent', 'subagent', 'teams', 'local-sequential'];
@@ -118,31 +121,6 @@ function toBoolean(value, fallback) {
     return false;
   }
   return fallback;
-}
-
-function estimateSourceTokens(filePath) {
-  try {
-    const stat = fs.statSync(filePath);
-    return Math.max(1, Math.ceil(stat.size / 4));
-  } catch {
-    return 1;
-  }
-}
-
-function deriveAdaptiveChunkSize(files, maxSourceTokens) {
-  const estimates = toArray(files)
-    .map((filePath) => estimateSourceTokens(String(filePath)))
-    .sort((left, right) => left - right);
-  if (estimates.length === 0) {
-    return DEFAULT_CHUNK_SIZE;
-  }
-  const percentileIndex = Math.min(
-    estimates.length - 1,
-    Math.floor(estimates.length * 0.75)
-  );
-  const representativeTokens = Math.max(1, estimates[percentileIndex]);
-  const budgeted = Math.floor(maxSourceTokens / representativeTokens);
-  return Math.max(1, Math.min(DEFAULT_CHUNK_SIZE, budgeted || 1));
 }
 
 function resolveSkillDir(options) {
@@ -758,18 +736,41 @@ async function runPipeline(options) {
     throw new Error(`Cannot resume run ${resumeRunId}: state or identity is missing`);
   }
 
+  const repositoryIdentity = getRepositoryIdentity();
+  const requestedFiles = readJson(filesJsonPath);
+  if (!Array.isArray(requestedFiles)) {
+    throw new Error('--files-json must contain an array');
+  }
+  const normalizedInputFiles = normalizeRunFiles(
+    requestedFiles,
+    repositoryIdentity.repositoryRoot,
+    { allowMissing: true }
+  );
+  const normalizedFilesJsonPath = path.resolve(
+    path.dirname(statePath),
+    'scope-files.json'
+  );
+  writeJson(normalizedFilesJsonPath, normalizedInputFiles);
+
   const scope = prepareIndexAndScope({
     options,
     skillDir,
     statePath,
-    filesJsonPath,
+    filesJsonPath: normalizedFilesJsonPath,
     journalPath
   });
-  const activeFiles = readJson(scope.activeFilesJsonPath);
-  if (!Array.isArray(activeFiles)) {
+  const activeFilesRaw = readJson(scope.activeFilesJsonPath);
+  if (!Array.isArray(activeFilesRaw)) {
     throw new Error('Active files JSON must contain an array');
   }
-  const chunkSize = requestedChunkSize || deriveAdaptiveChunkSize(activeFiles, maxSourceTokens);
+  const activeFiles = normalizeRunFiles(
+    activeFilesRaw,
+    repositoryIdentity.repositoryRoot,
+    { allowMissing: true }
+  );
+  writeJson(scope.activeFilesJsonPath, activeFiles);
+  const chunkSize = requestedChunkSize || DEFAULT_CHUNK_SIZE;
+  const tokenBudgetEnforced = requestedChunkSize === null;
 
   const runIdentity = buildRunIdentity({
     runId,
@@ -777,6 +778,8 @@ async function runPipeline(options) {
     backend,
     filesJsonPath: scope.activeFilesJsonPath,
     chunkSize,
+    maxSourceTokens,
+    tokenBudgetEnforced,
     timeoutMs,
     maxRetries,
     confidenceThreshold,
@@ -796,7 +799,15 @@ async function runPipeline(options) {
       maxRetries
     });
   } else {
-    runJsonScript(stateScript, ['init', statePath, mode, scope.activeFilesJsonPath, String(chunkSize)]);
+    runJsonScript(stateScript, [
+      'init',
+      statePath,
+      mode,
+      scope.activeFilesJsonPath,
+      String(chunkSize),
+      String(maxSourceTokens),
+      String(tokenBudgetEnforced)
+    ]);
     writeJsonAtomic(identityPath, runIdentity);
   }
 
@@ -810,6 +821,7 @@ async function runPipeline(options) {
     filesJsonPath,
     chunkSize,
     maxSourceTokens,
+    tokenBudgetEnforced,
     timeoutMs,
     maxRetries,
     backoffMs
@@ -853,10 +865,12 @@ async function runPipeline(options) {
         selectedFilesJsonPath,
         String(scope.deltaHops ?? DEFAULT_DELTA_HOPS)
       ]);
-      const expandedFiles = [
-        ...toArray(expansion.expanded),
-        ...toArray(expansion.overlayOnly)
-      ];
+      const expandedFiles = toArray(expansion.prioritized).length > 0
+        ? toArray(expansion.prioritized)
+        : [
+          ...toArray(expansion.overlayOnly),
+          ...toArray(expansion.expanded)
+        ];
       const cappedExpandedFiles = normalizeFiles(expandedFiles).slice(0, expansionCap);
       if (cappedExpandedFiles.length > 0) {
         const expansionFilesJsonPath = path.resolve(path.dirname(statePath), 'delta-expansion-files.json');
@@ -1171,19 +1185,27 @@ async function main() {
     if (!Array.isArray(files)) {
       throw new Error('--files-json must contain an array');
     }
-    const chunkSize = requestedChunkSize || deriveAdaptiveChunkSize(files, maxSourceTokens);
+    const maxFilesPerChunk = requestedChunkSize || DEFAULT_CHUNK_SIZE;
+    const tokenBudgetEnforced = requestedChunkSize === null;
     const totalFiles = files.length;
-
-    const chunks = [];
-    for (let i = 0; i < totalFiles; i += chunkSize) {
-      const chunkFiles = files.slice(i, i + chunkSize);
-      chunks.push({
-        id: `chunk-${chunks.length + 1}`,
-        files: chunkFiles,
-        fileCount: chunkFiles.length,
+    const plannedChunks = buildSourceChunks(files, {
+      maxFiles: maxFilesPerChunk,
+      maxSourceTokens,
+      enforceTokenBudget: tokenBudgetEnforced
+    });
+    const chunks = plannedChunks.map((plannedChunk, index) => {
+      return {
+        id: `chunk-${index + 1}`,
+        files: plannedChunk.files,
+        fileCount: plannedChunk.files.length,
+        estimatedSourceTokens: plannedChunk.estimatedSourceTokens,
+        oversized: plannedChunk.oversized,
         status: 'pending'
-      });
-    }
+      };
+    });
+    const chunkSize = chunks.reduce((max, chunk) => {
+      return Math.max(max, chunk.fileCount);
+    }, 0);
 
     const planOutput = {
       generatedAt: nowIso(),
@@ -1191,7 +1213,9 @@ async function main() {
       skillDir,
       totalFiles,
       chunkSize,
+      maxFilesPerChunk,
       maxSourceTokens,
+      tokenBudgetEnforced,
       chunkCount: chunks.length,
       phases: ['recon', 'hunter', 'skeptic', 'referee'],
       chunks,

@@ -98,8 +98,7 @@ function criticalOverlay(index, selected) {
       const boundaries = (meta && Array.isArray(meta.trustBoundaries)) ? meta.trustBoundaries : [];
       return risk === 'critical' || boundaries.length > 0;
     })
-    .map(([filePath]) => filePath)
-    .sort();
+    .map(([filePath]) => filePath);
 }
 
 function select(indexPath, changedFilesJsonPath, hopsRaw) {
@@ -124,7 +123,7 @@ function select(indexPath, changedFilesJsonPath, hopsRaw) {
     reverse,
     hops
   });
-  const selected = [...selectedSet].sort();
+  const selected = [...selectedSet];
   const overlays = criticalOverlay(index, selectedSet);
 
   return {
@@ -161,9 +160,9 @@ function expand(indexPath, seedFilesJsonPath, alreadySelectedFilesJsonPath, hops
   });
   const overlays = criticalOverlay(index, alreadySelected);
   const expanded = [...expandedSet]
-    .filter((filePath) => !alreadySelected.has(filePath))
-    .sort();
+    .filter((filePath) => !alreadySelected.has(filePath));
   const overlayOnly = overlays.filter((filePath) => !expandedSet.has(filePath));
+  const prioritized = [...overlayOnly, ...expanded];
 
   return {
     ok: true,
@@ -171,9 +170,11 @@ function expand(indexPath, seedFilesJsonPath, alreadySelectedFilesJsonPath, hops
     seedCount: seeds.length,
     expanded,
     overlayOnly,
+    prioritized,
     metrics: {
       expandedCount: expanded.length,
-      overlayOnlyCount: overlayOnly.length
+      overlayOnlyCount: overlayOnly.length,
+      prioritizedCount: prioritized.length
     }
   };
 }

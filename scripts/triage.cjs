@@ -36,21 +36,10 @@ const MAX_SCAN_DEPTH = 100;
 const {
   DEFAULT_SOURCE_TOKEN_BUDGET,
   MAX_FILES_PER_CHUNK,
-  SOURCE_EXTENSIONS
+  buildSourceChunks,
+  isSupportedSourceFile,
+  isTestSourcePath
 } = require('./source-config.cjs');
-
-const SOURCE_SHEBANG = /^#!.*\b(node|python|ruby|php|bash|sh)\b/;
-
-function hasSourceShebang(filePath) {
-  const fileDescriptor = fs.openSync(filePath, 'r');
-  try {
-    const prefix = Buffer.alloc(256);
-    const bytesRead = fs.readSync(fileDescriptor, prefix, 0, prefix.length, 0);
-    return SOURCE_SHEBANG.test(prefix.toString('utf8', 0, bytesRead));
-  } finally {
-    fs.closeSync(fileDescriptor);
-  }
-}
 
 // ─── Directories to always skip ─────────────────────────────────────
 const SKIP_DIRS = new Set([
@@ -103,21 +92,8 @@ function walkDir(dirPath, maxDepth, currentDepth) {
         continue;
       }
       results.push(...walkDir(fullPath, maxDepth, currentDepth + 1));
-    } else if (entry.isFile()) {
-      const ext = path.extname(entry.name);
-      if (SOURCE_EXTENSIONS.has(ext)) {
-        results.push(fullPath);
-        continue;
-      }
-      if (ext === '') {
-        try {
-          if (hasSourceShebang(fullPath)) {
-            results.push(fullPath);
-          }
-        } catch {
-          // Skip unreadable files
-        }
-      }
+    } else if (entry.isFile() && isSupportedSourceFile(fullPath)) {
+      results.push(fullPath);
     }
   }
 
@@ -132,7 +108,7 @@ function classifyFile(filePath, repoRoot) {
   const fileName = parts[parts.length - 1];
 
   // Test files
-  if (TEST_FILE_PATTERNS.test(fileName) || parts.some((p) => TEST_PATTERNS.test(p))) {
+  if (isTestSourcePath(relative)) {
     return 'context-only';
   }
 
@@ -270,16 +246,25 @@ function computeFileBudget(files) {
   const avgTokens = Math.max(1, Math.ceil(avgBytes / 4));
   const estimatedTotalLines = avgLines * files.length;
 
-  // Reserve most of the model context for reasoning, cross-file evidence, and output.
-  let fileBudget;
-  if (avgTokens <= 0) {
-    fileBudget = MAX_FILES_PER_CHUNK;
-  } else {
-    fileBudget = Math.floor(DEFAULT_SOURCE_TOKEN_BUDGET / avgTokens);
-  }
-  fileBudget = Math.max(1, Math.min(MAX_FILES_PER_CHUNK, fileBudget));
+  // Use the first risk-ordered concrete chunk as the safe FILE_BUDGET.
+  // The runtime keeps the full variable-size plan and enforces every chunk.
+  const plannedChunks = buildSourceChunks(files, {
+    maxFiles: MAX_FILES_PER_CHUNK,
+    maxSourceTokens: DEFAULT_SOURCE_TOKEN_BUDGET,
+    enforceTokenBudget: true
+  });
+  const fileBudget = plannedChunks.length > 0
+    ? Math.max(1, plannedChunks[0].files.length)
+    : MAX_FILES_PER_CHUNK;
 
-  return { fileBudget, avgLines, totalLines: estimatedTotalLines, avgTokens, sampledFiles: sampled };
+  return {
+    fileBudget,
+    avgLines,
+    totalLines: estimatedTotalLines,
+    avgTokens,
+    sampledFiles: sampled,
+    plannedChunkCount: plannedChunks.length
+  };
 }
 
 // ─── Determine strategy ─────────────────────────────────────────────
@@ -426,6 +411,7 @@ function scan(targetPath, options) {
     avgTokensPerFile: budget.avgTokens || 400,
     estimatedTotalLines: budget.totalLines,
     sampledFiles: budget.sampledFiles,
+    plannedChunkCount: budget.plannedChunkCount || 0,
     domains: domains.map((d) => ({
       path: d.path,
       tier: d.tier,

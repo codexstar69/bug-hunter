@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 
 function nowIso() {
@@ -353,35 +354,69 @@ function selectRefereeAuthorizedFindings({ bugLedger, authorization }) {
 }
 
 function buildFixerScope({ runIdentity, authorizedFindings, fixPlan }) {
-  const authorizedBugIds = new Set(authorizedFindings.map((finding) => String(finding.bugId)));
-  const authorizedFiles = new Set(authorizedFindings.map((finding) => {
+  const repositoryRoot = fs.realpathSync(runIdentity.repositoryRoot);
+  const findingsById = new Map();
+
+  for (const finding of authorizedFindings) {
+    const bugId = String(finding.bugId || '').trim();
+    if (!bugId) {
+      throw new Error('Referee-authorized finding is missing a bug ID');
+    }
+    if (findingsById.has(bugId)) {
+      throw new Error(`Duplicate Referee-authorized bug ID: ${bugId}`);
+    }
     const resolvedFile = path.resolve(String(finding.file));
-    const relative = path.relative(runIdentity.repositoryRoot, resolvedFile);
+    if (!fs.existsSync(resolvedFile)) {
+      throw new Error(`Referee-authorized file does not exist: ${finding.file}`);
+    }
+    const realFile = fs.realpathSync(resolvedFile);
+    const relative = path.relative(repositoryRoot, realFile);
     if (relative.startsWith('..') || path.isAbsolute(relative)) {
       throw new Error(`Referee-authorized file is outside the repository root: ${finding.file}`);
     }
-    return resolvedFile;
-  }));
+    findingsById.set(bugId, { finding, realFile });
+  }
+
   const planEntries = [
     ...toArray(fixPlan && fixPlan.canary),
     ...toArray(fixPlan && fixPlan.rollout),
     ...toArray(fixPlan && fixPlan.manualReview)
   ];
-  planEntries.map((entry) => {
-    const bugId = String(entry.bugId || '');
-    const filePath = path.resolve(String(entry.file || ''));
-    if (!authorizedBugIds.has(bugId) || !authorizedFiles.has(filePath)) {
+  for (const entry of planEntries) {
+    const bugId = String(entry.bugId || '').trim();
+    const authorized = findingsById.get(bugId);
+    if (!authorized) {
       throw new Error(`Fix plan expanded beyond Referee authorization: ${bugId} at ${entry.file}`);
     }
-    return entry;
-  });
+    const resolvedEntry = path.resolve(String(entry.file || ''));
+    const realEntry = fs.existsSync(resolvedEntry)
+      ? fs.realpathSync(resolvedEntry)
+      : resolvedEntry;
+    if (realEntry !== authorized.realFile) {
+      throw new Error(`Fix plan expanded beyond Referee authorization: ${bugId} at ${entry.file}`);
+    }
+  }
+
+  const executableEntries = [
+    ...toArray(fixPlan && fixPlan.canary),
+    ...toArray(fixPlan && fixPlan.rollout)
+  ];
+  const approvedBugIds = new Set();
+  const approvedFiles = new Set();
+  for (const entry of executableEntries) {
+    const bugId = String(entry.bugId || '').trim();
+    const authorized = findingsById.get(bugId);
+    approvedBugIds.add(bugId);
+    approvedFiles.add(authorized.realFile);
+  }
+
   return {
     schemaVersion: 1,
     runId: runIdentity.runId,
-    repositoryRoot: runIdentity.repositoryRoot,
+    repositoryRoot,
     baseCommit: runIdentity.baseCommit,
-    approvedBugIds: [...authorizedBugIds].sort(),
-    approvedFiles: [...authorizedFiles].sort()
+    approvedBugIds: [...approvedBugIds].sort(),
+    approvedFiles: [...approvedFiles].sort()
   };
 }
 

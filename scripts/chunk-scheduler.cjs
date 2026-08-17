@@ -35,6 +35,38 @@ function removeFileIfExists(filePath) {
   }
 }
 
+function canonicalFilePath(filePath) {
+  const resolved = path.resolve(String(filePath));
+  return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+}
+
+function normalizeFindingsToScope({ findings, scanFiles }) {
+  const allowed = new Map(scanFiles.map((filePath) => {
+    const canonical = canonicalFilePath(filePath);
+    return [canonical, canonical];
+  }));
+  const normalized = [];
+  const errors = [];
+
+  for (const finding of toArray(findings)) {
+    const canonical = canonicalFilePath(finding && finding.file);
+    const assigned = allowed.get(canonical);
+    if (!assigned) {
+      errors.push(`Finding ${String((finding && finding.bugId) || '<unknown>')} targets an unassigned file: ${String((finding && finding.file) || '')}`);
+      continue;
+    }
+    normalized.push({
+      ...finding,
+      file: assigned
+    });
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    findings: normalized
+  };
+}
+
 function validateFindingsArtifact(findingsJsonPath) {
   if (!fs.existsSync(findingsJsonPath)) {
     return {
@@ -121,20 +153,23 @@ async function processPendingChunks({
 
     const hashFilterResult = runJsonScript(stateScript, ['hash-filter', statePath, chunkFilesJsonPath]);
     const scanFiles = hashFilterResult.scan || [];
-    const missingFiles = hashFilterResult.missing || [];
-    if (missingFiles.length > 0) {
-      const preview = missingFiles.slice(0, 3).join(', ');
-      const suffix = missingFiles.length > 3 ? ` (+${missingFiles.length - 3} more)` : '';
-      const errorMessage = `Assigned files disappeared before scanning: ${preview}${suffix}`;
+    const unavailableFiles = [
+      ...(hashFilterResult.missing || []),
+      ...(hashFilterResult.unreadable || [])
+    ];
+    if (unavailableFiles.length > 0) {
+      const preview = unavailableFiles.slice(0, 3).join(', ');
+      const suffix = unavailableFiles.length > 3 ? ` (+${unavailableFiles.length - 3} more)` : '';
+      const errorMessage = `Assigned files are missing or unreadable before scanning: ${preview}${suffix}`;
       appendJournal(journalPath, {
-        event: 'chunk-scope-missing',
+        event: 'chunk-scope-unavailable',
         chunkId: chunk.id,
-        missingCount: missingFiles.length,
-        missingFiles: missingFiles.slice(0, 20)
+        unavailableCount: unavailableFiles.length,
+        unavailableFiles: unavailableFiles.slice(0, 20)
       });
       runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'failed', errorMessage.slice(0, 240)]);
       if (failFast) {
-        throw new Error(`Chunk ${chunk.id} has missing assigned files and fail-fast is enabled`);
+        throw new Error(`Chunk ${chunk.id} has unavailable assigned files and fail-fast is enabled`);
       }
       continue;
     }
@@ -181,13 +216,22 @@ async function processPendingChunks({
       },
       postAttempt: async () => {
         const findingsValidation = validateFindingsArtifact(findingsJsonPath);
-        if (findingsValidation.ok) {
-          return { ok: true };
+        if (!findingsValidation.ok) {
+          return {
+            ok: false,
+            errorMessage: findingsValidation.errors.join('; ')
+          };
         }
-        return {
-          ok: false,
-          errorMessage: findingsValidation.errors.join('; ')
-        };
+        const findings = readJson(findingsJsonPath);
+        const scoped = normalizeFindingsToScope({ findings, scanFiles });
+        if (!scoped.ok) {
+          return {
+            ok: false,
+            errorMessage: scoped.errors.join('; ')
+          };
+        }
+        writeJson(findingsJsonPath, scoped.findings);
+        return { ok: true };
       }
     });
 
@@ -205,24 +249,39 @@ async function processPendingChunks({
       continue;
     }
 
-    runJsonScript(stateScript, ['record-findings', statePath, findingsJsonPath, 'orchestrator', String(confidenceThreshold)]);
     const findings = readJson(findingsJsonPath);
-
-    if (fs.existsSync(factsJsonPath)) {
-      runJsonScript(stateScript, ['record-fact-card', statePath, chunk.id, factsJsonPath]);
-    } else {
-      const factCard = buildHeuristicFactCard({
+    if (!fs.existsSync(factsJsonPath)) {
+      writeJson(factsJsonPath, buildHeuristicFactCard({
         chunkId: chunk.id,
         scanFiles,
         findings,
         index
-      });
-      writeJson(factsJsonPath, factCard);
-      runJsonScript(stateScript, ['record-fact-card', statePath, chunk.id, factsJsonPath]);
+      }));
     }
 
-    runJsonScript(stateScript, ['hash-update', statePath, scanFilesJsonPath, 'scanned']);
-    runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'done']);
+    const commitResult = runJsonScript(stateScript, [
+      'commit-chunk',
+      statePath,
+      chunk.id,
+      scanFilesJsonPath,
+      findingsJsonPath,
+      factsJsonPath,
+      String(confidenceThreshold),
+      'orchestrator'
+    ]);
+    if (!commitResult.ok) {
+      appendJournal(journalPath, {
+        event: 'chunk-integrity-failed',
+        chunkId: chunk.id,
+        errorMessage: String(commitResult.error || 'chunk integrity failed').slice(0, 500),
+        verification: commitResult.verification || null
+      });
+      if (failFast) {
+        throw new Error(`Chunk ${chunk.id} failed its integrity commit and fail-fast is enabled`);
+      }
+      continue;
+    }
+
     appendJournal(journalPath, {
       event: 'chunk-done',
       chunkId: chunk.id,

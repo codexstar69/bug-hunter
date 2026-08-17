@@ -9,10 +9,10 @@
 - [x] Add precision-protocol documentation and regression tests.
 - [x] Regenerate validators and pass the sealed loop check.
 - [x] Open a draft PR and confirm GitHub Actions passes.
-- [ ] Audit scope integrity from discovery through Referee and Fixer authorization.
-- [ ] Preserve risk order through delta selection and low-confidence expansion.
-- [ ] Enforce the source-token budget on every actual chunk, including mixed-size inputs.
-- [ ] Align extensionless shebang discovery with indexing and dependency expansion.
-- [ ] Audit state, hash-cache, retry, resume, and failure semantics for stale or false coverage.
-- [ ] Add adversarial regression tests for every confirmed deep-audit defect.
-- [ ] Re-run the sealed gate and confirm all PR-triggered CI checks pass.
+- [x] Audit scope integrity from discovery through Referee and Fixer authorization.
+- [x] Preserve risk order through delta selection and low-confidence expansion.
+- [x] Enforce the source-token budget on every actual chunk, including mixed-size inputs.
+- [x] Align extensionless shebang discovery with indexing and dependency expansion.
+- [x] Audit state, hash-cache, retry, resume, and failure semantics for stale or false coverage.
+- [x] Add adversarial regression tests for every confirmed deep-audit defect.
+- [x] Re-run the sealed gate and confirm all PR-triggered CI checks pass.

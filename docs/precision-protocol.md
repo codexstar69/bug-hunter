@@ -23,9 +23,10 @@ critical trust boundaries are scanned before lower-risk helpers.
 ## 2. Adaptive source-token chunks
 
 Unless the caller supplies `--chunk-size`, the runtime estimates source tokens
-from file bytes and chooses a 1-30 file chunk using a 48,000-source-token budget.
-The 75th-percentile file size is used so a few tiny files cannot hide a mostly
-large chunk. Use `--max-source-tokens` to tune the budget for a model or agent.
+from every assigned file and greedily builds risk-ordered 1-30 file chunks whose
+combined estimate stays within a 48,000-source-token budget. A single oversized
+file is isolated and explicitly marked oversized instead of silently inflating a
+mixed chunk. Use `--max-source-tokens` to tune the budget for a model or agent.
 
 The budget intentionally leaves room for role instructions, cross-file reads,
 reasoning, structured output, Skeptic challenges, and Referee verification.
@@ -61,3 +62,23 @@ cases use the compact role contract and current code evidence only.
 A protocol change is accepted only when generated validators are current, all
 Node tests pass, preflight succeeds, and the npm package inventory contains all
 runtime dependencies and documentation.
+
+## 7. Scope and evidence integrity
+
+Run scope is canonicalized through real paths and must remain inside the Git
+repository. Hunter findings are accepted only for the exact files assigned to
+the current chunk. The source hashes captured before dispatch are verified again
+before findings, fact cards, hashes, and chunk completion are committed in one
+state transaction. Source mutation, deletion, unreadability, or symlink escape
+fails the chunk closed.
+
+Fixer scope contains only canary and rollout entries. Confirmed findings that are
+classified for manual review or report-only remediation never become writable
+Fixer authorization.
+
+## 8. Stable evidence merge
+
+Duplicate observations retain the strongest confidence-backed evidence, union
+cross-references, preserve security STRIDE/CWE metadata, and receive unique
+stable IDs when separate bugs collide on a worker-provided ID. Large-file cache
+keys use streaming SHA-256 rather than size and timestamp surrogates.

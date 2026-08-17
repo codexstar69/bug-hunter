@@ -54,3 +54,12 @@ Reopened the completed implementation for an end-to-end audit rather than relyin
 ## Iteration 11 — nine deep defects reproduced — failed as expected
 
 Added nine adversarial regression probes. The sealed check preserved all 181 prior passes and failed the nine new tests, confirming: code-index/delta order loss; mixed-size chunks exceeding the declared source-token budget; shebang/test/minified discovery drift; findings accepted outside assigned scope; worker-time source mutation reported as complete; weaker duplicate evidence overwriting stronger security evidence while STRIDE/CWE are dropped; non-cryptographic large-file cache keys; Fixer scope authorizing manual-review items; and symlink paths escaping the repository scope. Production patches must make these tests pass without editing the sealed check.
+
+## Iteration 12 — deep precision hardening — passed
+
+The nine adversarial regressions now pass. The sealed check exited 0 with all
+190 tests passing, generated assets current, preflight successful, and package
+inventory valid. Scope is realpath-contained, findings are chunk-bound, worker
+source mutation fails closed, token budgets are enforced per concrete chunk,
+evidence merges preserve security metadata, large files use SHA-256, and Fixer
+authorization excludes manual-review and report-only findings.
