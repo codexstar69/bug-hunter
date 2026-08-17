@@ -32,10 +32,22 @@ jobs:
       - name: Verify and extract implementation payload
         run: |
           cat .loop/world-class-payload/part-* | base64 --decode > /tmp/world-class-payload.tar.xz
-          echo "PAYLOAD_SHA256  /tmp/world-class-payload.tar.xz" | sed "s/PAYLOAD_SHA256/${WORLD_CLASS_PAYLOAD_SHA256}/" | sha256sum --check
+          echo "${WORLD_CLASS_PAYLOAD_SHA256}  /tmp/world-class-payload.tar.xz" | sha256sum --check
           tar -xJf /tmp/world-class-payload.tar.xz -C .
         env:
           WORLD_CLASS_PAYLOAD_SHA256: e8b4f9ba2551e6176451bca167eb2c8692ca3293a2fe7a49cc1e8a18c8f0d2fc
+
+      - name: Correct and verify integration patcher
+        run: |
+          base64 --decode .loop/world-class-patcher-fix.b64 > /tmp/world-class-patcher-fix.xz
+          echo "${WORLD_CLASS_PATCH_FIX_SHA256}  /tmp/world-class-patcher-fix.xz" | sha256sum --check
+          xz -dc /tmp/world-class-patcher-fix.xz | patch -p1 --batch --forward
+          node --check .loop/apply-world-class-core.cjs
+          actual="$(sha256sum .loop/apply-world-class-core.cjs | awk '{print $1}')"
+          test "$actual" = "$WORLD_CLASS_PATCHER_SHA256"
+        env:
+          WORLD_CLASS_PATCH_FIX_SHA256: 786da37938a67651539ce93c2c2bb4d1119319ed2197f252232379b5d1ebca81
+          WORLD_CLASS_PATCHER_SHA256: a159a8e75806261b94a8b22a7c24d5a7746d31a637bbd855df18fd293230ad21
 
       - name: Apply runner and package integration
         run: node .loop/apply-world-class-core.cjs
@@ -67,7 +79,7 @@ jobs:
         run: node .loop/record-world-class-pass.cjs
 
       - name: Remove temporary transport
-        run: rm -rf .loop/world-class-payload .loop/apply-world-class-core.cjs .loop/record-world-class-pass.cjs .github/workflows/world-class-apply.yml
+        run: rm -rf .loop/world-class-payload .loop/world-class-patcher-fix.b64 .loop/apply-world-class-core.cjs .loop/record-world-class-pass.cjs .github/workflows/world-class-apply.yml
 
       - name: Commit verified implementation
         run: |
@@ -77,6 +89,7 @@ jobs:
             .loop/progress.md \
             .loop/journal.md \
             .loop/world-class-payload \
+            .loop/world-class-patcher-fix.b64 \
             .loop/apply-world-class-core.cjs \
             .loop/record-world-class-pass.cjs \
             .github/workflows/world-class-apply.yml \
@@ -107,8 +120,9 @@ jobs:
             scripts/run-bug-hunter.cjs \
             scripts/tests/world-class-protocol.test.cjs \
             scripts/tests/run-bug-hunter.test.cjs \
+            scripts/tests/schema-runtime.test.cjs \
             skills/hunter/SKILL.md \
             prompts/hunter.md
           git diff --cached --check
-          git commit -m 'loop: iteration 2 - measurable world-class protocol'
+          git commit -m 'loop: iteration 3 - measurable world-class protocol'
           git push origin HEAD:loop/precision-bug-hunting-protocol
