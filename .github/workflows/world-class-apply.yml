@@ -90,8 +90,6 @@ jobs:
             .loop/journal.md \
             .loop/world-class-payload \
             .loop/world-class-patcher-fix.b64 \
-            .loop/apply-world-class-core.cjs \
-            .loop/record-world-class-pass.cjs \
             .github/workflows/world-class-apply.yml \
             .github/workflows/ci.yml \
             README.md \
