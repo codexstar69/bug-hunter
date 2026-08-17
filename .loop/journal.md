@@ -22,3 +22,7 @@ The setup assertion failed exactly as expected and the complete patch payload ap
 ## Iteration 3 — patch transport — failed
 
 The corrected payload was uploaded as one long compressed Base64 line, but GitHub Actions detected a gzip CRC/length mismatch before executing it. No repository source changes were applied. The transport is being replaced with ordered 1.8 KB parts that are locally concatenated, decoded, decompressed, and byte-compared before publication.
+
+## Iteration 4 — regression gate — failed
+
+The chunked patch transport and SHA check passed, the patch applied, and generated assets were current. The actual sealed check failed with four regressions: a newline-escaping SyntaxError in the new test, two existing security fixtures missing newly required STRIDE/CWE fields, and one resume fixture emitting an empty cross-reference list. The workflow also lacked `pipefail`, so its step metadata incorrectly reported success. The next retry fixes all four fixtures and makes pipeline failure propagation explicit.
