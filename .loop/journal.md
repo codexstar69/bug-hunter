@@ -38,3 +38,7 @@ Applied the centralized source catalog, order preservation, adaptive source-toke
 ## Iteration 7 — sealed completion gate — passed
 
 The sealed `.loop/check.sh` exited 0: generated assets were current, all 176 tests passed, preflight passed, and package inventory passed.
+
+## Iteration 8 — draft PR validation — passed
+
+Opened draft PR #2. The PR-triggered sealed precision gate passed, Node 22 CI passed, and Node 24 CI passed including package inventory verification.

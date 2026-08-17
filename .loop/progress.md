@@ -8,4 +8,4 @@
 - [x] Remove the Hunter/Skeptic rate-limit contradiction and make examples conditional.
 - [x] Add precision-protocol documentation and regression tests.
 - [x] Regenerate validators and pass the sealed loop check.
-- [ ] Open a draft PR and confirm GitHub Actions passes.
+- [x] Open a draft PR and confirm GitHub Actions passes.
