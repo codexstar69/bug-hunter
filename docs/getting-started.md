@@ -1,17 +1,12 @@
 ---
 title: Getting started
 description: >
-  Install Bug Hunter, verify the target, run a scan-only audit, and read the
-  result.
+  Install Bug Hunter, verify the target, run a scan-only audit, and interpret
+  the current precision-first result.
 prompt: |
-  can we do that so everything is end to end seamless and anyone and
-  specially agents can understand easily how to use it all properly
-
-  you removed a lot of content that helped rank it om google - bring it back
-
-  Use @README.md, @bin/bug-hunter, @SKILL.md,
-  @docs/agent-installation.md, @docs/usage-guide.md,
-  @docs/how-it-works.md, and @docs/troubleshooting.md as source material.
+  Guide a user through installing and verifying Bug Hunter, running a safe
+  scan-only audit, understanding unresolved results, and choosing loop or plan
+  modes without granting unintended mutation authority.
 ---
 
 # Getting started
@@ -20,91 +15,127 @@ prompt: |
 
 You need:
 
-- Node.js 22 or newer
-- Git
-- a coding agent that can read skill files and run shell commands
-- a repository to audit
+- Node.js 22 or newer;
+- Git for branch/PR scope and the complete fix pipeline;
+- a coding agent that can read skill files and run normal repository checks;
+- a repository to audit.
 
-The default workflow does not edit source files.
+The default workflow is **scan-only and single-pass**. It does not edit source
+files. Use `--loop` when you explicitly want the queued scope worked until
+coverage completes.
 
 ## 1. Install for one agent
 
-This example installs Bug Hunter for Codex:
+For the latest published package, install Bug Hunter for Codex with:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+```
+
+Use another target when needed, for example:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent claude-code
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent cursor
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent copilot
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent droid
+```
+
+If you intentionally want the current GitHub `main` source instead of the
+latest published package:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 ```
 
-Use another target when needed:
-
-```bash
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent claude-code
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent cursor
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent copilot
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent droid
-```
-
-See [agent installation](agent-installation.md) for every supported target.
+See [agent installation](agent-installation.md) for every supported target,
+source installs, custom paths, and updates.
 
 ## 2. Verify the installed copy
 
-Use the same target you installed:
+Use the same package source and target you installed.
+
+Published package:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+Current GitHub source:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
-A complete check includes:
-
-```text
-[ok] Bug Hunter runtime v<current-version> is current and complete
-Ready to hunt bugs.
-```
-
-The reported version follows the package running the command. If it differs
-from the example, use the reported version.
+A complete target check reports that the managed runtime and install manifest
+are current for the CLI package performing the check. Do not mix an old global
+CLI with a newer source install when diagnosing version mismatches.
 
 Restart the coding agent if it was open during installation.
 
 ## 3. Open the repository
 
-Start your coding agent in the root of the repository you want to audit. The
-agent should have permission to read the repository and run its normal
-validation commands.
+Start your coding agent in the repository root. The agent should have permission
+to read source and run the project's normal validation commands.
 
-## 4. Request a scan
+## 4. Request the safe first scan
 
-Send this natural-language prompt:
+Send this portable natural-language prompt:
 
 ```text
 Use the bug-hunter skill to scan this repository. Do not edit files.
-Return the final report and call out every item that needs manual review.
+Return the final report and call out every manual-review or unreviewed item.
 ```
 
-If your agent supports slash skill commands, this is the shorter equivalent:
+If the agent exposes slash skill commands, the short form is:
 
 ```text
 /bug-hunter
 ```
 
 Natural language is preferred in shared instructions because it works across
-different agent interfaces.
+agent interfaces.
 
-## 5. Review the result
+## 5. Understand what the scan is doing
+
+The current pipeline is precision-first:
+
+```text
+triage -> optional adaptive plan -> Recon -> retrieval -> Hunter
+       -> Skeptic -> Referee -> optional hybrid verification -> report
+```
+
+Important guarantees include risk-ordered scope, token-bounded chunks,
+source-hash integrity, assigned-file enforcement, truthful per-file coverage,
+and fail-closed required verification.
+
+The public skill defaults to one pass. For large targets where you require the
+entire queued scope to reach a terminal coverage state, request:
+
+```text
+/bug-hunter --loop
+```
+
+## 6. Review the result
 
 Start with:
 
-- `.bug-hunter/report.md` for the human-readable report
-- `.bug-hunter/scan-report.json` for automation
-- `.bug-hunter/referee.json` for final verdict evidence
-- `.bug-hunter/coverage.json` when a coverage loop was requested
+- `.bug-hunter/report.md` — human-readable report;
+- `.bug-hunter/scan-report.json` — joined machine-readable result;
+- `.bug-hunter/referee.json` — final verdict evidence;
+- `.bug-hunter/coverage.json` — per-file coverage when persisted/loop work is
+  used;
+- `.bug-hunter/verification-report.json` — hybrid verification evidence when
+  requested;
+- `.bug-hunter/adaptive-plan.json` and `.bug-hunter/retrieval-plan.json` —
+  bounded execution/retrieval policy when those layers are active.
 
-Treat `manual-review` and `unreviewed` items as unresolved. They are not clean
-results.
+Treat `manual-review`, `unreviewed`, failed coverage, and required-verification
+failure as unresolved. They are not clean results.
 
-## 6. Plan fixes without editing
+## 7. Plan fixes without editing
 
-After reading the report, request a plan:
+After reviewing the report:
 
 ```text
 Use the existing Bug Hunter findings to build a fix plan. Do not edit files.
@@ -116,9 +147,10 @@ Slash form:
 /bug-hunter --plan
 ```
 
-Review `.bug-hunter/fix-strategy.json` and `.bug-hunter/fix-plan.json`.
+Review `.bug-hunter/fix-strategy.json`, `.bug-hunter/fix-plan.json`, and the
+resulting immutable scope before any mutation run.
 
-## 7. Apply reviewed fixes
+## 8. Apply reviewed fixes
 
 When the plan is acceptable:
 
@@ -134,14 +166,22 @@ Slash form:
 ```
 
 `--approve` requests the host's reviewed/default permission mode. Approval
-prompts depend on the coding agent. Use `--plan` or `--preview` when source
-edits must be impossible.
+prompt behavior depends on the coding agent. `--auto-commit` is separate and
+must not be assumed from edit permission.
 
 Do not grant autonomous fixing or commit permission unless that behavior is
 intended.
 
+## Quality note
+
+The bundled benchmark and `pnpm quality:world-class` validate Bug Hunter's
+measurement and regression contracts. They do not prove universal superiority
+across every repository or model. See [world-class protocol](world-class-protocol.md).
+
 ## Next steps
 
-- [Usage guide](usage-guide.md) for pull requests, security reviews, and paths
-- [How it works](how-it-works.md) for trust boundaries and artifacts
-- [Troubleshooting](troubleshooting.md) when installation or discovery fails
+- [Usage guide](usage-guide.md) for PRs, security reviews, loop scans, and paths;
+- [How it works](how-it-works.md) for trust boundaries and canonical artifacts;
+- [Precision protocol](precision-protocol.md) for fail-closed evidence rules;
+- [World-class protocol](world-class-protocol.md) for adaptive/benchmark design;
+- [Troubleshooting](troubleshooting.md) when installation or discovery fails.
