@@ -1,22 +1,23 @@
-# Task: precision-first Bug Hunter optimization
+# Task: measurable world-class Bug Hunter protocol
 
-Improve Bug Hunter so it catches real behavioral and security bugs with less wasted context, faster deterministic scoping, and stricter evidence validation.
+Implement the complete next-stage Bug Hunter architecture so quality claims are backed by repeatable evidence rather than opinion. The implementation must measure real bug yield, false positives, stability, severity calibration, token cost, latency, coverage, and verification outcomes while preserving the precision-first fail-closed guarantees already completed.
 
 ## Done criterion
 
 The task is done only when the sealed `.loop/check.sh` exits 0 after all of the following are true:
 
-1. Source-language discovery is centralized so triage and code-index cannot silently drift.
-2. Risk-prioritized input order survives state initialization and delta expansion.
-3. Worker chunk sizing adapts to a bounded source-token budget unless the caller explicitly overrides it.
-4. Missing files fail the scan closed instead of being reported as completed coverage.
-5. Security findings require concrete STRIDE/CWE evidence and non-empty cross-references.
-6. Skeptic guidance no longer auto-dismisses exploitable authentication or abuse-rate-limit failures.
-7. Calibration examples load only when useful instead of on every chunk.
-8. Regression tests, generated validators, preflight, and package inventory all pass.
+1. A hidden-label benchmark harness computes per-run and aggregate precision, recall, F1, severity-weighted recall, calibration, stability, token efficiency, latency, coverage, and false positives per KLOC.
+2. Public benchmark metadata is mechanically checked for label leakage and cryptographically bound to private labels.
+3. Adaptive fast, balanced, and assurance profiles convert triage and historical benchmark evidence into bounded budgets, reviewer depth, early stopping, verification, and reasoning policies.
+4. Hybrid verification executes compiler, test, static-analysis, build, or fuzz checks through inert argv arrays with repository containment, time and output budgets, and required-check fail-closed behavior.
+5. Content-addressed evidence caching reuses facts only for an exact protocol, hypothesis, option, and source-content identity.
+6. Symbol- and dependency-aware retrieval planning prioritizes named hypotheses under a hard context budget.
+7. The core runner accepts adaptive plans, hybrid verification plans, evidence-cache configuration, and emits validated artifacts without weakening default compatibility.
+8. Canonical schemas, package inventory, documentation, tests, deterministic benchmark fixtures, generated validators, preflight, and CI all pass.
+9. The existing precision-first loop state is preserved unchanged under `.loop-history/precision-first-2026-08-17/`.
 
 ## Sealed check
 
-SHA-256: `6076d770c0ef7af821af66ac0a9559225fd4bea4bec9442cbf6352cd11091f0a`
+SHA-256: `51f16f795feecfbe7896d51da3684c7da09777984b1c81c2323136fb14ca18ee`
 
 This file and `.loop/check.sh` are immutable after setup.
