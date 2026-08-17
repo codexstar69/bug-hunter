@@ -63,3 +63,7 @@ inventory valid. Scope is realpath-contained, findings are chunk-bound, worker
 source mutation fails closed, token budgets are enforced per concrete chunk,
 evidence merges preserve security metadata, large files use SHA-256, and Fixer
 authorization excludes manual-review and report-only findings.
+
+## Iteration 13 — final PR-head verification — in progress
+
+The verified hardening commit was created by GitHub Actions, whose workflow token cannot recursively trigger pull-request workflows. This ledger-only commit intentionally triggers the Node 22/24 CI matrix and the sealed precision gate on the exact hardened tree.
