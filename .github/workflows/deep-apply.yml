@@ -29,6 +29,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Correct patch transport function boundary
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const patcher = '.loop/apply-deep-precision.cjs';
+          let content = fs.readFileSync(patcher, 'utf8');
+          const target = "function main() {\\n`" + "\n  );";
+          const replacement = "`\n  );";
+          if (!content.includes(target)) {
+            throw new Error('deep patch transport boundary target not found');
+          }
+          content = content.replace(target, replacement);
+          fs.writeFileSync(patcher, content, 'utf8');
+          NODE
+
       - name: Apply deep precision patch
         run: node .loop/apply-deep-precision.cjs
 
