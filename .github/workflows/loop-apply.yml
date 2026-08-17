@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: "github.event.head_commit.message == 'loop: retry precision patch 2'"
+    if: "github.event.head_commit.message == 'loop: retry chunked precision patch 1'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -46,10 +46,14 @@ jobs:
           test "$status" -ne 0
           printf '%s\n' "$output" | grep -F 'ASSERTION FAILED: required precision-protocol file is missing: scripts/source-config.cjs'
 
-      - name: Apply precision protocol changes
+      - name: Reconstruct and verify precision patcher
         run: |
-          base64 -d .loop/apply-precision-patches.cjs.gz.b64 | gzip -d > /tmp/apply-precision-patches.cjs
-          node /tmp/apply-precision-patches.cjs
+          cat .loop/patch-parts/part-* | base64 -d | gzip -d > /tmp/apply-precision-patches.cjs
+          echo '646986c6e4b12fc8b9cd7428966b8a9bb389a07012ca50144072c8c4e2bd4c58  /tmp/apply-precision-patches.cjs' | sha256sum --check
+          node --check /tmp/apply-precision-patches.cjs
+
+      - name: Apply precision protocol changes
+        run: node /tmp/apply-precision-patches.cjs
 
       - name: Regenerate runtime assets
         run: |
@@ -62,7 +66,7 @@ jobs:
       - name: Record passing gate
         run: |
           {
-            printf '\n## Iteration 4 - sealed completion gate - passed\n\n'
+            printf '\n## Iteration 5 - sealed completion gate - passed\n\n'
             printf '```text\n'
             cat /tmp/loop-check-output.txt
             printf '```\n'
@@ -76,6 +80,7 @@ jobs:
             .loop/progress.md \
             .loop/journal.md \
             .loop/apply-precision-patches.cjs.gz.b64 \
+            .loop/patch-parts \
             .github/workflows/loop-apply.yml \
             scripts/source-config.cjs \
             scripts/triage.cjs \
@@ -95,5 +100,5 @@ jobs:
             package.json \
             SKILL.md
           git diff --cached --check
-          git commit -m 'loop: iteration 3 - precision-first bug hunting'
+          git commit -m 'loop: iteration 4 - precision-first bug hunting'
           git push origin HEAD:loop/precision-bug-hunting-protocol
