@@ -55,8 +55,8 @@ Install the latest public package for your agent. Replace `codex` with a target
 from the table below.
 
 ```bash
-npx --yes @codexstar/bug-hunter@latest install --agent codex
-npx --yes @codexstar/bug-hunter@latest doctor --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
 ```
 
 To install directly from the current GitHub source instead:
