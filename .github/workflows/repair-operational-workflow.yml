@@ -1,0 +1,31 @@
+name: Repair operational hardening workflow
+
+on:
+  push:
+    branches:
+      - chore/world-class-freshness-pass
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: chore/world-class-freshness-pass
+          fetch-depth: 0
+
+      - name: Repair and remove one-use trigger
+        shell: bash
+        run: |
+          sed -i "/github.actor != 'github-actions\[bot\]'/d" .github/workflows/world-class-operational-pass.yml
+          rm .github/workflows/repair-operational-workflow.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            .github/workflows/world-class-operational-pass.yml \
+            .github/workflows/repair-operational-workflow.yml
+          git commit -m "tooling: repair one-use operational workflow"
+          git push origin HEAD:chore/world-class-freshness-pass
