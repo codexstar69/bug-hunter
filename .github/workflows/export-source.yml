@@ -10,30 +10,30 @@ permissions:
 
 jobs:
   export:
-    if: "github.event.head_commit.message == 'tooling: upload source artifact'"
+    if: "github.event.head_commit.message == 'tooling: upload dependencies'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build compact source archive
-        run: |
-          set -euo pipefail
-          tar \
-            --exclude=.git \
-            --exclude=node_modules \
-            --exclude=docs/images \
-            --exclude=.bug-hunter \
-            --exclude=tmp \
-            --exclude=.loop/source-snapshot.tgz.b64 \
-            --exclude=.loop/source-snapshot.part-* \
-            --exclude=.loop/source-snapshot.parts \
-            --exclude=.loop/source-snapshot.sha256 \
-            -czf /tmp/bug-hunter-source.tgz .
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.1
 
-      - name: Upload source archive
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle dependencies
+        run: tar -czf /tmp/bug-hunter-node-modules.tgz node_modules
+
+      - name: Upload dependency archive
         uses: actions/upload-artifact@v4
         with:
-          name: bug-hunter-source-snapshot
-          path: /tmp/bug-hunter-source.tgz
+          name: bug-hunter-node-modules
+          path: /tmp/bug-hunter-node-modules.tgz
           if-no-files-found: error
           retention-days: 1
