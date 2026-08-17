@@ -33,7 +33,6 @@ jobs:
           python <<'PY'
           from pathlib import Path
           import re
-          import textwrap
 
           carrier = Path('.github/workflows/world-class-operational-pass.yml').read_text(encoding='utf-8')
           match = re.search(
@@ -43,7 +42,10 @@ jobs:
           )
           if not match:
               raise SystemExit('embedded operational patch was not found')
-          script = textwrap.dedent(match.group('body'))
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in match.group('body').splitlines()
+          ) + '\n'
           script = script.replace(
               "\nworkflow = Path('.github/workflows/world-class-operational-pass.yml')\nworkflow.unlink()\n",
               "\n",
