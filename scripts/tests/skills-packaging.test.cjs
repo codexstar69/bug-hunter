@@ -43,7 +43,7 @@ test('CI uses supported Node releases and installs the locked toolchain', () => 
   assert.doesNotMatch(workflow, /node-version: \[(?:18|20)/);
 });
 
-test('publish workflow is release-only and uses npm trusted publishing', () => {
+test('publish workflow is release-only, provenance-bound, and quality-gated', () => {
   const workflow = fs.readFileSync(
     resolveSkillScript('..', '.github', 'workflows', 'publish.yml'),
     'utf8'
@@ -56,5 +56,11 @@ test('publish workflow is release-only and uses npm trusted publishing', () => {
   assert.match(workflow, /pnpm\/action-setup@v6/);
   assert.match(workflow, /actions\/setup-node@v7/);
   assert.match(workflow, /refs\/remotes\/origin\/main/);
+  assert.match(workflow, /pnpm check:generated/);
+  assert.match(workflow, /pnpm test/);
+  assert.match(workflow, /pnpm benchmark:gate/);
+  assert.match(workflow, /node scripts\/run-bug-hunter\.cjs preflight --skill-dir \./);
+  assert.match(workflow, /pnpm verify:package/);
+  assert.match(workflow, /cancel-in-progress: false/);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN/);
 });
