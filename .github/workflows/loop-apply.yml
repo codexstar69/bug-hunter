@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: "github.event.head_commit.message == 'loop: retry chunked precision patch 1'"
+    if: "github.event.head_commit.message == 'loop: retry precision regressions 1'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,8 +48,22 @@ jobs:
 
       - name: Reconstruct and verify precision patcher
         run: |
-          cat .loop/patch-parts/part-* | base64 -d | gzip -d > /tmp/apply-precision-patches.cjs
-          echo '646986c6e4b12fc8b9cd7428966b8a9bb389a07012ca50144072c8c4e2bd4c58  /tmp/apply-precision-patches.cjs' | sha256sum --check
+          cat \
+            .loop/patch-parts/part-00 \
+            .loop/patch-parts/part-01 \
+            .loop/patch-parts/part-020 \
+            .loop/patch-parts/part-021 \
+            .loop/patch-parts/part-022 \
+            .loop/patch-parts/part-030 \
+            .loop/patch-parts/part-031 \
+            .loop/patch-parts/part-032 \
+            .loop/patch-parts/part-040 \
+            .loop/patch-parts/part-041 \
+            .loop/patch-parts/part-042 \
+            .loop/patch-parts/part-050 \
+            .loop/patch-parts/part-051 \
+            | base64 -d | gzip -d > /tmp/apply-precision-patches.cjs
+          echo '50ad477d0fc84ae201acbe37781b6721e32cdff6e96a98e8ad1b6950a33d9c96  /tmp/apply-precision-patches.cjs' | sha256sum --check
           node --check /tmp/apply-precision-patches.cjs
 
       - name: Apply precision protocol changes
@@ -61,15 +75,15 @@ jobs:
           pnpm generate:compat-prompts
 
       - name: Run sealed completion gate
-        run: bash .loop/check.sh | tee /tmp/loop-check-output.txt
+        run: |
+          set -o pipefail
+          bash .loop/check.sh | tee /tmp/loop-check-output.txt
 
       - name: Record passing gate
         run: |
           {
-            printf '\n## Iteration 5 - sealed completion gate - passed\n\n'
-            printf '```text\n'
-            cat /tmp/loop-check-output.txt
-            printf '```\n'
+            printf '\n## Iteration 6 — sealed completion gate — passed\n\n'
+            printf 'The sealed `.loop/check.sh` exited 0: generated assets were current, all tests passed, preflight passed, and package inventory passed.\n'
           } >> .loop/journal.md
 
       - name: Commit verified implementation
@@ -90,6 +104,7 @@ jobs:
             scripts/run-bug-hunter.cjs \
             scripts/generated-schema-validators.cjs \
             scripts/tests/run-bug-hunter.test.cjs \
+            scripts/tests/render-report.test.cjs \
             scripts/tests/precision-protocol.test.cjs \
             schemas/findings.schema.json \
             skills/hunter/SKILL.md \
@@ -100,5 +115,5 @@ jobs:
             package.json \
             SKILL.md
           git diff --cached --check
-          git commit -m 'loop: iteration 4 - precision-first bug hunting'
+          git commit -m 'loop: iteration 5 - precision-first bug hunting'
           git push origin HEAD:loop/precision-bug-hunting-protocol
