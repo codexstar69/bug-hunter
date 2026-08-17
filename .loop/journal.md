@@ -39,3 +39,7 @@ On head `7d167221b905aa8e947e00fd25e3e875e1428908`, the immutable sealed world-c
 ## Iteration 7 — cleanup claim correction and exact-tree verification — in progress
 
 The prior ledger-close entry overstated cleanup: the temporary `export-source.yml` workflow and the `.loop/source-snapshot.*` transport files were still present. This atomic correction removes those helper artifacts, records the cleanup explicitly in the progress ledger, and triggers the immutable sealed gate plus the Node.js 22/24 pull-request matrix on the exact cleaned implementation tree. No production, benchmark, schema, package, or test behavior changes.
+
+## Iteration 8 — cleaned implementation verification — passed
+
+On cleaned head `34feb1e510e41def1e085048e517d3e29fe51c5e`, the immutable sealed world-class gate passed, Node.js 22 CI passed, and Node.js 24 CI passed with the permanent benchmark quality gate, generated-runtime checks, all 209 tests, preflight, package inventory, executable-bit, version, and help checks. The final tree contains only the permanent `ci.yml`, `loop-check.yml`, and `publish.yml` workflows; `.loop/` contains only the sealed task, check, completed progress ledger, and journal. This append-only close record changes no implementation behavior and is the final verification target.
