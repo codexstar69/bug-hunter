@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   export:
-    if: "github.event.head_commit.message == 'tooling: export split source snapshot'"
+    if: "github.event.head_commit.message == 'tooling: export wrapped source snapshot'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,8 +32,8 @@ jobs:
             --exclude=.loop/source-snapshot.parts \
             --exclude=.loop/source-snapshot.sha256 \
             -czf /tmp/bug-hunter-source.tgz .
-          base64 -w 0 /tmp/bug-hunter-source.tgz > /tmp/bug-hunter-source.tgz.b64
-          split -b 35000 -d -a 3 /tmp/bug-hunter-source.tgz.b64 .loop/source-snapshot.part-
+          base64 -w 2000 /tmp/bug-hunter-source.tgz > /tmp/bug-hunter-source.tgz.b64
+          split -l 10 -d -a 3 /tmp/bug-hunter-source.tgz.b64 .loop/source-snapshot.part-
           find .loop -maxdepth 1 -type f -name 'source-snapshot.part-*' -printf '%f\n' | sort > .loop/source-snapshot.parts
           sha256sum /tmp/bug-hunter-source.tgz | awk '{print $1}' > .loop/source-snapshot.sha256
 
@@ -43,5 +43,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- .loop/source-snapshot.tgz.b64 .loop/source-snapshot.sha256 .loop/source-snapshot.parts .loop/source-snapshot.part-*
-          git commit -m 'tooling: split source snapshot'
+          git commit -m 'tooling: wrapped source snapshot'
           git push origin HEAD:loop/precision-bug-hunting-protocol
