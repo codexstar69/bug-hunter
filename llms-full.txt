@@ -154,9 +154,10 @@ expands source scope or mutation authority.
 then admits optional symbol/dependency/dependent/trust-boundary context while
 file and token budgets remain. Every selected item records why it was selected.
 
-`evidence-cache.cjs` reuses fact context only when protocol identity, role,
-relevant options, hypothesis identity, and exact source hashes match. Cache hits
-are hints, not findings, and never replace current source-integrity checks.
+The content-addressed evidence cache (`evidence-cache.cjs`) reuses fact context
+only when protocol identity, role, relevant options, hypothesis identity, and
+exact source hashes match. Cache hits are hints, not findings, and never replace
+current source-integrity checks.
 
 ## Hybrid verification
 
