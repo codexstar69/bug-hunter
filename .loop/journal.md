@@ -46,3 +46,7 @@ Opened draft PR #2. The PR-triggered sealed precision gate passed, Node 22 CI pa
 ## Iteration 9 — verification count correction — complete
 
 Corrected the stale test-count note from 176 to the final executed total of 181. No production or test code changed.
+
+## Iteration 10 — deep adversarial cross-check — in progress
+
+Reopened the completed implementation for an end-to-end audit rather than relying on the green test suite. The new pass traces discovery, delta selection, chunk construction, hash evidence, retries/resume, Referee authorization, and Fixer scope. Candidate defects will be reproduced with focused regression tests before any production patch is accepted.
