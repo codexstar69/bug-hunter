@@ -32,18 +32,39 @@ prompt: |
 
 Bug Hunter is an AI-agent skill for code review and security auditing. A Hunter finds possible bugs, a Skeptic challenges each claim, and a Referee decides what the evidence supports. The default run only scans and reports. Editing, autonomous fixing, and commits each require explicit permission.
 
+## v3.2.0 — measurable, adaptive bug hunting
+
+This release makes the precision-first pipeline measurable and adaptive while preserving the existing scan-only default and fail-closed safety boundaries.
+
+- **Measurable benchmark quality gate** scores one-to-one finding matches, precision, recall, F1, severity-weighted recall, false positives per KLOC, calibration, repeat stability, token usage, latency, and cost data when supplied.
+- **Adaptive execution profiles** select `fast`, `balanced`, or `assurance` behavior from triage risk, security scope, benchmark evidence, stability, calibration, and token efficiency.
+- **Hybrid verification** safely runs argv-only tests, type checks, static checks, fuzz checks, and security-static checks, and fails closed when required verification fails or is unavailable.
+- **Exact evidence caching** reuses evidence only when source content, protocol identity, role, and relevant configuration match exactly; changed source cannot inherit stale conclusions.
+- **Hypothesis-driven retrieval** prioritizes direct files, symbols, dependencies, dependents, cross-references, and trust boundaries under hard context budgets.
+- **Stronger source integrity** keeps scan scope, source hashes, resume identity, coverage state, and Fixer authorization explicit and rejects source drift.
+- **Permanent CI quality gates** verify Node.js 22 and 24; the Node.js 24 lane also runs the benchmark quality gate and package inventory verification.
+- **Bundled security workflows** cover PR-focused security review, full repository security review, STRIDE threat modeling, vulnerability validation, and supported dependency CVE scanning.
+
+The bundled deterministic regression fixture currently records precision `1.00`, recall `1.00`, F1 `1.00`, repeat stability `1.00`, zero false positives, median `12,090` tokens per true positive, p95 duration `61.3s`, and expected calibration error about `0.048`. These figures validate the bundled harness and fixture; they are not an independent benchmark of every repository or model.
+
+See [the measurable world-class protocol](docs/world-class-protocol.md) for the full architecture, artifact contracts, quality thresholds, and verification design.
+
 ## TL;DR
 
-Install the current GitHub source for your agent. Replace `codex` with a target
+Install the latest public package for your agent. Replace `codex` with a target
 from the table below.
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+To install directly from the current GitHub source instead:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
-
-The npm `latest` tag still points to an older release while `3.1.1` publishing
-is pending. The GitHub command above installs the runtime documented here.
 
 Restart the agent if it was open during installation. Then send this prompt from the repository you want to audit:
 
