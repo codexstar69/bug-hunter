@@ -1,6 +1,6 @@
 # Progress
 
-- [ ] Archive the completed precision-first loop without modifying its contents.
+- [x] Archive the completed precision-first loop without modifying its contents.
 - [ ] Add the hidden-label benchmark corpus contract and quality/cost scorer.
 - [ ] Add deterministic adaptive execution profiles driven by triage and benchmark evidence.
 - [ ] Add safe hybrid verification with required-check fail-closed semantics.
