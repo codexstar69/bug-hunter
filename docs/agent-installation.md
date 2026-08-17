@@ -2,35 +2,39 @@
 title: Agent installation
 description: >
   Install, verify, update, and remove Bug Hunter for each supported coding
-  agent.
+  agent using either the published package or current GitHub source.
 prompt: |
-  can we do that so everything is end to end seamless and anyone and
-  specially agents can understand easily how to use it all properly
-
-  you removed a lot of content that helped rank it om google - bring it back
-
-  Use @README.md, @bin/bug-hunter, @package.json,
-  @docs/getting-started.md, and @docs/troubleshooting.md as source material.
+  Install or update Bug Hunter for the requested coding agent, keep package
+  source and doctor source consistent, preserve user-owned files, and explain
+  when to use the published package versus current GitHub source.
 ---
 
 # Agent installation
 
-## Install the current GitHub source
+## Choose the package source
 
-Pass the target explicitly:
+Use the **latest published npm package** for normal installations:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+Use the **current GitHub `main` source** only when you intentionally want code
+that may be newer than the latest published release:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
+npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
-The npm `latest` tag still points to an older release while `3.1.1` publishing
-is pending. After npm catches up, `@codexstar/bug-hunter` can replace the
-GitHub package specifier.
+Keep `install` and `doctor` on the same package source when diagnosing version
+or manifest mismatches.
 
-The installer copies the complete managed runtime and writes
+The installer copies the managed runtime and writes
 `.bug-hunter-install-manifest.json`. Repeating the command performs an atomic
-upgrade. Managed files are replaced, while files not listed in the previous
-manifest are preserved.
+upgrade. Managed files are replaced; files not owned by the previous manifest
+are preserved.
 
 ## Agent targets
 
@@ -47,112 +51,136 @@ manifest are preserved.
 | Factory Droid CLI | `droid` | `~/.factory/skills/bug-hunter` |
 
 Install into several targets by running the command once for each target.
+Explicit target selection is preferred over auto-detection when multiple agents
+are installed.
 
 ## Factory Droid CLI
 
-The `droid` target installs into the personal skill directory that Droid reads
-for every repository:
+The `droid` target installs into the personal skill directory Droid reads for
+every repository:
 
 ```bash
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent droid
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent droid
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent droid
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent droid
 ```
 
-Droid also loads skills from these locations:
+Droid can also load:
 
-- `<repo>/.factory/skills/bug-hunter` — checked into one repository. Install it
-  with `--path "$PWD/.factory/skills/bug-hunter"`.
-- `~/.agents/skills/bug-hunter` — legacy shared location, which the `agents`
-  target already uses.
+- `<repo>/.factory/skills/bug-hunter` — project-scoped; install with
+  `--path "$PWD/.factory/skills/bug-hunter"`;
+- `~/.agents/skills/bug-hunter` — legacy shared location used by target
+  `agents`.
 
-Project-scoped skills take precedence over personal ones, so avoid installing
-both unless the repository must pin its own version. Restart `droid` after
-installing, then request a scan in natural language or with `/bug-hunter`.
+Project-scoped skills take precedence over personal ones. Avoid installing both
+unless the repository intentionally pins its own copy. Restart Droid after an
+install/update if it caches skill definitions.
 
 ## Verify a target
+
+Published package:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+Current GitHub source:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
-Target verification checks:
+Target verification checks include:
 
-- the install directory is a real directory
-- the managed manifest is valid
-- the installed package and manifest versions match
-- the manifest matches the current runtime inventory
-- every managed runtime file is present and is a regular file
+- the install directory resolves to a real directory;
+- the managed manifest is valid;
+- installed package and manifest versions agree;
+- the manifest matches the runtime inventory of the CLI performing the check;
+- every managed runtime file exists as a regular file.
 
-The check ignores user-owned files that are outside the managed manifest.
+User-owned files outside the managed manifest are ignored by the integrity
+comparison and preserved by normal upgrades.
 
 ## Custom directory
 
-Use `--path` when an agent reads skills from another directory:
+For an agent with a nonstandard skill path:
 
 ```bash
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install \
-  --path "$HOME/my-agent/skills/bug-hunter"
+npm exec --yes --package=@codexstar/bug-hunter@latest -- \
+  bug-hunter install --path "$HOME/my-agent/skills/bug-hunter"
 
-npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor \
-  --path "$HOME/my-agent/skills/bug-hunter"
+npm exec --yes --package=@codexstar/bug-hunter@latest -- \
+  bug-hunter doctor --path "$HOME/my-agent/skills/bug-hunter"
 ```
 
-`--path` takes precedence if both `--path` and `--agent` are present.
+For current GitHub source, use the same `--path` with the GitHub archive command.
+`--path` takes precedence when both `--path` and `--agent` are provided.
 
 ## Install from a cloned source checkout
 
-Use this path when testing an unreleased commit:
+Use a clone when developing or testing an unreleased commit:
 
 ```bash
 git clone https://github.com/codexstar69/bug-hunter.git
 cd bug-hunter
 pnpm install --frozen-lockfile
+pnpm quality:world-class
 node bin/bug-hunter install --agent codex
 node bin/bug-hunter doctor --agent codex
 ```
 
-The doctor command considers the source checkout's package version current.
+The doctor command treats the source checkout's package version/runtime
+inventory as the expected installed state.
 
 ## Update
 
-Run the same GitHub-source command again:
+Published package update:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+Current-source update:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
-Restart the coding agent after the update if it caches skill definitions.
+Restart the coding agent after updating if it caches skill definitions.
 
-## Install globally
+## Optional global CLI
 
 A global CLI is optional:
 
 ```bash
-npm install -g https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz
+npm install -g @codexstar/bug-hunter@latest
 bug-hunter install --agent codex
 bug-hunter doctor --agent codex
 ```
 
-Use `bug-hunter --version` to see the global CLI version.
+Use `bug-hunter --version` to inspect the CLI version. A globally installed old
+CLI should not be used to validate a newer current-source installation.
 
 ## Remove
 
-The CLI does not provide an uninstall command. Before removing a target:
+The CLI does not provide an uninstall command. Before manually removing a
+target:
 
-1. Read `.bug-hunter-install-manifest.json`.
-2. Check for files that are not listed in `managedFiles`.
-3. Preserve those user-owned files.
-4. Remove only the intended `bug-hunter` skill directory.
+1. read `.bug-hunter-install-manifest.json`;
+2. identify files not listed in `managedFiles`;
+3. preserve those user-owned files;
+4. remove only the intended `bug-hunter` skill directory.
 
-Do not recursively remove a broad skills directory.
+Do not recursively remove a broad parent skills directory.
 
 ## After installation
 
-Restart the coding agent, open the repository to audit, and send:
+Restart the agent, open the repository to audit, and send:
 
 ```text
 Use the bug-hunter skill to scan this repository. Do not edit files.
+Return the final report and call out every manual-review or unreviewed item.
 ```
 
 Continue with [getting started](getting-started.md).
