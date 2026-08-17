@@ -25,9 +25,9 @@ prompt: |
 
 Bug Hunter is an AI-agent skill for code review and security auditing. A Hunter finds possible bugs, a Skeptic challenges each claim, and a Referee decides what the evidence supports. The default run only scans and reports. It is single-pass unless `--loop` is explicitly requested. Editing, autonomous fixing, and commits each require explicit permission.
 
-## v3.2.0 — measurable, adaptive bug hunting
+## v3.2.0 source — measurable, adaptive bug hunting
 
-This release makes the precision-first pipeline measurable and adaptive while preserving the existing scan-only default and fail-closed safety boundaries.
+The current v3.2.0 source makes the precision-first pipeline measurable and adaptive while preserving the scan-only default and fail-closed safety boundaries. The latest published npm release may lag GitHub `main`; use the current-source command below when you need the exact implementation documented on this page.
 
 - **Measurable benchmark quality gate** scores one-to-one finding matches, precision, recall, F1, severity-weighted recall, false positives per KLOC, calibration, repeat stability, token usage, latency, and cost data when supplied.
 - **Adaptive execution profiles** select `fast`, `balanced`, or `assurance` behavior from triage risk, security scope, benchmark evidence, stability, calibration, and token efficiency.
@@ -44,19 +44,18 @@ See [the measurable world-class protocol](docs/world-class-protocol.md) for the 
 
 ## TL;DR
 
-Install the latest public package for your agent. Replace `codex` with a target
-from the table below.
-
-```bash
-npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
-npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
-```
-
-To install directly from the current GitHub source instead:
+Install the exact current GitHub source documented here. Replace `codex` with a target from the table below.
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
+```
+
+For the latest published npm release—which may lag current GitHub source—use:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
 ```
 
 Restart the agent if it was open during installation. Then send this prompt from the repository you want to audit:
