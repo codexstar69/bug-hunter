@@ -30,3 +30,11 @@ The chunked patch transport and SHA check passed, the patch applied, and generat
 ## Iteration 5 — precision protocol test — failed
 
 The exact reconstructed patcher passed its SHA-256 and syntax checks. All production changes and all 175 pre-existing tests passed. The sole remaining failure was a malformed regular expression in the new protocol regression test: the slash in `OTP/reset` was not preserved through the patcher's template literal. The patcher now emits an escaped slash, and the sealed gate remains unchanged.
+
+## Iteration 5 — precision protocol implementation — pending verification
+
+Applied the centralized source catalog, order preservation, adaptive source-token chunks, fail-closed missing-scope handling, security evidence schema, progressive example loading, qualified rate-limit analysis, documentation, and regression tests. Generated artifacts and the sealed gate run next.
+
+## Iteration 7 — sealed completion gate — passed
+
+The sealed `.loop/check.sh` exited 0: generated assets were current, all 176 tests passed, preflight passed, and package inventory passed.

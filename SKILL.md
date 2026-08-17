@@ -151,11 +151,13 @@ If after filtering there are zero source files left, tell the user: "No scannabl
 
 ## Context Budget
 
-**FILE_BUDGET is computed by the triage script (Step 1), not by Recon.** The triage script samples 30 files from the codebase, computes average line count, and derives:
+**FILE_BUDGET is computed by the triage script (Step 1), not by Recon.** The triage script samples up to 30 files, estimates source tokens from UTF-8 bytes, and reserves most of the model context for reasoning, cross-file verification, and output:
 ```
-avg_tokens_per_file = average_lines_per_file * 4
-FILE_BUDGET = floor(150000 / avg_tokens_per_file)   # capped at 60, floored at 10
+avg_tokens_per_file = ceil(average_utf8_bytes_per_file / 4)
+FILE_BUDGET = floor(48000 / avg_tokens_per_file)   # capped at 30, floored at 1
 ```
+
+The runtime applies the same 48,000-source-token budget to adaptive chunk sizing unless the caller explicitly supplies `--chunk-size` or `--max-source-tokens`. See `docs/precision-protocol.md` for the fail-closed evidence protocol.
 
 Triage also determines the strategy directly, so Step 3 just reads the triage output — no circular dependency.
 
@@ -175,7 +177,7 @@ If triage was not run (e.g., Recon was called directly without the orchestrator)
 **File partitioning rules (Extended/Scaled modes):**
 - **Service-aware partitioning (preferred)**: If Recon detected multiple service boundaries (monorepo), partition by service.
 - **Risk-tier partitioning (fallback)**: process CRITICAL then HIGH then MEDIUM then LOW.
-- Keep chunk size small (recommended 20-40 files) to avoid context compaction issues.
+- Use adaptive 1-30 file chunks sized against the source-token budget; explicit `--chunk-size` remains an override.
 - Persist chunk progress in `.bug-hunter/state.json` so restarts do not re-scan done chunks.
 - Test files (CONTEXT-ONLY) are included only when needed for intent.
 

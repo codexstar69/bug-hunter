@@ -61,6 +61,7 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
 
   for (const fileName of [
     'shared.cjs',
+    'source-config.cjs',
     'run-bug-hunter.cjs',
     'bug-hunter-state.cjs',
     'process-runner.cjs',
@@ -1011,7 +1012,7 @@ test('run-bug-hunter resumes only the matching explicit run identity', () => {
     "const attempts = fs.existsSync(attemptsPath) ? Number(fs.readFileSync(attemptsPath, 'utf8')) + 1 : 1;",
     "fs.writeFileSync(attemptsPath, String(attempts));",
     'if (attempts <= 2) process.exit(1);',
-    "fs.writeFileSync(findingsPath, JSON.stringify([{ bugId: 'BUG-resume', severity: 'Low', category: 'logic', file: 'source.ts', lines: '1', claim: 'resume succeeds', evidence: 'source.ts:1 evidence', runtimeTrigger: 'Run worker', crossReferences: [], confidenceScore: 90 }]));"
+    "fs.writeFileSync(findingsPath, JSON.stringify([{ bugId: 'BUG-resume', severity: 'Low', category: 'logic', file: 'source.ts', lines: '1', claim: 'resume succeeds', evidence: 'source.ts:1 evidence', runtimeTrigger: 'Run worker', crossReferences: ['Single file'], confidenceScore: 90 }]));"
   ].join('\n'), 'utf8');
   const baseArgs = [
     runner,

@@ -100,7 +100,7 @@ function nextChunkNumber(chunks) {
 }
 
 function buildInitialState({ mode, chunkSize, files }) {
-  const normalizedFiles = [...new Set(files)].sort();
+  const normalizedFiles = [...new Set(files.map((filePath) => String(filePath)))];
   const initializedAt = nowIso();
   return {
     schemaVersion: 3,
@@ -595,8 +595,7 @@ function main() {
     assertArray(files, 'filesJson');
     const existing = new Set(state.chunks.flatMap((chunk) => chunk.files));
     const toAppend = [...new Set(files.map((filePath) => String(filePath)))]
-      .filter((filePath) => !existing.has(filePath))
-      .sort();
+      .filter((filePath) => !existing.has(filePath));
     if (toAppend.length === 0) {
       console.log(JSON.stringify({ ok: true, appended: 0, chunksAdded: 0 }, null, 2));
       return;

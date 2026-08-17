@@ -4,21 +4,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const SOURCE_EXTENSIONS = [
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.py',
-  '.go',
-  '.rs',
-  '.java',
-  '.kt',
-  '.rb',
-  '.php'
-];
+const {
+  SOURCE_EXTENSION_LIST,
+  SOURCE_EXTENSIONS
+} = require('./source-config.cjs');
 
 const JS_CALL_KEYWORDS = new Set([
   'if',
@@ -64,7 +53,7 @@ function sha256(input) {
 }
 
 function isSupportedSource(filePath) {
-  return SOURCE_EXTENSIONS.includes(path.extname(filePath));
+  return SOURCE_EXTENSIONS.has(path.extname(filePath));
 }
 
 function isTestFile(filePath) {
@@ -232,8 +221,8 @@ function resolveRelativeImport(specifier, fromFilePath, fileSet) {
   const base = path.resolve(fromDir, specifier);
   const candidates = [
     base,
-    ...SOURCE_EXTENSIONS.map((ext) => `${base}${ext}`),
-    ...SOURCE_EXTENSIONS.map((ext) => path.join(base, `index${ext}`))
+    ...SOURCE_EXTENSION_LIST.map((ext) => `${base}${ext}`),
+    ...SOURCE_EXTENSION_LIST.map((ext) => path.join(base, `index${ext}`))
   ];
   for (const candidate of candidates) {
     if (fileSet.has(candidate)) {

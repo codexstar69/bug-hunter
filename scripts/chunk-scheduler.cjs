@@ -121,6 +121,23 @@ async function processPendingChunks({
 
     const hashFilterResult = runJsonScript(stateScript, ['hash-filter', statePath, chunkFilesJsonPath]);
     const scanFiles = hashFilterResult.scan || [];
+    const missingFiles = hashFilterResult.missing || [];
+    if (missingFiles.length > 0) {
+      const preview = missingFiles.slice(0, 3).join(', ');
+      const suffix = missingFiles.length > 3 ? ` (+${missingFiles.length - 3} more)` : '';
+      const errorMessage = `Assigned files disappeared before scanning: ${preview}${suffix}`;
+      appendJournal(journalPath, {
+        event: 'chunk-scope-missing',
+        chunkId: chunk.id,
+        missingCount: missingFiles.length,
+        missingFiles: missingFiles.slice(0, 20)
+      });
+      runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'failed', errorMessage.slice(0, 240)]);
+      if (failFast) {
+        throw new Error(`Chunk ${chunk.id} has missing assigned files and fail-fast is enabled`);
+      }
+      continue;
+    }
     if (scanFiles.length === 0) {
       appendJournal(journalPath, {
         event: 'chunk-skip',

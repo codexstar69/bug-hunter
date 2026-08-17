@@ -88,7 +88,9 @@
     "CODE_OF_CONDUCT.md",
     "llms.txt",
     "llms-full.txt",
-    "LICENSE"
+    "LICENSE",
+    "scripts/source-config.cjs",
+    "docs/precision-protocol.md"
   ],
   "repository": {
     "type": "git",

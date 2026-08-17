@@ -33,12 +33,11 @@ const path = require('path');
 const MAX_SCAN_DEPTH = 100;
 
 // ─── Source extensions ───────────────────────────────────────────────
-const SOURCE_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-  '.py', '.go', '.rs', '.java', '.kt', '.rb', '.php',
-  '.cs', '.cpp', '.c', '.h', '.hpp', '.swift', '.scala',
-  '.ex', '.exs', '.erl', '.hs', '.ml', '.clj', '.lua'
-]);
+const {
+  DEFAULT_SOURCE_TOKEN_BUDGET,
+  MAX_FILES_PER_CHUNK,
+  SOURCE_EXTENSIONS
+} = require('./source-config.cjs');
 
 const SOURCE_SHEBANG = /^#!.*\b(node|python|ruby|php|bash|sh)\b/;
 
@@ -236,13 +235,14 @@ function discoverDomains(files, repoRoot) {
 // ─── Compute FILE_BUDGET from actual file sizes ─────────────────────
 function computeFileBudget(files) {
   if (files.length === 0) {
-    return { fileBudget: 40, avgLines: 0, totalLines: 0, avgTokens: 0, sampledFiles: 0 };
+    return { fileBudget: MAX_FILES_PER_CHUNK, avgLines: 0, totalLines: 0, avgTokens: 0, sampledFiles: 0 };
   }
 
   // Sample up to 30 files to estimate average size (fast, even for huge repos)
   const sampleSize = Math.min(30, files.length);
   const step = Math.max(1, Math.floor(files.length / sampleSize));
   let totalLines = 0;
+  let totalBytes = 0;
   let sampled = 0;
   const maxSampleBytes = 5 * 1024 * 1024;
 
@@ -254,6 +254,7 @@ function computeFileBudget(files) {
       }
       const content = fs.readFileSync(files[i], 'utf8');
       totalLines += content.split('\n').length;
+      totalBytes += Buffer.byteLength(content);
       sampled += 1;
     } catch {
       // Skip unreadable files
@@ -261,21 +262,22 @@ function computeFileBudget(files) {
   }
 
   if (sampled === 0) {
-    return { fileBudget: 40, avgLines: 0, totalLines: 0, avgTokens: 0, sampledFiles: 0 };
+    return { fileBudget: MAX_FILES_PER_CHUNK, avgLines: 0, totalLines: 0, avgTokens: 0, sampledFiles: 0 };
   }
 
   const avgLines = Math.round(totalLines / sampled);
-  const avgTokens = avgLines * 4;
+  const avgBytes = Math.round(totalBytes / sampled);
+  const avgTokens = Math.max(1, Math.ceil(avgBytes / 4));
   const estimatedTotalLines = avgLines * files.length;
 
-  // FILE_BUDGET = floor(150000 / avgTokens), capped at 60, floored at 10
+  // Reserve most of the model context for reasoning, cross-file evidence, and output.
   let fileBudget;
   if (avgTokens <= 0) {
-    fileBudget = 60;
+    fileBudget = MAX_FILES_PER_CHUNK;
   } else {
-    fileBudget = Math.floor(150000 / avgTokens);
+    fileBudget = Math.floor(DEFAULT_SOURCE_TOKEN_BUDGET / avgTokens);
   }
-  fileBudget = Math.max(10, Math.min(60, fileBudget));
+  fileBudget = Math.max(1, Math.min(MAX_FILES_PER_CHUNK, fileBudget));
 
   return { fileBudget, avgLines, totalLines: estimatedTotalLines, avgTokens, sampledFiles: sampled };
 }

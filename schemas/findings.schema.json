@@ -19,10 +19,18 @@
       "confidenceScore"
     ],
     "properties": {
-      "bugId": { "type": "string", "minLength": 1 },
+      "bugId": {
+        "type": "string",
+        "minLength": 1
+      },
       "severity": {
         "type": "string",
-        "enum": ["Critical", "High", "Medium", "Low"]
+        "enum": [
+          "Critical",
+          "High",
+          "Medium",
+          "Low"
+        ]
       },
       "category": {
         "type": "string",
@@ -39,14 +47,33 @@
           "cross-file"
         ]
       },
-      "file": { "type": "string", "minLength": 1 },
-      "lines": { "type": "string", "minLength": 1 },
-      "claim": { "type": "string", "minLength": 1 },
-      "evidence": { "type": "string", "minLength": 1 },
-      "runtimeTrigger": { "type": "string", "minLength": 1 },
+      "file": {
+        "type": "string",
+        "minLength": 1
+      },
+      "lines": {
+        "type": "string",
+        "minLength": 1
+      },
+      "claim": {
+        "type": "string",
+        "minLength": 1
+      },
+      "evidence": {
+        "type": "string",
+        "minLength": 1
+      },
+      "runtimeTrigger": {
+        "type": "string",
+        "minLength": 1
+      },
       "crossReferences": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1 }
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1
       },
       "confidenceScore": {
         "type": "number",
@@ -55,7 +82,11 @@
       },
       "confidenceLabel": {
         "type": "string",
-        "enum": ["high", "medium", "low"]
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ]
       },
       "stride": {
         "type": "string",
@@ -69,8 +100,47 @@
           "N/A"
         ]
       },
-      "cwe": { "type": "string", "minLength": 1 }
+      "cwe": {
+        "type": "string",
+        "minLength": 1
+      }
     },
-    "additionalProperties": false
+    "additionalProperties": false,
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "category": {
+              "const": "security"
+            }
+          },
+          "required": [
+            "category"
+          ]
+        },
+        "then": {
+          "required": [
+            "stride",
+            "cwe"
+          ],
+          "properties": {
+            "stride": {
+              "enum": [
+                "Spoofing",
+                "Tampering",
+                "Repudiation",
+                "InfoDisclosure",
+                "DoS",
+                "ElevationOfPrivilege"
+              ]
+            },
+            "cwe": {
+              "type": "string",
+              "pattern": "^CWE-[0-9]+$"
+            }
+          }
+        }
+      }
+    ]
   }
 }

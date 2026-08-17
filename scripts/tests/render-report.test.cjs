@@ -27,7 +27,9 @@ test('render-report renders a markdown summary from findings and referee JSON', 
       evidence: 'src/api.ts:10-12 ...',
       runtimeTrigger: 'POST /api with attacker input',
       crossReferences: ['Single file'],
-      confidenceScore: 90
+      confidenceScore: 90,
+      stride: 'Tampering',
+      cwe: 'CWE-79'
     }
   ]);
 
@@ -114,7 +116,9 @@ test('scan-report emits a validated canonical report and joins by bugId', () => 
       evidence: 'src/a.ts:10',
       runtimeTrigger: 'Attacker input',
       crossReferences: ['src/b.ts'],
-      confidenceScore: 90
+      confidenceScore: 90,
+      stride: 'Tampering',
+      cwe: 'CWE-79'
     }
   ]);
   writeJson(refereePath, [

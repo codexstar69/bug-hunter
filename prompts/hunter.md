@@ -168,4 +168,4 @@ For unlisted types, use the closest CWE from https://cwe.mitre.org/top25/
 
 ## Reference examples
 
-For analysis methodology and calibration examples (3 confirmed findings + 2 false positives with STRIDE/CWE), read `$SKILL_DIR/skills/hunter/examples.md` before starting your scan.
+Load `$SKILL_DIR/skills/hunter/examples.md` only when calibrating an ambiguous finding, when confidence is below 86, or when the assignment explicitly requests examples. Do not spend context on examples for every chunk.

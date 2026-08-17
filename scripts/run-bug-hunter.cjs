@@ -30,12 +30,16 @@ const {
   selectRefereeAuthorizedFindings
 } = require('./artifact-planner.cjs');
 const { processPendingChunks } = require('./chunk-scheduler.cjs');
+const {
+  DEFAULT_SOURCE_TOKEN_BUDGET,
+  MAX_FILES_PER_CHUNK
+} = require('./source-config.cjs');
 
 const BACKEND_PRIORITY = ['spawn_agent', 'subagent', 'teams', 'local-sequential'];
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_RETRIES = 1;
 const DEFAULT_BACKOFF_MS = 1000;
-const DEFAULT_CHUNK_SIZE = 30;
+const DEFAULT_CHUNK_SIZE = MAX_FILES_PER_CHUNK;
 const DEFAULT_CONFIDENCE_THRESHOLD = 75;
 const DEFAULT_CANARY_SIZE = 3;
 const DEFAULT_DELTA_HOPS = 2;
@@ -44,9 +48,9 @@ const DEFAULT_EXPANSION_CAP = 40;
 function usage() {
   console.error('Usage:');
   console.error('  run-bug-hunter.cjs preflight [--skill-dir <path>] [--available-backends <csv>] [--backend <name>]');
-  console.error('  run-bug-hunter.cjs run --files-json <path> --worker-cmd <template> [--run-id <id> | --resume <run-id>] [--referee-path <path>] [--fixer-scope-path <path>] [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
+  console.error('  run-bug-hunter.cjs run --files-json <path> --worker-cmd <template> [--run-id <id> | --resume <run-id>] [--referee-path <path>] [--fixer-scope-path <path>] [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--max-source-tokens <n>] [--timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
   console.error('  run-bug-hunter.cjs phase --artifact <name> --output-path <path> --worker-cmd <template> [--phase-name <name>] [--skill-dir <path>] [--journal-path <path>] [--render-cmd <template>] [--render-output-path <path>] [--timeout-ms <n>] [--render-timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>]');
-  console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--plan-path <path>]');
+  console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--max-source-tokens <n>] [--plan-path <path>]');
 }
 
 function nowIso() {
@@ -116,6 +120,31 @@ function toBoolean(value, fallback) {
   return fallback;
 }
 
+function estimateSourceTokens(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return Math.max(1, Math.ceil(stat.size / 4));
+  } catch {
+    return 1;
+  }
+}
+
+function deriveAdaptiveChunkSize(files, maxSourceTokens) {
+  const estimates = toArray(files)
+    .map((filePath) => estimateSourceTokens(String(filePath)))
+    .sort((left, right) => left - right);
+  if (estimates.length === 0) {
+    return DEFAULT_CHUNK_SIZE;
+  }
+  const percentileIndex = Math.min(
+    estimates.length - 1,
+    Math.floor(estimates.length * 0.75)
+  );
+  const representativeTokens = Math.max(1, estimates[percentileIndex]);
+  const budgeted = Math.floor(maxSourceTokens / representativeTokens);
+  return Math.max(1, Math.min(DEFAULT_CHUNK_SIZE, budgeted || 1));
+}
+
 function resolveSkillDir(options) {
   if (options['skill-dir']) {
     return path.resolve(options['skill-dir']);
@@ -155,6 +184,7 @@ function selectBackend(options) {
 function requiredScripts(skillDir) {
   return [
     path.join(skillDir, 'scripts', 'bug-hunter-state.cjs'),
+    path.join(skillDir, 'scripts', 'source-config.cjs'),
     path.join(skillDir, 'scripts', 'process-runner.cjs'),
     path.join(skillDir, 'scripts', 'state-store.cjs'),
     path.join(skillDir, 'scripts', 'artifact-planner.cjs'),
@@ -249,9 +279,13 @@ function loadRefereeAuthorization(refereePath) {
   };
 }
 
-function toCoverageStatus(chunkStatus) {
-  if (chunkStatus === 'done') {
+function toCoverageStatus(fileState, chunkStatus) {
+  const fileStatus = fileState && fileState.status;
+  if (fileStatus === 'scanned' || fileStatus === 'skipped') {
     return 'done';
+  }
+  if (fileStatus === 'missing' || fileStatus === 'unreadable' || fileStatus === 'failed') {
+    return 'failed';
   }
   if (chunkStatus === 'in_progress') {
     return 'in_progress';
@@ -259,15 +293,20 @@ function toCoverageStatus(chunkStatus) {
   if (chunkStatus === 'failed') {
     return 'failed';
   }
+  if (chunkStatus === 'done') {
+    return 'done';
+  }
   return 'pending';
 }
 
 function buildCoverageArtifact({ state, fixPlan }) {
   const fileEntries = toArray(state.chunks).flatMap((chunk) => {
     return toArray(chunk.files).map((filePath) => {
+      const normalizedPath = String(filePath);
+      const fileState = state.fileStates && state.fileStates[normalizedPath];
       return {
-        path: String(filePath),
-        status: toCoverageStatus(chunk.status)
+        path: normalizedPath,
+        status: toCoverageStatus(fileState, chunk.status)
       };
     });
   });
@@ -546,7 +585,7 @@ function loadIndex(indexPath) {
 }
 
 function normalizeFiles(files) {
-  return [...new Set(toArray(files).map((filePath) => path.resolve(String(filePath))))].sort();
+  return [...new Set(toArray(files).map((filePath) => path.resolve(String(filePath))))];
 }
 
 function prepareIndexAndScope({
@@ -650,7 +689,14 @@ async function runPipeline(options) {
     options.state || path.join('.bug-hunter', 'runs', runId, 'state.json')
   );
   const identityPath = `${statePath}.identity.json`;
-  const chunkSize = toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE, '--chunk-size');
+  const requestedChunkSize = options['chunk-size'] === undefined
+    ? null
+    : toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE, '--chunk-size');
+  const maxSourceTokens = toPositiveInt(
+    options['max-source-tokens'],
+    DEFAULT_SOURCE_TOKEN_BUDGET,
+    '--max-source-tokens'
+  );
   const timeoutMs = toPositiveInt(options['timeout-ms'], DEFAULT_TIMEOUT_MS, '--timeout-ms');
   const maxOutputBytes = toPositiveInt(
     options['max-output-bytes'],
@@ -719,6 +765,11 @@ async function runPipeline(options) {
     filesJsonPath,
     journalPath
   });
+  const activeFiles = readJson(scope.activeFilesJsonPath);
+  if (!Array.isArray(activeFiles)) {
+    throw new Error('Active files JSON must contain an array');
+  }
+  const chunkSize = requestedChunkSize || deriveAdaptiveChunkSize(activeFiles, maxSourceTokens);
 
   const runIdentity = buildRunIdentity({
     runId,
@@ -757,6 +808,8 @@ async function runPipeline(options) {
     backend,
     statePath,
     filesJsonPath,
+    chunkSize,
+    maxSourceTokens,
     timeoutMs,
     maxRetries,
     backoffMs
@@ -1104,10 +1157,21 @@ async function main() {
     const skillDir = resolveSkillDir(options);
     const filesJsonPath = path.resolve(options['files-json']);
     const mode = options.mode || 'extended';
-    const chunkSize = toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE, '--chunk-size');
+    const requestedChunkSize = options['chunk-size'] === undefined
+      ? null
+      : toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE, '--chunk-size');
+    const maxSourceTokens = toPositiveInt(
+      options['max-source-tokens'],
+      DEFAULT_SOURCE_TOKEN_BUDGET,
+      '--max-source-tokens'
+    );
     const planPath = path.resolve(options['plan-path'] || '.bug-hunter/plan.json');
 
     const files = readJson(filesJsonPath);
+    if (!Array.isArray(files)) {
+      throw new Error('--files-json must contain an array');
+    }
+    const chunkSize = requestedChunkSize || deriveAdaptiveChunkSize(files, maxSourceTokens);
     const totalFiles = files.length;
 
     const chunks = [];
@@ -1127,6 +1191,7 @@ async function main() {
       skillDir,
       totalFiles,
       chunkSize,
+      maxSourceTokens,
       chunkCount: chunks.length,
       phases: ['recon', 'hunter', 'skeptic', 'referee'],
       chunks,
