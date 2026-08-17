@@ -24,15 +24,36 @@ function isMinifiedSourcePath(filePath) {
   return MINIFIED_SOURCE_PATTERN.test(path.basename(String(filePath)));
 }
 
-function hasSourceShebang(filePath) {
+function readShebangPrefix(filePath) {
   const fileDescriptor = fs.openSync(filePath, 'r');
   try {
     const prefix = Buffer.alloc(256);
     const bytesRead = fs.readSync(fileDescriptor, prefix, 0, prefix.length, 0);
-    return SOURCE_SHEBANG.test(prefix.toString('utf8', 0, bytesRead));
+    return prefix.toString('utf8', 0, bytesRead);
   } finally {
     fs.closeSync(fileDescriptor);
   }
+}
+
+function hasSourceShebang(filePath) {
+  return SOURCE_SHEBANG.test(readShebangPrefix(filePath));
+}
+
+function inferSourceExtension(filePath, content) {
+  const extension = path.extname(String(filePath)).toLowerCase();
+  if (SOURCE_EXTENSIONS.has(extension)) {
+    return extension;
+  }
+  const prefix = content === undefined
+    ? readShebangPrefix(filePath)
+    : String(content).slice(0, 256);
+  const firstLine = prefix.split(/\r?\n/, 1)[0].toLowerCase();
+  if (/\b(node|deno|bun)\b/.test(firstLine)) return '.js';
+  if (/\bpython(?:3)?\b/.test(firstLine)) return '.py';
+  if (/\bruby\b/.test(firstLine)) return '.rb';
+  if (/\bphp\b/.test(firstLine)) return '.php';
+  if (/\b(?:bash|sh|zsh|fish)\b/.test(firstLine)) return '.sh';
+  return extension;
 }
 
 function isSupportedSourceFile(filePath) {
@@ -138,6 +159,7 @@ module.exports = {
   buildSourceChunks,
   estimateSourceTokens,
   hasSourceShebang,
+  inferSourceExtension,
   isMinifiedSourcePath,
   isSupportedSourceFile,
   isTestSourcePath
