@@ -1,16 +1,12 @@
 ---
 title: Usage guide
 description: >
-  Request scans, pull-request reviews, security audits, plans, and approved
-  fixes from any coding agent.
+  Request scans, complete-coverage loops, pull-request/security reviews, plans,
+  and explicitly authorized fixes from any coding agent.
 prompt: |
-  can we do that so everything is end to end seamless and anyone and
-  specially agents can understand easily how to use it all properly
-
-  you removed a lot of content that helped rank it om google - bring it back
-
-  Use @README.md, @SKILL.md, @docs/getting-started.md,
-  @docs/cli-reference.md, and @docs/how-it-works.md as source material.
+  Translate the user's audit intent into the narrowest safe Bug Hunter request,
+  preserve scan-only defaults unless edits are explicit, and require unresolved
+  review, coverage, and verification state to remain visible.
 ---
 
 # Usage guide
@@ -19,10 +15,10 @@ prompt: |
 
 Tell the agent four things:
 
-1. Use the `bug-hunter` skill.
-2. Name the scope.
-3. State whether edits are allowed.
-4. State the required result.
+1. use the `bug-hunter` skill;
+2. name the scope;
+3. state whether edits are allowed;
+4. state the required result/completion condition.
 
 Example:
 
@@ -30,9 +26,23 @@ Example:
 Use the bug-hunter skill to scan src/auth.
 Do not edit files.
 Return confirmed, dismissed, manual-review, and unreviewed counts.
+Report any coverage or required-verification failure.
 ```
 
 This format works even when the agent does not expose slash commands.
+
+## Understand the defaults
+
+No flags means:
+
+- scan-only;
+- single-pass;
+- no source edits;
+- no commit permission.
+
+Use `--loop` when you want the queued scope worked until every file has a
+terminal coverage outcome. Loop authority changes completion behavior, not
+mutation authority.
 
 ## Scan without edits
 
@@ -42,22 +52,18 @@ Whole repository:
 Use the bug-hunter skill to scan this repository. Do not edit files.
 ```
 
-One directory:
+Complete queued coverage:
 
 ```text
-Use the bug-hunter skill to scan src/payments. Do not edit files.
-```
-
-One file:
-
-```text
-Use the bug-hunter skill to scan src/auth/session.ts. Do not edit files.
+Use the bug-hunter skill to scan this repository until queued coverage is complete.
+Do not edit files.
 ```
 
 Slash forms:
 
 ```text
 /bug-hunter
+/bug-hunter --loop
 /bug-hunter src/payments
 /bug-hunter src/auth/session.ts
 ```
@@ -67,27 +73,20 @@ Slash forms:
 Staged changes:
 
 ```text
-Use the bug-hunter skill to review the staged changes. Do not edit files.
-```
-
-```text
 /bug-hunter --staged
 ```
 
 Current pull request:
 
 ```text
-Use the bug-hunter skill to review the current pull request. Do not edit files.
-```
-
-```text
 /bug-hunter --pr
 ```
 
-Specific pull request:
+Specific/recent pull request:
 
 ```text
 /bug-hunter --pr 123
+/bug-hunter --pr recent
 ```
 
 Branch diff:
@@ -95,6 +94,9 @@ Branch diff:
 ```text
 /bug-hunter -b feature/auth-refresh --base main
 ```
+
+Changed-code scope still scans the resolved source files rather than treating a
+patch hunk as enough context to prove runtime behavior.
 
 ## Security review
 
@@ -116,15 +118,29 @@ Threat model:
 /bug-hunter --threat-model
 ```
 
-Node.js dependency audit:
+Supported Node.js dependency audit:
 
 ```text
 /bug-hunter --deps
 ```
 
-Dependency parsing and reachability currently cover JavaScript and TypeScript
-projects using npm, pnpm, Yarn, or Bun lockfiles. Other ecosystems return
-`scanner-unsupported`.
+Dependency parsing/reachability currently covers JavaScript and TypeScript
+projects using npm, pnpm, Yarn, or Bun lockfiles. Unsupported ecosystems return
+`scanner-unsupported`; do not read that as “no vulnerabilities.”
+
+## Precision-first behavior
+
+The current runtime can use adaptive/retrieval/verification layers internally:
+
+- deterministic risk ordering before model work;
+- token-bounded chunks from actual assigned file estimates;
+- `fast`, `balanced`, or `assurance` adaptive policy when the runner is driven
+  with adaptive inputs;
+- hypothesis-directed symbol/dependency context under hard budgets;
+- exact evidence reuse keyed to current source hashes;
+- optional required hybrid verification before Fixer authorization.
+
+These layers never broaden the user's source scope or mutation permission.
 
 ## Plan before editing
 
@@ -137,87 +153,93 @@ Do not edit files.
 /bug-hunter --plan
 ```
 
-This produces strategy and plan artifacts, then stops before the Fixer.
+This produces strategy/plan artifacts and stops before Fixer mutation.
 
-## Preview changes
-
-```text
-Use the bug-hunter skill to build a remediation strategy and fix plan.
-Do not edit files.
-```
+## Preview remediation
 
 ```text
 /bug-hunter --preview
 ```
 
-Current preview mode produces strategy and plan output without source edits.
-It does not yet produce a schema-backed patch diff.
+Preview/dry-run mode builds remediation output without source edits or commit
+permission. Treat its output as a plan to review, not proof that a patch was
+applied.
 
 ## Apply fixes with approval
 
 ```text
-Use the bug-hunter skill to fix confirmed findings.
-Ask for approval before every edit.
-Do not commit.
+Use the bug-hunter skill to fix confirmed executable findings.
+Ask for approval before edits. Do not commit.
 ```
 
 ```text
 /bug-hunter --fix --approve
 ```
 
-`--approve` requests the host's reviewed/default permission mode. Approval
-prompts depend on the coding agent.
-
-`--safe` is an alias:
+`--safe` is an alias for the reviewed fix mode:
 
 ```text
 /bug-hunter --safe
 ```
 
+Only Referee-confirmed findings that survive remediation classification may
+enter executable Fixer scope. Manual-review/larger-refactor/architectural work
+remains non-writable.
+
 ## Grant autonomous permissions
 
-Only use this mode when unattended edits are intended:
-
-```text
-Use the bug-hunter skill to scan and fix confirmed bugs autonomously.
-You may edit files. Do not commit.
-```
+Only when unattended edits are intended:
 
 ```text
 /bug-hunter --autonomous
 ```
 
-Commit permission is separate:
+Commit permission remains separate:
 
 ```text
 /bug-hunter --autonomous --auto-commit
 ```
 
-The commit flag grants commit permission for the approved plan. Review the
-harvested commit paths before merging; current validation does not independently
-enforce every committed path after a Fixer creates a commit.
+Review resulting paths and verification evidence before merging. Autonomous
+mode does not waive source-integrity, Fixer-scope, canary, circuit-breaker, or
+rollback safeguards.
 
 ## Ask the agent to prove completion
 
-Add this to any request:
+Add this to a request when you need an auditable finish:
 
 ```text
-Before finishing, validate every generated artifact, report coverage gaps,
-run the repository's relevant checks, and state whether any source files,
-Git state, or commits changed.
+Before finishing, validate every canonical artifact, report coverage gaps and
+required-verification failures, run the relevant repository checks, and state
+whether source files, Git state, or commits changed.
 ```
 
 The final response should distinguish:
 
-- confirmed bugs
-- dismissed claims
-- manual-review items
-- unreviewed findings
-- files edited
-- checks run and their results
-- commits created
+- confirmed bugs;
+- dismissed claims;
+- manual-review items;
+- unreviewed findings;
+- coverage failures/pending scope;
+- hybrid verification status when used;
+- files edited;
+- checks run/results;
+- commits created.
+
+## Useful canonical artifacts
+
+- `.bug-hunter/adaptive-plan.json` — bounded execution policy;
+- `.bug-hunter/retrieval-plan.json` — selected evidence/context;
+- `.bug-hunter/hunter-findings.json` — Hunter claims;
+- `.bug-hunter/referee.json` — final verdicts;
+- `.bug-hunter/verification-report.json` — hybrid verification evidence;
+- `.bug-hunter/scan-report.json` — joined result;
+- `.bug-hunter/coverage.json` — per-file coverage;
+- `.bug-hunter/fixer-scope.json` — immutable writable scope;
+- `.bug-hunter/fix-report.json` — remediation outcome.
 
 ## If the agent does not find the skill
 
-Do not ask it to imitate Bug Hunter from memory. Verify the installed target,
-restart the agent, and follow [troubleshooting](troubleshooting.md).
+Do not ask it to imitate Bug Hunter from memory. Verify the exact installed
+target/package source, restart the agent, and follow
+[troubleshooting](troubleshooting.md).

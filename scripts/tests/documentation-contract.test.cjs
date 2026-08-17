@@ -284,3 +284,94 @@ test('documented Fixer JSON validates against the fix-report schema', () => {
   assert.deepEqual(result.errors, []);
   assert.equal(result.ok, true);
 });
+
+test('shipped agent-facing guidance contains no legacy task prompt residue', () => {
+  const freshnessDocuments = [
+    ...onboardingDocuments,
+    'llms.txt',
+    'llms-full.txt',
+    'CONTRIBUTING.md',
+    'SECURITY.md',
+    'skills/README.md',
+    'modes/dispatch.md',
+    'templates/subagent-wrapper.md',
+    'agents/openai.yaml'
+  ];
+  const forbidden = [
+    /can we do that so everything is end to end seamless/i,
+    /you removed a lot of content that helped rank/i,
+    /launch parallel agnents/i,
+    /BUG-7, BUG-20, and BUG-41/,
+    /3\.1\.1 publishing\s+is pending/i
+  ];
+  const stale = freshnessDocuments.flatMap((relativePath) => {
+    const content = fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
+    return forbidden.flatMap((pattern) => {
+      return pattern.test(content) ? [`${relativePath} -> ${pattern}`] : [];
+    });
+  });
+  assert.deepEqual(stale, []);
+});
+
+test('agent references describe the current measurable artifacts and defaults', () => {
+  const llms = fs.readFileSync(path.join(projectRoot, 'llms.txt'), 'utf8');
+  const llmsFull = fs.readFileSync(path.join(projectRoot, 'llms-full.txt'), 'utf8');
+  const howItWorks = fs.readFileSync(
+    path.join(projectRoot, 'docs', 'how-it-works.md'),
+    'utf8'
+  );
+  const combined = `${llms}\n${llmsFull}\n${howItWorks}`;
+
+  for (const artifact of [
+    'adaptive-plan.json',
+    'retrieval-plan.json',
+    'verification-report.json',
+    'benchmark-report.json'
+  ]) {
+    assert.match(combined, new RegExp(artifact.replace('.', '\\.')));
+  }
+  assert.match(llms, /single-pass/i);
+  assert.match(llms, /--loop/);
+  assert.doesNotMatch(llms, /loop mode is the default/i);
+  assert.match(llmsFull, /fast/);
+  assert.match(llmsFull, /balanced/);
+  assert.match(llmsFull, /assurance/);
+  assert.match(llmsFull, /content-addressed/i);
+  assert.match(llmsFull, /hybrid verification/i);
+});
+
+test('evaluation prompts track the current protocol instead of historical behavior', () => {
+  const evalPath = path.join(projectRoot, 'evals', 'evals.json');
+  const evals = JSON.parse(fs.readFileSync(evalPath, 'utf8'));
+  const serialized = JSON.stringify(evals);
+  const evalText = evals.evals.map((entry) => {
+    return `${entry.prompt}\n${entry.expected_output}\n${entry.assertions.map((item) => item.text).join('\n')}`;
+  }).join('\n');
+
+  assert.equal(evals.skill_name, 'bug-hunter');
+  assert.equal(Array.isArray(evals.evals), true);
+  assert.equal(evals.evals.length >= 35, true);
+  assert.doesNotMatch(serialized, /\.bug-hunter\/findings\.json/);
+  assert.doesNotMatch(serialized, /Loop mode is the default/i);
+  assert.match(evalText, /adaptive-plan\.json/);
+  assert.match(evalText, /retrieval-plan\.json/);
+  assert.match(evalText, /content-addressed|evidence cache/i);
+  assert.match(evalText, /hybrid verification/i);
+  assert.match(evalText, /source hashes|source identity/i);
+  assert.match(evalText, /quality:world-class/);
+});
+
+test('contributor and security guidance protect measurable protocol invariants', () => {
+  const contributing = fs.readFileSync(path.join(projectRoot, 'CONTRIBUTING.md'), 'utf8');
+  const security = fs.readFileSync(path.join(projectRoot, 'SECURITY.md'), 'utf8');
+  const skillsReadme = fs.readFileSync(path.join(projectRoot, 'skills', 'README.md'), 'utf8');
+
+  assert.match(contributing, /pnpm quality:world-class/);
+  assert.match(contributing, /benchmark/i);
+  assert.match(contributing, /source-integrity|source identity/i);
+  assert.match(security, /evidence-cache|evidence cache/i);
+  assert.match(security, /hybrid-verifier|hybrid verifier/i);
+  assert.match(security, /source-integrity|source identity/i);
+  assert.match(skillsReadme, /canonical role instructions/i);
+  assert.match(skillsReadme, /generated/i);
+});

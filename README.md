@@ -1,20 +1,13 @@
 ---
 title: Bug Hunter
 description: >
-  Install and use the adversarial code-audit skill with scan-only defaults and
-  explicit permission before source edits.
+  Install and use the measurable adversarial code-audit skill with scan-only
+  defaults and explicit permission before source edits.
 prompt: |
-  can we do that so everything is end to end seamless and anyone and
-  specially agents can understand easily how to use it all properly
-
-  you removed a lot of content that helped rank it om google - bring it back
-
-  Use @SKILL.md, @bin/bug-hunter, @package.json, @docs/getting-started.md,
-  @docs/agent-installation.md, @docs/usage-guide.md,
-  @docs/cli-reference.md, @docs/how-it-works.md,
-  @docs/troubleshooting.md, @skills/hunter/SKILL.md,
-  @skills/skeptic/SKILL.md, @skills/referee/SKILL.md,
-  @modes/fix-pipeline.md, and @CHANGELOG.md as source material.
+  Explain and use the current Bug Hunter protocol accurately. Keep scan-only
+  and single-pass defaults unless the user explicitly requests loop coverage or
+  mutation. Prefer canonical JSON artifacts, evidence-backed adversarial review,
+  bounded adaptive/retrieval context, and fail-closed verification.
 ---
 
 <p align="center">
@@ -30,11 +23,11 @@ prompt: |
   <img src="https://img.shields.io/badge/node-%3E%3D22-blue" alt="Node.js 22 or newer">
 </p>
 
-Bug Hunter is an AI-agent skill for code review and security auditing. A Hunter finds possible bugs, a Skeptic challenges each claim, and a Referee decides what the evidence supports. The default run only scans and reports. Editing, autonomous fixing, and commits each require explicit permission.
+Bug Hunter is an AI-agent skill for code review and security auditing. A Hunter finds possible bugs, a Skeptic challenges each claim, and a Referee decides what the evidence supports. The default run only scans and reports. It is single-pass unless `--loop` is explicitly requested. Editing, autonomous fixing, and commits each require explicit permission.
 
-## v3.2.0 — measurable, adaptive bug hunting
+## v3.2.0 source — measurable, adaptive bug hunting
 
-This release makes the precision-first pipeline measurable and adaptive while preserving the existing scan-only default and fail-closed safety boundaries.
+The current v3.2.0 source makes the precision-first pipeline measurable and adaptive while preserving the scan-only default and fail-closed safety boundaries. The latest published npm release may lag GitHub `main`; use the current-source command below when you need the exact implementation documented on this page.
 
 - **Measurable benchmark quality gate** scores one-to-one finding matches, precision, recall, F1, severity-weighted recall, false positives per KLOC, calibration, repeat stability, token usage, latency, and cost data when supplied.
 - **Adaptive execution profiles** select `fast`, `balanced`, or `assurance` behavior from triage risk, security scope, benchmark evidence, stability, calibration, and token efficiency.
@@ -51,19 +44,18 @@ See [the measurable world-class protocol](docs/world-class-protocol.md) for the 
 
 ## TL;DR
 
-Install the latest public package for your agent. Replace `codex` with a target
-from the table below.
-
-```bash
-npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
-npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
-```
-
-To install directly from the current GitHub source instead:
+Install the exact current GitHub source documented here. Replace `codex` with a target from the table below.
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
+```
+
+For the latest published npm release—which may lag current GitHub source—use:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
 ```
 
 Restart the agent if it was open during installation. Then send this prompt from the repository you want to audit:
@@ -73,7 +65,7 @@ Use the bug-hunter skill to scan this repository. Do not edit files.
 Return the final report and call out every item that needs manual review.
 ```
 
-That is the recommended first run. It is scan-only.
+That is the recommended first run. It is scan-only and single-pass. Request `--loop` when complete queued coverage is required.
 
 ## Choose your agent
 
@@ -141,11 +133,14 @@ See [usage guide](docs/usage-guide.md) for common human and agent prompts.
 ```text
 your code
   -> risk triage
+  -> optional adaptive plan
   -> architecture recon
+  -> hypothesis-driven retrieval
   -> Hunter findings
   -> documentation checks
   -> Skeptic challenges
   -> Referee verdicts
+  -> optional hybrid verification
   -> report
   -> optional approved fix plan
   -> optional approved fixes and verification
@@ -154,11 +149,13 @@ your code
 The pipeline:
 
 - prioritizes high-risk files before lower-risk files
+- keeps adaptive/retrieval context within explicit file and token budgets
 - records claims with file evidence and runtime triggers
 - checks version-sensitive behavior against available documentation
 - challenges findings before reporting them as confirmed
 - separates confirmed, dismissed, unreviewed, and manual-review results
 - validates canonical JSON artifacts between phases
+- fails closed on assigned-source drift and required verification failure
 - keeps source edits disabled unless fixing is requested
 
 Read [how it works](docs/how-it-works.md) for the full model and safety boundaries.
@@ -167,7 +164,8 @@ Read [how it works](docs/how-it-works.md) for the full model and safety boundari
 
 | Goal | Skill request |
 |---|---|
-| Scan the whole repository | `/bug-hunter` |
+| Scan the whole repository once | `/bug-hunter` |
+| Complete queued coverage | `/bug-hunter --loop` |
 | Scan one path | `/bug-hunter src/auth` |
 | Review staged changes | `/bug-hunter --staged` |
 | Review the current pull request | `/bug-hunter --pr` |
@@ -255,17 +253,19 @@ they create a reachable runtime problem.
   <img src="https://raw.githubusercontent.com/codexstar69/bug-hunter/183e0a957bd22ea5df83741cd31e396f68b14ae5/docs/images/pipeline-overview.png" alt="Bug Hunter adversarial code-audit pipeline from deterministic triage through Hunter, Skeptic, Referee, reporting, optional fix planning, and verification" width="100%">
 </p>
 
-Every phase has a separate job. Role, report, coverage, and fix artifacts use
-schema-validated JSON; triage JSON is deterministic pipeline input.
+Every phase has a separate job. Role, report, coverage, fix, adaptive, retrieval, verification, and benchmark artifacts use schema-validated JSON; triage JSON is deterministic pipeline input.
 
 | Stage | What it does | Main evidence |
 |---|---|---|
-| Risk triage | Classifies source files and selects scan order without an AI model | `triage.json` |
-| Recon | Adds stack and risk context for multi-file scans | `recon.json` |
+| Risk triage | Classifies source files and selects risk-ordered scan scope without an AI model | `triage.json` |
+| Adaptive policy | Chooses bounded `fast`, `balanced`, or `assurance` context/review/verification policy when requested or supplied | `adaptive-plan.json` |
+| Recon | Adds stack, architecture, and trust-boundary context for multi-file scans | `recon.json` |
+| Retrieval planning | Selects hypothesis-relevant mandatory and optional evidence under hard budgets | `retrieval-plan.json` |
 | Hunter | Finds reachable logic, security, concurrency, data, and error-path bugs | `hunter-findings.json` |
 | Documentation lookup | Checks version-sensitive library or framework assumptions | Evidence added to the finding or challenge |
 | Skeptic | Tries to disprove every Hunter claim with code and counter-evidence | `skeptic.json` |
 | Referee | Delivers `REAL_BUG`, `NOT_A_BUG`, or `MANUAL_REVIEW` verdicts | `referee.json` |
+| Hybrid verification | Runs bounded tests, type/static/build/reproduction/fuzz/security-static checks when configured | `verification-report.json` |
 | Report join | Separates confirmed, dismissed, manual-review, and unreviewed results | `scan-report.json` and `report.md` |
 | Fix strategy | Classifies confirmed bugs by remediation risk | `fix-strategy.json` |
 | Fix plan | Records bug details, files, claimed ranges, remediation class, and rollout order | `fix-plan.json` |
@@ -418,10 +418,7 @@ attempts, file outcomes, findings, and the fix-plan reference. A sibling
 identity file stores the run ID, repository and base commit, scope hash, and
 options hash so resume can reject a different target.
 
-Coverage currently records `pending`, `in_progress`, `done`, or `failed`
-status derived from chunk progress. Failed or incomplete coverage does not
-become a clean result. Cross-partition references can be sent through a
-reconciliation pass before the final join.
+Coverage records `pending`, `in_progress`, `done`, or `failed` from per-file evidence. A parent chunk marked done cannot manufacture completion for a file whose evidence remains pending. Failed or incomplete coverage does not become a clean result. Cross-partition references can be sent through a reconciliation pass before the final join.
 
 ## Security vulnerability classification
 
@@ -726,8 +723,7 @@ Consumers should distinguish result meanings:
 - `unreviewed` means adversarial review did not finish.
 - `scanner-unsupported` means the requested dependency parser is unavailable.
 
-Only a completed report with no confirmed, manual-review, or unreviewed items
-can support a clean result for the scanned scope.
+Only a completed report with no confirmed, manual-review, unreviewed, failed-coverage, or required-verification items can support a clean result for the scanned scope.
 
 ## Output files
 
@@ -744,7 +740,7 @@ The main files are:
 | `referee.json` | Findings exist | Canonical final verdicts |
 | `scan-report.json` | Completed scan | Joined run metadata, counts, and verdicts |
 | `report.md` | Completed scan | Human-readable final report |
-| `coverage.json` | Coverage loop | Per-file entries derived from chunk progress |
+| `coverage.json` | Coverage loop | Per-file evidence states; parent chunk status alone cannot mark a file done |
 | `fix-strategy.json` | Plan or fix run | Remediation class for confirmed bugs |
 | `fix-plan.json` | Plan or fix run | Authorized canary and rollout plan |
 | `fixer-scope.json` | Plan or fix run | Repository, base commit, bug ID, and file boundary |
@@ -752,9 +748,9 @@ The main files are:
 | `threat-model.md` | Threat-model run | STRIDE boundaries, assets, flows, and threats |
 | `dep-findings.json` | Dependency run | Audit results, scanner status, and reachability |
 | `state.json` | Persisted scan | Queue, attempts, file outcomes, findings, and plan reference |
-| `adaptive-plan.json` | Every orchestrated run | Risk- and benchmark-derived context, review, verification, and early-stop policy |
-| `retrieval-plan.json` | Indexed run | Hypothesis-ranked files and symbol slices under a hard context budget |
-| `verification-report.json` | Hybrid verification requested | Compiler, test, build, static, or fuzz results tied to findings |
+| `adaptive-plan.json` | Adaptive run | Risk- and benchmark-derived context, review, verification, and early-stop policy |
+| `retrieval-plan.json` | Indexed/retrieval run | Hypothesis-ranked files and symbol slices under a hard context budget |
+| `verification-report.json` | Hybrid verification requested | Compiler, test, build, static, reproduction, or fuzz results tied to findings |
 | `benchmark-report.json` | Benchmark gate | Precision, recall, calibration, stability, cost, latency, and Pareto metrics |
 
 See [outputs](docs/how-it-works.md#output-contract) for the complete artifact contract.
@@ -783,7 +779,7 @@ These are arguments sent to the installed skill through your coding agent:
 
 | Argument | Behavior |
 |---|---|
-| No arguments | Scan the current repository without editing |
+| No arguments | Scan the current repository once without editing |
 | `src/` or `file.ts` | Scan a specific path |
 | `-b branch-name` | Scan a branch diff against the default base |
 | `-b branch --base dev` | Scan a branch diff against a chosen base |
@@ -801,8 +797,8 @@ These are arguments sent to the installed skill through your coding agent:
 | `--dry-run` or `--preview` | Build strategy and fix-plan output without editing files |
 | `--autonomous` | Permit unattended fixing |
 | `--auto-commit` | Grant commit permission for an authorized fix plan |
-| `--loop` | Continue until every queued file has a recorded outcome |
-| `--no-loop` | Keep the default single-pass behavior |
+| `--loop` | Continue until every queued file has a terminal recorded outcome |
+| `--no-loop` | Explicitly keep the default single-pass behavior |
 | `--deps` | Add supported dependency CVE scanning and reachability |
 | `--threat-model` | Generate or reuse a STRIDE threat model |
 | `--security-review` | Run the bundled repository security-review workflow |
@@ -817,8 +813,7 @@ Arguments compose:
 ```
 
 Do not combine `--scan-only` or `--review` with `--fix`, `--approve`, `--safe`,
-or `--autonomous`. Conflicting read-only and mutation flags are not currently
-rejected.
+or `--autonomous`. The current control plane treats contradictory read-only and mutation intent as invalid/safety-sensitive rather than silently broadening authority.
 
 The terminal `bug-hunter` CLI has a different job: install or upgrade, inspect
 metadata, and verify the skill. Removal is manual; see
@@ -826,18 +821,21 @@ metadata, and verify the skill. Removal is manual; see
 
 ## Safety model
 
-- No flags means scan-only.
-- Do not combine report-only and mutation flags; conflicts are not rejected.
-- `--fix` permits reviewed edits.
+- No flags means scan-only and single-pass.
+- `--loop` changes coverage completion behavior; it does not grant edit authority.
+- Do not combine report-only and mutation intent; use one explicit authority model.
+- `--fix` permits reviewed edits after Referee/remediation gating.
 - `--approve` requests reviewed/default host permissions; prompt behavior is
   host-dependent.
 - `--plan` stops before edits.
 - `--preview` builds remediation strategy and plan output without source edits.
-- `--autonomous` permits unattended edits.
+- `--autonomous` permits unattended eligible edits.
 - `--auto-commit` separately grants commit permission for the approved plan;
   inspect harvested commit paths before merging.
 - Fix plans record bug IDs, files, and claimed line ranges. The validated
   scope independently enforces bug IDs and file paths before dispatch.
+- Required hybrid-verification failure blocks Fixer authorization.
+- Source mutation, deletion, unreadability, or repository escape fails the affected scan scope closed.
 - Worktree cleanup fails closed when preservation cannot be proven.
 - User-owned files are preserved during managed skill upgrades.
 
@@ -847,9 +845,9 @@ Review [SECURITY.md](SECURITY.md) before using autonomous fixing in a sensitive 
 
 ```text
 bug-hunter/
-├── SKILL.md                    # Top-level orchestration and permission contract
+├── SKILL.md                    # Compact orchestration and permission control plane
 ├── bin/bug-hunter              # Installer, updater, info, and doctor CLI
-├── docs/                       # Task-focused installation and usage guides
+├── docs/                       # Precision, measurable-protocol, installation, and usage guides
 ├── modes/                      # Scan, scale, loop, dispatch, and fix workflows
 ├── skills/
 │   ├── recon/                  # Architecture and attack-surface mapping
@@ -863,7 +861,7 @@ bug-hunter/
 │   ├── threat-model-generation/
 │   └── vulnerability-validation/
 ├── schemas/                    # Canonical JSON artifact contracts
-├── scripts/                    # Triage, state, benchmark, retrieval, verification, cache, and safety tools
+├── scripts/                    # Triage, state, benchmark, adaptive, retrieval, verification, cache, and safety tools
 ├── templates/                  # Payload and report templates
 └── test-fixture/               # Source-only benchmark with planted bugs
 ```
@@ -878,6 +876,7 @@ and CI checks that generated files stay in sync.
 - [Usage guide](docs/usage-guide.md)
 - [CLI reference](docs/cli-reference.md)
 - [How it works](docs/how-it-works.md)
+- [Precision protocol](docs/precision-protocol.md)
 - [Measurable world-class protocol](docs/world-class-protocol.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Security policy](SECURITY.md)
@@ -891,17 +890,10 @@ From a source checkout:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm check:generated
-pnpm test
-pnpm benchmark:gate
-node scripts/run-bug-hunter.cjs preflight --skill-dir .
-pnpm verify:package
+pnpm quality:world-class
 ```
 
-The regression suite covers orchestration, schemas, state, PR scope,
-dependency parsing, fix authorization, locks, worktrees, installation,
-packaging, and bundled security routing. Use `pnpm test` for the current count
-instead of relying on a copied number in documentation.
+`quality:world-class` checks generated runtime assets, the complete regression suite, the benchmark gate, runtime preflight, and package inventory. Use `pnpm test` for the current test count instead of relying on a copied number in documentation.
 
 The source repository also contains a deterministic hidden-label benchmark harness. Its bundled labels are a calibration fixture, not proof of universal superiority; production claims should use privately held historical bugs and clean repositories. See [the measurable protocol](docs/world-class-protocol.md).
 

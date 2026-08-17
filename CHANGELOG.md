@@ -7,18 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The current source package version is `3.2.0`. The public `v3.2.0` GitHub
+release/tag has not yet been published, so npm/GitHub release availability may
+lag the source tree. Do not infer publication from `package.json` alone.
+
 ### Added
 
-- Factory Droid CLI support: `install --agent droid` and `doctor --agent droid`
-  target `~/.factory/skills/bug-hunter`, and the docs cover Droid's
-  project-scoped `.factory/skills` and legacy `~/.agents/skills` locations.
+- Measurable hidden-label benchmark scoring for precision, recall, F1,
+  severity-weighted recall, false positives per KLOC, calibration, repeat
+  stability, token/cost efficiency, latency, and time to first true positive.
+- Permanent benchmark quality gate and `pnpm quality:world-class` repository
+  validation across generated assets, tests, benchmark thresholds, preflight,
+  and package inventory.
+- Adaptive `fast`, `balanced`, and `assurance` execution profiles with `auto`
+  selection from deterministic risk and available benchmark evidence.
+- Hypothesis-driven retrieval planning with mandatory evidence plus bounded
+  symbol, dependency, dependent, cross-reference, and trust-boundary context.
+- Exact content-addressed evidence caching keyed to protocol, role, relevant
+  configuration, hypothesis identity, and current source hashes.
+- Bounded hybrid verification for tests, type checks, static checks, builds,
+  reproduction commands, fuzzing, and security-static checks.
+- Canonical `adaptive-plan.json`, `retrieval-plan.json`,
+  `verification-report.json`, and `benchmark-report.json` schemas/artifacts.
+- Precision and measurable protocol documentation under
+  `docs/precision-protocol.md` and `docs/world-class-protocol.md`.
+- Factory Droid CLI support through the `droid` install/doctor target, including
+  personal, project-scoped, and legacy shared skill locations.
+- Protocol-aligned evaluation coverage for adaptive routing, retrieval budgets,
+  exact-cache invalidation, required verification, source mutation, worker
+  scope, truthful coverage, Fixer scope, and benchmark degradation.
+- Freshness regression tests that reject stale task prompts, historical artifact
+  names, old loop-default claims, and missing measurable-protocol guidance.
 
 ### Changed
 
-- Skill description, preflight directory probe, and orchestration backend notes
-  list Factory Droid CLI alongside the other supported coding agents.
+- `SKILL.md` is now a compact control-plane entrypoint: scan-only and
+  single-pass remain explicit defaults, loop coverage is opt-in, calibration
+  examples load progressively, and detailed protocol/mode guidance is loaded on
+  demand instead of duplicated into every context.
+- Triage/indexing use the same maintained source classifier and preserve
+  risk-prioritized order through state, delta selection, and expansion.
+- Chunk sizing uses the combined estimated tokens of actual assigned files;
+  oversized single files are isolated rather than hidden in oversized mixed
+  chunks.
+- Hunter/Skeptic calibration examples are conditional rather than mandatory
+  context for every assignment.
+- Agent metadata, `llms.txt`, `llms-full.txt`, dispatch wrapper, onboarding,
+  installation, usage, CLI, architecture, troubleshooting, contributor, skill,
+  and security guidance now describe the same v3.2 protocol and canonical
+  artifacts.
+- Published-package and current-GitHub-source installation paths are explicitly
+  separated so a stale global CLI cannot be mistaken for current source.
+- Package metadata now describes measurable precision-first review, adaptive
+  retrieval, hybrid verification, and explicit mutation authorization.
 
-## [3.1.1] - 2026-08-04
+### Fixed
+
+- Risk order no longer collapses back to alphabetical ordering in indexed/delta
+  execution.
+- Mixed-size chunks no longer exceed the configured source-token budget because
+  of average/percentile file-size assumptions.
+- Workers cannot report findings for valid repository files outside their exact
+  assigned chunk.
+- Source mutation, deletion, unreadability, and repository-escape conditions
+  fail the affected chunk before findings or completion state are committed.
+- Resume keeps the original source baseline and rejects drift before another
+  worker launches.
+- Coverage cannot derive a file's completion solely from a parent chunk marked
+  done.
+- Duplicate observations retain strongest evidence while preserving useful
+  cross-references and security metadata.
+- Large-file hashing uses content digests rather than size/mtime identity.
+- Fixer scope is limited to executable canary/rollout entries and rejects
+  realpath/symlink escapes.
+- Skeptic guidance no longer auto-dismisses concrete credential stuffing,
+  OTP/reset abuse, lockout bypass, measurable amplification, or attacker-driven
+  expensive operations merely because they involve rate limiting.
+- Legacy task-specific frontmatter prompts and historical `findings.json` /
+  loop-default expectations have been removed from current agent-facing docs
+  and evals.
+
+### Security
+
+- Required hybrid-verification failure or unavailability blocks Fixer
+  authorization instead of being downgraded to a clean result.
+- Hybrid commands execute as inert argv with repository containment,
+  `shell:false`, secret stripping, sensitive-environment rejection, output
+  redaction, and bounded time/output budgets.
+- Exact evidence-cache reuse rejects changed source/protocol/options and
+  symlink-escaped cache shards.
+- Source hashes are verified before dispatch and before findings/completion are
+  committed, preserving fail-closed scan integrity.
+- Immutable Fixer authorization binds repository root, base commit, approved bug
+  IDs, and approved files; report-only/manual-review work remains non-writable.
+
+## 3.1.1 - 2026-08-04 (source version; not tagged)
 
 ### Added
 
@@ -372,8 +455,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage enforcement - partial audits produce explicit warnings
 - Large codebase strategy with domain-first tiered scanning
 
-[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.1.1...HEAD
-[3.1.1]: https://github.com/codexstar69/bug-hunter/compare/v3.1.0...v3.1.1
+[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.1.0...HEAD
 [3.1.0]: https://github.com/codexstar69/bug-hunter/compare/v3.0.10...v3.1.0
 [3.0.10]: https://github.com/codexstar69/bug-hunter/compare/v3.0.9...v3.0.10
 [3.0.9]: https://github.com/codexstar69/bug-hunter/compare/v3.0.8...v3.0.9

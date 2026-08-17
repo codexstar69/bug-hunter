@@ -1,23 +1,27 @@
 ---
 title: Troubleshooting
 description: >
-  Diagnose installation, agent discovery, environment, scan, and publication
-  failures without hiding unsupported states.
+  Diagnose installation, agent discovery, source-integrity, scan, verification,
+  and publication failures without hiding unsupported or unresolved states.
 prompt: |
-  can we do that so everything is end to end seamless and anyone and
-  specially agents can understand easily how to use it all properly
-
-  you removed a lot of content that helped rank it om google - bring it back
-
-  Use @bin/bug-hunter, @README.md, @docs/agent-installation.md,
-  @docs/getting-started.md, @SKILL.md, and @SECURITY.md as source material.
+  Diagnose Bug Hunter failures from the current package/source identity and
+  canonical artifacts. Never reinterpret missing review, failed coverage,
+  unsupported scanners, or required-verification failure as a clean result.
 ---
 
 # Troubleshooting
 
 ## The agent cannot find Bug Hunter
 
-Verify the same target used during installation:
+Verify the same package source and target used during installation.
+
+Published package:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+Current GitHub source:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
@@ -25,39 +29,49 @@ npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.
 
 Then:
 
-1. Confirm the target name matches the agent.
-2. Restart the agent.
-3. Open a new agent session in the repository.
-4. Ask: `Use the bug-hunter skill to scan this repository. Do not edit files.`
+1. confirm the target name matches the agent;
+2. restart the agent;
+3. open a new agent session in the repository;
+4. ask: `Use the bug-hunter skill to scan this repository. Do not edit files.`
 
-If the agent uses a nonstandard skill directory, reinstall and verify with
-`--path`.
+For a nonstandard skill directory, install and verify with the same `--path`.
 
-## Doctor reports an old version
+## Doctor reports an old or mismatched version
 
-Run installation and verification with the same package source:
+Keep install and doctor on the same package source.
+
+Published package refresh:
+
+```bash
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter install --agent codex
+npm exec --yes --package=@codexstar/bug-hunter@latest -- bug-hunter doctor --agent codex
+```
+
+Current-source refresh:
 
 ```bash
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz install --agent codex
 npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.gz doctor --agent codex
 ```
 
-If a global `bug-hunter` command reports another version, check:
+If a global CLI reports another version:
 
 ```bash
 bug-hunter --version
 npm list -g @codexstar/bug-hunter
+npm view @codexstar/bug-hunter version
 ```
 
-Use either the `npx` path or the global path consistently.
+Do not use an old global CLI to validate a newer GitHub-source install.
 
 ## Doctor reports a manifest problem
 
-Do not edit the manifest by hand. Reinstall the exact target. The installer
-stages and validates a replacement before swapping it into place.
+Do not edit `.bug-hunter-install-manifest.json` by hand. Reinstall the exact
+target from the intended package source. The installer stages and validates a
+replacement before swapping it into place.
 
-If the target contains user-owned files, keep a backup before manual removal.
-Files outside the manifest are preserved by normal upgrades.
+Normal upgrades preserve files outside the managed manifest. Back up user-owned
+files before any manual removal.
 
 ## Node.js is unsupported
 
@@ -67,39 +81,42 @@ Bug Hunter requires Node.js 22 or newer:
 node --version
 ```
 
-After upgrading Node.js, run doctor again.
+Upgrade Node.js, then run doctor again.
 
 ## Git is missing
 
-Git is required for the complete fix pipeline. A scan can still be requested,
-but branch scope, worktree isolation, rollback, and commit checks need Git.
-
-Install Git for the operating system, then run doctor again.
+Git is required for branch/PR fallback scope and the complete guarded fix
+pipeline. Basic path scanning may still be possible, but branch safety,
+worktree isolation, rollback, and commit checks require Git.
 
 ## Context Hub is missing
 
-Context Hub is optional. Install it for curated documentation:
+Context Hub is optional:
 
 ```bash
 npm install -g @aisuite/chub
 ```
 
-Without it, Bug Hunter uses the bundled Context7 path.
+Without it, Bug Hunter can use the bundled Context7 fallback. Missing
+version-specific documentation lowers confidence; it does not authorize a
+framework-behavior guess.
 
-## The scan produced no report
+## The scan produced no final report
 
 Ask the agent to report:
 
-- the selected Bug Hunter mode
-- the resolved target path
-- the preflight result
-- failed phase names
-- missing or invalid artifacts
-- `.bug-hunter/` contents
+- resolved target and selected mode;
+- preflight result;
+- failed phase names;
+- missing/invalid canonical artifacts;
+- `.bug-hunter/` contents;
+- coverage state;
+- source-integrity failures;
+- required hybrid-verification status.
 
-An interrupted or invalid pipeline is not a clean result.
+An interrupted/invalid pipeline is not a clean result.
 
-## Findings are missing review
+## Findings are missing adversarial review
 
 Check `.bug-hunter/scan-report.json`. Nonzero `manualReview` or `unreviewed`
 counts mean work remains.
@@ -111,50 +128,104 @@ Use the bug-hunter skill to finish adversarial review for every unreviewed
 finding. Do not edit files.
 ```
 
+## Coverage is incomplete
+
+The public default is single-pass. If the target requires complete queued
+coverage, rerun with:
+
+```text
+/bug-hunter --loop
+```
+
+Do not mark a file covered merely because its parent chunk says done; current
+coverage is per-file evidence driven.
+
+## A source-integrity check failed
+
+Mutation/deletion/unreadability/symlink escape during scanning intentionally
+fails the affected chunk closed. Do not overwrite the baseline and continue.
+
+Resolve the source/Git change, then start a run whose identity matches the
+current intended source. Resume should not silently adopt drifted content.
+
+## Required hybrid verification failed
+
+Read `.bug-hunter/verification-report.json` and identify the required check that
+failed, timed out, or was unavailable. Required verification failure blocks
+Fixer authorization by design.
+
+Do not downgrade a required check to optional merely to make the run green.
+Correct the environment/check plan or keep the finding/remediation unresolved.
+
+## Evidence cache did not reuse prior facts
+
+Cache reuse is intentionally exact-match only. Changes to source hashes,
+protocol identity, role, hypothesis, relevant options, age, or cache integrity
+can invalidate a prior entry. A miss is safer than stale evidence reuse.
+
 ## Dependency scan says `scanner-unsupported`
 
-The bundled dependency parser and reachability analysis currently support
-JavaScript and TypeScript lockfiles. Use the ecosystem's native audit tool for
-Python, Go, or Rust, then give its result to the agent as additional evidence.
+Bundled dependency parsing/reachability currently supports JavaScript and
+TypeScript lockfiles for npm, pnpm, Yarn, and Bun. Use the ecosystem's native
+audit tool for an unsupported ecosystem and provide its result as additional
+evidence if appropriate.
 
-Do not interpret `scanner-unsupported` as no vulnerabilities.
+Never interpret `scanner-unsupported` as “no vulnerabilities.”
 
 ## A fix run stopped
 
 Read:
 
-- `.bug-hunter/fix-report.json`
-- `.bug-hunter/fix-plan.json`
-- `.bug-hunter/state.json`
-- the agent's validation logs
+- `.bug-hunter/fix-strategy.json`;
+- `.bug-hunter/fix-plan.json`;
+- `.bug-hunter/fixer-scope.json`;
+- `.bug-hunter/fix-report.json`;
+- `.bug-hunter/verification-report.json` when present;
+- `.bug-hunter/state.json` and validation logs.
 
-Do not bypass a failed canary, scope violation, dirty-worktree guard, or
-preservation failure. Recover the named worktree or file first.
+Do not bypass a failed canary, immutable-scope violation, required verification,
+dirty-worktree guard, preservation failure, or circuit breaker. Recover the
+named worktree/file/check first.
+
+## Benchmark quality gate failed
+
+Run:
+
+```bash
+pnpm benchmark:gate
+```
+
+Inspect `.bug-hunter/benchmark/report.json`. The bundled fixture validates the
+measurement contract and should be deterministic. Do not relax thresholds just
+to make an unexplained regression pass; identify whether precision, recall,
+calibration, stability, cost, or latency changed.
 
 ## The npm version differs from GitHub
 
-GitHub source and npm publication are separate release states. Check:
+GitHub source and npm publication are separate release states:
 
 ```bash
 npm view @codexstar/bug-hunter version
 ```
 
-Use the npm package for published releases. Use the source-install steps in
-[agent installation](agent-installation.md) only when you intentionally want
-an unreleased GitHub commit.
+Use npm for the latest published release. Use the GitHub-source installation
+only when you intentionally want the current `main` commit before/independent of
+a package release.
 
 ## Report a problem
 
 Include:
 
-- `bug-hunter --version`
-- `node --version`
-- the install target name
-- the failing command
-- the complete error text
-- whether the source tree or Git state changed
+- `bug-hunter --version` or the exact package source;
+- `node --version`;
+- install target name;
+- failing command;
+- complete non-secret error text;
+- relevant canonical artifact/status;
+- whether source files, Git state, or commits changed.
 
-Do not include secrets, tokens, private source code, or production data.
+Do not include secrets, tokens, private source, or production data.
 
-Open an issue at
+Open a normal issue at
 [github.com/codexstar69/bug-hunter/issues](https://github.com/codexstar69/bug-hunter/issues).
+For vulnerabilities in Bug Hunter itself, follow [`SECURITY.md`](../SECURITY.md).

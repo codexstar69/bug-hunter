@@ -1,4 +1,4 @@
 interface:
   display_name: "Bug Hunter"
   short_description: "Find and verify real code bugs"
-  default_prompt: "Use $bug-hunter to scan this codebase for confirmed runtime, logic, and security bugs. Do not edit files."
+  default_prompt: "Use $bug-hunter to scan this codebase for evidence-backed runtime, logic, and security bugs. Do not edit files. Complete adversarial review and surface every manual-review or unreviewed item."
