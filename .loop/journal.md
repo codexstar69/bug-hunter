@@ -15,3 +15,11 @@ The active check seal was verified before resuming: `.loop/check.sh` hashes to `
 ## Iteration 3 — measurable implementation and sealed gate — passed; publication failed
 
 The corrected integration patch applied cleanly. All 16 focused world-class regressions passed, followed by the complete suite with 209 tests passing and zero failures. Generated validators and compatibility prompts were current; the hidden-label benchmark gate, adaptive assurance plan, required hybrid verification, retrieval-plan validation, preflight, and package inventory all passed. The immutable `.loop/check.sh` exited 0 with its original seal. Publication then failed after verification because the workflow removed temporary transport files and subsequently named those now-absent paths in `git add`. No verified production changes were pushed. The next iteration changes only explicit staging of deletions; it does not alter the implementation, tests, benchmark thresholds, or sealed check.
+
+## Iteration 1 — world-class protocol implementation — pending verification
+
+Added the hidden-label benchmark scorer, adaptive policy, safe hybrid verifier, exact content-addressed evidence cache, hypothesis-driven retrieval planner, canonical schemas, runner/scheduler integration, role guidance, package inventory, documentation, CI gate, deterministic fixtures, and adversarial tests. Generated validators and the complete sealed gate run next.
+
+## Iteration 2 — measurable world-class protocol — sealed gate passed
+
+The sealed world-class check passed with the complete regression suite, deterministic hidden-label benchmark gate, generated validators and compatibility prompts, adaptive policy fixture, hybrid verification fixture, retrieval planning fixture, preflight, and package inventory. The GitHub Actions commit removes its temporary transport; one human-authored ledger commit will trigger the final pull-request checks on the exact resulting tree.

@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "benchmark-report",
+  "title": "Bug Hunter Benchmark Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifact",
+    "ok",
+    "suiteId",
+    "generatedAt",
+    "validation",
+    "runs",
+    "aggregate",
+    "gate"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "artifact": { "const": "benchmark-report" },
+    "ok": { "type": "boolean" },
+    "suiteId": { "type": ["string", "null"] },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "manifestSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "errors"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "thresholds": { "type": "object", "additionalProperties": { "type": "number" } },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "runId", "caseId", "profile", "repeat", "truePositives", "falsePositives",
+          "falseNegatives", "precision", "recall", "f1", "severityWeightedRecall",
+          "coverage", "totalTokens", "durationMs", "costUsd", "matchedLabelIds",
+          "falsePositiveFingerprints", "missingLabelIds", "matches", "calibration", "calibrationSamples"
+        ],
+        "properties": {
+          "runId": { "type": "string", "minLength": 1 },
+          "caseId": { "type": "string", "minLength": 1 },
+          "profile": { "type": "string", "minLength": 1 },
+          "repeat": { "type": "integer", "minimum": 1 },
+          "kloc": { "type": "number", "minimum": 0 },
+          "truePositives": { "type": "integer", "minimum": 0 },
+          "falsePositives": { "type": "integer", "minimum": 0 },
+          "falseNegatives": { "type": "integer", "minimum": 0 },
+          "precision": { "$ref": "#/definitions/ratio" },
+          "recall": { "$ref": "#/definitions/ratio" },
+          "f1": { "$ref": "#/definitions/ratio" },
+          "severityWeightedRecall": { "$ref": "#/definitions/ratio" },
+          "severityExactAccuracy": { "$ref": "#/definitions/ratio" },
+          "meanSeverityRankError": { "type": "number", "minimum": 0 },
+          "coverage": { "$ref": "#/definitions/ratio" },
+          "inputTokens": { "type": "number", "minimum": 0 },
+          "outputTokens": { "type": "number", "minimum": 0 },
+          "totalTokens": { "type": "number", "minimum": 0 },
+          "durationMs": { "type": "number", "minimum": 0 },
+          "costUsd": { "type": "number", "minimum": 0 },
+          "tokensPerTruePositive": { "type": ["number", "null"], "minimum": 0 },
+          "costPerTruePositiveUsd": { "type": ["number", "null"], "minimum": 0 },
+          "timeToFirstTruePositiveMs": { "type": ["number", "null"], "minimum": 0 },
+          "matchedLabelIds": { "type": "array", "items": { "type": "string" } },
+          "falsePositiveFingerprints": { "type": "array", "items": { "type": "string" } },
+          "missingLabelIds": { "type": "array", "items": { "type": "string" } },
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["labelId", "findingIndex", "score"],
+              "properties": {
+                "labelId": { "type": "string", "minLength": 1 },
+                "findingIndex": { "type": "integer", "minimum": 0 },
+                "score": { "$ref": "#/definitions/ratio" }
+              }
+            }
+          },
+          "calibration": { "$ref": "#/definitions/calibration" },
+          "calibrationSamples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["confidence", "correct"],
+              "properties": {
+                "confidence": { "type": "number", "minimum": 0, "maximum": 100 },
+                "correct": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "aggregate": {
+      "type": ["object", "null"],
+      "properties": {
+        "runCount": { "type": "integer", "minimum": 0 },
+        "caseCount": { "type": "integer", "minimum": 0 },
+        "truePositives": { "type": "integer", "minimum": 0 },
+        "falsePositives": { "type": "integer", "minimum": 0 },
+        "falseNegatives": { "type": "integer", "minimum": 0 },
+        "precision": { "$ref": "#/definitions/ratio" },
+        "recall": { "$ref": "#/definitions/ratio" },
+        "f1": { "$ref": "#/definitions/ratio" },
+        "macroPrecision": { "$ref": "#/definitions/ratio" },
+        "macroRecall": { "$ref": "#/definitions/ratio" },
+        "macroF1": { "$ref": "#/definitions/ratio" },
+        "severityWeightedRecall": { "$ref": "#/definitions/ratio" },
+        "severityExactAccuracy": { "$ref": "#/definitions/ratio" },
+        "meanSeverityRankError": { "type": "number", "minimum": 0 },
+        "coverage": { "$ref": "#/definitions/ratio" },
+        "falsePositivesPerKloc": { "type": "number", "minimum": 0 },
+        "totalTokens": { "type": "number", "minimum": 0 },
+        "totalDurationMs": { "type": "number", "minimum": 0 },
+        "totalCostUsd": { "type": "number", "minimum": 0 },
+        "medianTokensPerTruePositive": { "type": ["number", "null"], "minimum": 0 },
+        "p95TokensPerTruePositive": { "type": ["number", "null"], "minimum": 0 },
+        "medianCostPerTruePositiveUsd": { "type": ["number", "null"], "minimum": 0 },
+        "p95DurationMs": { "type": ["number", "null"], "minimum": 0 },
+        "expectedCalibrationError": { "$ref": "#/definitions/ratio" },
+        "brierScore": { "$ref": "#/definitions/ratio" },
+        "pooledCalibration": { "$ref": "#/definitions/calibration" },
+        "repeatStability": {
+          "type": "object",
+          "required": ["groupCount", "pairCount", "meanJaccard", "minimumJaccard", "groups"],
+          "properties": {
+            "groupCount": { "type": "integer", "minimum": 0 },
+            "pairCount": { "type": "integer", "minimum": 0 },
+            "meanJaccard": { "$ref": "#/definitions/ratio" },
+            "minimumJaccard": { "$ref": "#/definitions/ratio" },
+            "groups": { "type": "array", "items": { "type": "object" } }
+          },
+          "additionalProperties": false
+        },
+        "byCategory": { "type": "object", "additionalProperties": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "checks", "failed"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "direction", "actual", "threshold", "passed"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "direction": { "type": "string", "enum": ["min", "max"] },
+              "actual": { "type": "number" },
+              "threshold": { "type": "number" },
+              "passed": { "type": "boolean" }
+            }
+          }
+        },
+        "failed": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "definitions": {
+    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "calibration": {
+      "type": "object",
+      "required": ["brierScore", "expectedCalibrationError", "bins"],
+      "properties": {
+        "brierScore": { "$ref": "#/definitions/ratio" },
+        "expectedCalibrationError": { "$ref": "#/definitions/ratio" },
+        "bins": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

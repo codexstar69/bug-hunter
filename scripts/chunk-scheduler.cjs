@@ -1,6 +1,8 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { validateArtifactFile } = require('./schema-runtime.cjs');
+const { getEntry, hashDescriptor, putEntry } = require('./evidence-cache.cjs');
 const {
   appendJournal,
   fillTemplate,
@@ -38,6 +40,34 @@ function removeFileIfExists(filePath) {
 function canonicalFilePath(filePath) {
   const resolved = path.resolve(String(filePath));
   return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+}
+
+function semanticJsonHash(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  const value = readJson(filePath);
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    value.generatedAt = null;
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function buildEvidenceDescriptor({ statePath, scanFiles, adaptivePlanPath, retrievalPlanPath }) {
+  const state = readJson(statePath);
+  const sources = scanFiles.map((filePath) => {
+    const canonical = canonicalFilePath(filePath);
+    const fileState = state.fileStates && state.fileStates[canonical];
+    return {
+      path: canonical,
+      hash: fileState && fileState.hash || null
+    };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    protocolVersion: 'world-class-v1',
+    artifact: 'fact-card',
+    sources,
+    adaptivePlanHash: semanticJsonHash(adaptivePlanPath),
+    retrievalPlanHash: semanticJsonHash(retrievalPlanPath)
+  };
 }
 
 function normalizeFindingsToScope({ findings, scanFiles }) {
@@ -137,7 +167,11 @@ async function processPendingChunks({
   mode,
   skillDir,
   index,
-  confidenceThreshold
+  confidenceThreshold,
+  evidenceCacheDir = null,
+  evidenceCacheOptions = {},
+  adaptivePlanPath = '',
+  retrievalPlanPath = ''
 }) {
   while (true) {
     const next = runJsonScript(stateScript, ['next-chunk', statePath]);
@@ -149,6 +183,7 @@ async function processPendingChunks({
     const scanFilesJsonPath = path.join(chunksDir, `${chunk.id}-scan-files.json`);
     const findingsJsonPath = path.join(chunksDir, `${chunk.id}-findings.json`);
     const factsJsonPath = path.join(chunksDir, `${chunk.id}-facts.json`);
+    const cachedFactsJsonPath = path.join(chunksDir, `${chunk.id}-cached-facts.json`);
     writeJson(chunkFilesJsonPath, chunk.files);
 
     const hashFilterResult = runJsonScript(stateScript, ['hash-filter', statePath, chunkFilesJsonPath]);
@@ -187,6 +222,35 @@ async function processPendingChunks({
     writeJson(scanFilesJsonPath, scanFiles);
     removeFileIfExists(findingsJsonPath);
     removeFileIfExists(factsJsonPath);
+
+    let evidenceDescriptor = null;
+    let cachedFacts = null;
+    if (evidenceCacheDir) {
+      evidenceDescriptor = buildEvidenceDescriptor({
+        statePath,
+        scanFiles,
+        adaptivePlanPath,
+        retrievalPlanPath
+      });
+      const cacheKey = hashDescriptor(evidenceDescriptor);
+      const cacheResult = getEntry(evidenceCacheDir, cacheKey);
+      if (cacheResult.hit) {
+        cachedFacts = cacheResult.value;
+        appendJournal(journalPath, {
+          event: 'evidence-cache-hit',
+          chunkId: chunk.id,
+          cacheKey
+        });
+      } else {
+        appendJournal(journalPath, {
+          event: 'evidence-cache-miss',
+          chunkId: chunk.id,
+          cacheKey,
+          reason: cacheResult.reason || 'not-found'
+        });
+      }
+    }
+    writeJson(cachedFactsJsonPath, cachedFacts || {});
     runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'in_progress']);
 
     const command = fillTemplate(workerCmdTemplate, {
@@ -195,6 +259,9 @@ async function processPendingChunks({
       scanFilesJson: scanFilesJsonPath,
       findingsJson: findingsJsonPath,
       factsJson: factsJsonPath,
+      cachedFactsJson: cachedFactsJsonPath,
+      adaptivePlanJson: adaptivePlanPath || '',
+      retrievalPlanJson: retrievalPlanPath || '',
       backend,
       mode,
       statePath,
@@ -252,7 +319,7 @@ async function processPendingChunks({
 
     const findings = readJson(findingsJsonPath);
     if (!fs.existsSync(factsJsonPath)) {
-      writeJson(factsJsonPath, buildHeuristicFactCard({
+      writeJson(factsJsonPath, cachedFacts || buildHeuristicFactCard({
         chunkId: chunk.id,
         scanFiles,
         findings,
@@ -281,6 +348,21 @@ async function processPendingChunks({
         throw new Error(`Chunk ${chunk.id} failed its integrity commit and fail-fast is enabled`);
       }
       continue;
+    }
+
+    if (evidenceCacheDir && evidenceDescriptor) {
+      const stored = putEntry(
+        evidenceCacheDir,
+        evidenceDescriptor,
+        readJson(factsJsonPath),
+        evidenceCacheOptions
+      );
+      appendJournal(journalPath, {
+        event: 'evidence-cache-store',
+        chunkId: chunk.id,
+        cacheKey: stored.key,
+        prunedEntries: stored.prune && stored.prune.removedEntries || 0
+      });
     }
 
     appendJournal(journalPath, {

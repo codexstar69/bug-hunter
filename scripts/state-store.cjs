@@ -114,7 +114,13 @@ function buildRunIdentity({
   maxRetries,
   confidenceThreshold,
   deltaMode,
-  deltaHops
+  deltaHops,
+  adaptivePlanHash,
+  retrievalPlanHash,
+  adaptiveRequestHash,
+  retrievalRequestHash,
+  verificationPlanHash,
+  evidenceCacheProtocol
 }) {
   const repository = getRepositoryIdentity();
   const files = normalizeRunFiles(readJson(filesJsonPath), repository.repositoryRoot, {
@@ -136,7 +142,13 @@ function buildRunIdentity({
       maxRetries,
       maxSourceTokens,
       timeoutMs,
-      tokenBudgetEnforced
+      tokenBudgetEnforced,
+      ...(adaptivePlanHash ? { adaptivePlanHash } : {}),
+      ...(retrievalPlanHash ? { retrievalPlanHash } : {}),
+      ...(adaptiveRequestHash ? { adaptiveRequestHash } : {}),
+      ...(retrievalRequestHash ? { retrievalRequestHash } : {}),
+      ...(verificationPlanHash ? { verificationPlanHash } : {}),
+      ...(evidenceCacheProtocol ? { evidenceCacheProtocol } : {})
     })
   };
 }

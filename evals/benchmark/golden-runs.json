@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "bug-hunter-behavioral-core-v1",
+  "runs": [
+    {
+      "runId": "balanced-auth-1",
+      "caseId": "auth-boundary-js",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 9000,
+      "outputTokens": 1400,
+      "durationMs": 42000,
+      "costUsd": 0.12,
+      "coverage": { "filesTotal": 3, "filesDone": 3 },
+      "findings": [
+        {
+          "bugId": "BUG-AUTH-1",
+          "file": "src/routes.js",
+          "lines": "42-48",
+          "severity": "High",
+          "category": "security",
+          "claim": "The admin route reaches a privileged service without an authorization check.",
+          "evidence": "src/routes.js:42-48 forwards an authenticated user without checking role or permission.",
+          "runtimeTrigger": "A normal user calls the admin endpoint and bypasses the missing permission check.",
+          "crossReferences": ["src/auth.js:10-18", "src/service.js:20-29"],
+          "confidenceScore": 96,
+          "emittedAtMs": 28000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-auth-2",
+      "caseId": "auth-boundary-js",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 8800,
+      "outputTokens": 1350,
+      "durationMs": 41000,
+      "costUsd": 0.118,
+      "coverage": { "filesTotal": 3, "filesDone": 3 },
+      "findings": [
+        {
+          "bugId": "BUG-AUTH-2",
+          "file": "src/routes.js",
+          "lines": "43-47",
+          "severity": "High",
+          "category": "security",
+          "claim": "Missing role authorization lets a regular account invoke the admin operation.",
+          "evidence": "The privileged admin handler performs no permission or role check before calling the service.",
+          "runtimeTrigger": "An authenticated non-admin sends the admin request and bypasses authorization.",
+          "crossReferences": ["src/auth.js:10-18"],
+          "confidenceScore": 95,
+          "emittedAtMs": 27000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-contract-1",
+      "caseId": "api-contract-ts",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 11000,
+      "outputTokens": 1200,
+      "durationMs": 51000,
+      "costUsd": 0.14,
+      "coverage": { "filesTotal": 3, "filesDone": 3 },
+      "findings": [
+        {
+          "bugId": "BUG-API-1",
+          "file": "src/handler.ts",
+          "lines": "75-82",
+          "severity": "Medium",
+          "category": "api-contract",
+          "claim": "The handler dereferences a nullable client response that the caller contract permits.",
+          "evidence": "src/handler.ts:75-82 reads result.user.id even though src/client.ts can return null.",
+          "runtimeTrigger": "The client returns null for a missing user and the handler throws while dereferencing it.",
+          "crossReferences": ["src/client.ts:30-37", "src/types.ts:4-9"],
+          "confidenceScore": 94,
+          "emittedAtMs": 35000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-contract-2",
+      "caseId": "api-contract-ts",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 10800,
+      "outputTokens": 1180,
+      "durationMs": 50000,
+      "costUsd": 0.138,
+      "coverage": { "filesTotal": 3, "filesDone": 3 },
+      "findings": [
+        {
+          "bugId": "BUG-API-2",
+          "file": "src/handler.ts",
+          "lines": "76-81",
+          "severity": "Medium",
+          "category": "api-contract",
+          "claim": "A null client result violates the handler's dereference assumption and causes an exception.",
+          "evidence": "The caller contract is nullable, but the handler accesses the user field without a null guard.",
+          "runtimeTrigger": "Requesting an unknown user returns null and crashes at the unguarded dereference.",
+          "crossReferences": ["src/client.ts:30-37"],
+          "confidenceScore": 93,
+          "emittedAtMs": 34000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-concurrency-1",
+      "caseId": "concurrency-go",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 12500,
+      "outputTokens": 1450,
+      "durationMs": 62000,
+      "costUsd": 0.16,
+      "coverage": { "filesTotal": 2, "filesDone": 2 },
+      "findings": [
+        {
+          "bugId": "BUG-CONC-1",
+          "file": "internal/store/store.go",
+          "lines": "31-39",
+          "severity": "High",
+          "category": "concurrency",
+          "claim": "Concurrent handlers read and write the shared map without synchronization.",
+          "evidence": "internal/store/store.go:31-39 mutates the shared map from multiple goroutines without a mutex.",
+          "runtimeTrigger": "Two requests update the same store concurrently, causing a data race or concurrent map panic.",
+          "crossReferences": ["internal/api/handler.go:22-35"],
+          "confidenceScore": 97,
+          "emittedAtMs": 44000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-concurrency-2",
+      "caseId": "concurrency-go",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 12300,
+      "outputTokens": 1400,
+      "durationMs": 60000,
+      "costUsd": 0.158,
+      "coverage": { "filesTotal": 2, "filesDone": 2 },
+      "findings": [
+        {
+          "bugId": "BUG-CONC-2",
+          "file": "internal/store/store.go",
+          "lines": "32-38",
+          "severity": "High",
+          "category": "concurrency",
+          "claim": "The shared store map is accessed by concurrent goroutines without locking.",
+          "evidence": "No mutex or synchronization protects the map writes used by concurrent request handlers.",
+          "runtimeTrigger": "Parallel requests race on the map and may trigger a concurrent map write failure.",
+          "crossReferences": ["internal/api/handler.go:22-35"],
+          "confidenceScore": 96,
+          "emittedAtMs": 43000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-clean-1",
+      "caseId": "clean-python-api",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 6500,
+      "outputTokens": 450,
+      "durationMs": 30000,
+      "costUsd": 0.08,
+      "coverage": { "filesTotal": 3, "filesDone": 3 },
+      "findings": []
+    },
+    {
+      "runId": "balanced-clean-2",
+      "caseId": "clean-python-api",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 6400,
+      "outputTokens": 430,
+      "durationMs": 29500,
+      "costUsd": 0.079,
+      "coverage": { "filesTotal": 3, "filesDone": 3 },
+      "findings": []
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": 1,
+  "artifact": "adaptive-plan",
+  "title": "Bug Hunter Adaptive Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "artifact", "generatedAt", "profile", "riskScore", "inputs",
+    "budgetPolicy", "reviewerPolicy", "earlyStop", "verificationPolicy",
+    "modelPolicy", "cachePolicy", "reasons"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "artifact": { "const": "adaptive-plan" },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "profile": { "type": "string", "enum": ["fast", "balanced", "assurance"] },
+    "riskScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "inputs": { "type": "object" },
+    "budgetPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxSourceTokens", "maxFilesPerChunk", "deltaHops", "expansionCap",
+        "confidenceThreshold", "tokenBudgetHardLimit", "isolateOversizedFiles",
+        "preferSymbolSlices"
+      ],
+      "properties": {
+        "maxSourceTokens": { "type": "integer", "minimum": 1 },
+        "maxFilesPerChunk": { "type": "integer", "minimum": 1 },
+        "deltaHops": { "type": "integer", "minimum": 0 },
+        "expansionCap": { "type": "integer", "minimum": 1 },
+        "confidenceThreshold": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "tokenBudgetHardLimit": { "type": "boolean" },
+        "isolateOversizedFiles": { "type": "boolean" },
+        "preferSymbolSlices": { "type": "boolean" }
+      }
+    },
+    "reviewerPolicy": { "type": "object" },
+    "earlyStop": { "type": "object" },
+    "verificationPolicy": { "type": "object" },
+    "modelPolicy": { "type": "object" },
+    "cachePolicy": { "type": "object" },
+    "reasons": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  }
+}

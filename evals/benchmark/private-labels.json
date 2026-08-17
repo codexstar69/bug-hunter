@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "bug-hunter-behavioral-core-v1",
+  "publicManifestSha256": "011858a3beb5bb00df06d99f1b2a5154f2f06bda4e09d32815c754d508d803d2",
+  "cases": [
+    {
+      "id": "auth-boundary-js",
+      "findings": [
+        {
+          "labelId": "AUTH-001",
+          "file": "src/routes.js",
+          "lines": "42-48",
+          "severity": "High",
+          "category": "security",
+          "keywordGroups": [
+            [
+              "authorization",
+              "permission",
+              "role"
+            ],
+            [
+              "bypass",
+              "missing",
+              "unchecked"
+            ],
+            [
+              "admin",
+              "privileged"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "api-contract-ts",
+      "findings": [
+        {
+          "labelId": "API-001",
+          "file": "src/handler.ts",
+          "lines": "75-82",
+          "severity": "Medium",
+          "category": "api-contract",
+          "keywordGroups": [
+            [
+              "null",
+              "undefined",
+              "nullable"
+            ],
+            [
+              "client",
+              "caller",
+              "contract"
+            ],
+            [
+              "crash",
+              "exception",
+              "dereference"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "concurrency-go",
+      "findings": [
+        {
+          "labelId": "CONC-001",
+          "file": "internal/store/store.go",
+          "lines": "31-39",
+          "severity": "High",
+          "category": "concurrency",
+          "keywordGroups": [
+            [
+              "race",
+              "concurrent",
+              "goroutine"
+            ],
+            [
+              "map",
+              "shared state",
+              "store"
+            ],
+            [
+              "lock",
+              "mutex",
+              "synchronization"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "clean-python-api",
+      "findings": []
+    }
+  ]
+}

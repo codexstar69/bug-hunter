@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "name": "deterministic-smoke-verification",
+  "checks": [
+    {
+      "id": "node-runtime",
+      "kind": "test",
+      "command": [
+        "node",
+        "-e",
+        "process.exit(0)"
+      ],
+      "cwd": ".",
+      "required": true,
+      "timeoutMs": 5000,
+      "maxOutputBytes": 65536,
+      "supports": [
+        "logic",
+        "api-contract",
+        "security"
+      ]
+    }
+  ]
+}

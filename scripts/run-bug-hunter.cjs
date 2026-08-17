@@ -32,6 +32,9 @@ const {
   selectRefereeAuthorizedFindings
 } = require('./artifact-planner.cjs');
 const { processPendingChunks } = require('./chunk-scheduler.cjs');
+const { buildAdaptivePolicy } = require('./adaptive-policy.cjs');
+const { detectPlan: detectVerificationPlan, runPlan: runVerificationPlan } = require('./hybrid-verifier.cjs');
+const { buildRetrievalPlan } = require('./retrieval-planner.cjs');
 const {
   DEFAULT_SOURCE_TOKEN_BUDGET,
   MAX_FILES_PER_CHUNK,
@@ -167,6 +170,11 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'scripts', 'state-store.cjs'),
     path.join(skillDir, 'scripts', 'artifact-planner.cjs'),
     path.join(skillDir, 'scripts', 'chunk-scheduler.cjs'),
+    path.join(skillDir, 'scripts', 'benchmark-suite.cjs'),
+    path.join(skillDir, 'scripts', 'adaptive-policy.cjs'),
+    path.join(skillDir, 'scripts', 'hybrid-verifier.cjs'),
+    path.join(skillDir, 'scripts', 'evidence-cache.cjs'),
+    path.join(skillDir, 'scripts', 'retrieval-planner.cjs'),
     path.join(skillDir, 'scripts', 'payload-guard.cjs'),
     path.join(skillDir, 'scripts', 'schema-validate.cjs'),
     path.join(skillDir, 'scripts', 'schema-runtime.cjs'),
@@ -182,6 +190,10 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'schemas', 'skeptic.schema.json'),
     path.join(skillDir, 'schemas', 'referee.schema.json'),
     path.join(skillDir, 'schemas', 'coverage.schema.json'),
+    path.join(skillDir, 'schemas', 'benchmark-report.schema.json'),
+    path.join(skillDir, 'schemas', 'adaptive-plan.schema.json'),
+    path.join(skillDir, 'schemas', 'verification-report.schema.json'),
+    path.join(skillDir, 'schemas', 'retrieval-plan.schema.json'),
     path.join(skillDir, 'schemas', 'fix-report.schema.json'),
     path.join(skillDir, 'schemas', 'fix-plan.schema.json'),
     path.join(skillDir, 'schemas', 'fix-strategy.schema.json'),
@@ -226,6 +238,74 @@ function writeJson(filePath, value) {
 
 function toArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function semanticArtifactHash(value) {
+  const clone = JSON.parse(JSON.stringify(value));
+  if (clone && typeof clone === 'object' && !Array.isArray(clone)) {
+    clone.generatedAt = null;
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(clone)).digest('hex');
+}
+
+function validateGeneratedArtifact(artifactName, value, label) {
+  const validation = validateArtifactValue({ artifactName, value });
+  if (!validation.ok) {
+    throw new Error(`Generated invalid ${label}: ${validation.errors.join('; ') }`);
+  }
+}
+
+function inferredTriage(files) {
+  const riskMap = { critical: [], high: [], medium: [], low: [], 'context-only': [] };
+  let tokenTotal = 0;
+  for (const filePath of files) {
+    const relative = path.relative(process.cwd(), filePath).replace(/\\/g, '/');
+    try {
+      tokenTotal += Math.max(1, Math.ceil(fs.statSync(filePath).size / 4));
+    } catch {
+      tokenTotal += 1;
+    }
+    if (/(^|\/)(?:__tests__|tests?|specs?)(?:\/|$)|\.(?:test|spec)\./i.test(relative)) {
+      riskMap['context-only'].push(relative);
+    } else if (/auth|security|session|token|permission|payment|webhook|crypto/i.test(relative)) {
+      riskMap.critical.push(relative);
+    } else if (/api|route|controller|service|database|queue|worker|upload|storage/i.test(relative)) {
+      riskMap.high.push(relative);
+    } else {
+      riskMap.medium.push(relative);
+    }
+  }
+  return {
+    generatedAt: nowIso(),
+    target: process.cwd(),
+    totalFiles: files.length,
+    scannableFiles: files.length,
+    avgTokens: files.length === 0 ? 0 : Math.ceil(tokenTotal / files.length),
+    riskMap,
+    domains: []
+  };
+}
+
+function semanticInputFileHash(filePath) {
+  if (!filePath) {
+    return null;
+  }
+  const resolvedPath = path.resolve(String(filePath));
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Configuration input does not exist: ${resolvedPath}`);
+  }
+  return semanticArtifactHash(readJson(resolvedPath));
+}
+
+function writeOrValidateStablePlan({ planPath, plan, resumeRunId, label }) {
+  if (resumeRunId) {
+    if (!fs.existsSync(planPath)) {
+      throw new Error(`${label} is missing for resumed run: ${planPath}`);
+    }
+    return readJson(planPath);
+  }
+  writeJson(planPath, plan);
+  return plan;
 }
 
 function loadRefereeAuthorization(refereePath) {
@@ -667,11 +747,18 @@ async function runPipeline(options) {
   const requestedChunkSize = options['chunk-size'] === undefined
     ? null
     : toPositiveInt(options['chunk-size'], DEFAULT_CHUNK_SIZE, '--chunk-size');
-  const maxSourceTokens = toPositiveInt(
-    options['max-source-tokens'],
-    DEFAULT_SOURCE_TOKEN_BUDGET,
-    '--max-source-tokens'
-  );
+  const requestedMaxSourceTokens = options['max-source-tokens'] === undefined
+    ? null
+    : toPositiveInt(options['max-source-tokens'], DEFAULT_SOURCE_TOKEN_BUDGET, '--max-source-tokens');
+  const requestedConfidenceThreshold = options['confidence-threshold'] === undefined
+    ? null
+    : toPositiveInt(options['confidence-threshold'], DEFAULT_CONFIDENCE_THRESHOLD, '--confidence-threshold');
+  const requestedDeltaHops = options['delta-hops'] === undefined
+    ? null
+    : toNonNegativeInt(options['delta-hops'], DEFAULT_DELTA_HOPS, '--delta-hops');
+  const requestedExpansionCap = options['expansion-cap'] === undefined
+    ? null
+    : toPositiveInt(options['expansion-cap'], DEFAULT_EXPANSION_CAP, '--expansion-cap');
   const timeoutMs = toPositiveInt(options['timeout-ms'], DEFAULT_TIMEOUT_MS, '--timeout-ms');
   const maxOutputBytes = toPositiveInt(
     options['max-output-bytes'],
@@ -693,23 +780,16 @@ async function runPipeline(options) {
     scanFilesJson: 'preflight.json',
     findingsJson: 'preflight.json',
     factsJson: 'preflight.json',
+    cachedFactsJson: 'preflight.json',
+    adaptivePlanJson: 'preflight.json',
+    retrievalPlanJson: 'preflight.json',
     backend,
     mode,
     statePath,
     skillDir
   }));
   const authorization = loadRefereeAuthorization(options['referee-path']);
-  const confidenceThreshold = toPositiveInt(
-    options['confidence-threshold'],
-    DEFAULT_CONFIDENCE_THRESHOLD,
-    '--confidence-threshold'
-  );
   const canarySize = toPositiveInt(options['canary-size'], DEFAULT_CANARY_SIZE, '--canary-size');
-  const expansionCap = toPositiveInt(
-    options['expansion-cap'],
-    DEFAULT_EXPANSION_CAP,
-    '--expansion-cap'
-  );
   const expandOnLowConfidence = toBoolean(options['expand-on-low-confidence'], true);
   const journalPath = path.resolve(
     options['journal-path'] || path.join(path.dirname(statePath), 'run.log')
@@ -725,6 +805,31 @@ async function runPipeline(options) {
   const coveragePath = path.resolve(options['coverage-path'] || path.join(path.dirname(statePath), 'coverage.json'));
   const coverageMarkdownPath = path.resolve(options['coverage-markdown-path'] || path.join(path.dirname(statePath), 'coverage.md'));
   const factsPath = path.resolve(options['facts-path'] || path.join(path.dirname(statePath), 'bug-hunter-facts.json'));
+  const adaptivePlanPath = path.resolve(options['adaptive-plan-path'] || path.join(path.dirname(statePath), 'adaptive-plan.json'));
+  const retrievalPlanPath = path.resolve(options['retrieval-plan-path'] || path.join(path.dirname(statePath), 'retrieval-plan.json'));
+  const verificationReportPath = path.resolve(options['verification-report-path'] || path.join(path.dirname(statePath), 'verification-report.json'));
+  const verificationPlanPath = options['verification-plan'] ? path.resolve(options['verification-plan']) : null;
+  const autoVerify = toBoolean(options['auto-verify'], false);
+  const verificationRequired = toBoolean(options['verification-required'], false);
+  const verificationTotalBudgetMs = toPositiveInt(
+    options['verification-total-budget-ms'],
+    600000,
+    '--verification-total-budget-ms'
+  );
+  const verificationMaxOutputBytes = toPositiveInt(
+    options['verification-max-output-bytes'],
+    DEFAULT_MAX_OUTPUT_BYTES,
+    '--verification-max-output-bytes'
+  );
+  const evidenceCacheEnabled = toBoolean(options['evidence-cache'], true);
+  const evidenceCacheDir = evidenceCacheEnabled
+    ? path.resolve(options['evidence-cache-dir'] || path.join(path.dirname(statePath), 'evidence-cache'))
+    : null;
+  const evidenceCacheOptions = {
+    maxEntries: toPositiveInt(options['cache-max-entries'], 10000, '--cache-max-entries'),
+    maxBytes: toPositiveInt(options['cache-max-bytes'], 268435456, '--cache-max-bytes'),
+    maxAgeDays: toPositiveInt(options['cache-max-age-days'], 30, '--cache-max-age-days')
+  };
 
   if (!resumeRunId && (fs.existsSync(statePath) || fs.existsSync(identityPath))) {
     throw new Error(`State already exists; use --resume with its run ID or choose a new --run-id: ${statePath}`);
@@ -749,8 +854,48 @@ async function runPipeline(options) {
   );
   writeJson(normalizedFilesJsonPath, normalizedInputFiles);
 
+  const adaptiveRequestHash = semanticArtifactHash({
+    requestedProfile: options['adaptive-profile'] || 'balanced',
+    securityReview: toBoolean(options['security-review'], false),
+    triageInputHash: semanticInputFileHash(options['triage-path']),
+    benchmarkReportHash: semanticInputFileHash(options['benchmark-report'])
+  });
+  const triageInput = options['triage-path']
+    ? readJson(path.resolve(options['triage-path']))
+    : inferredTriage(normalizedInputFiles);
+  const benchmarkReport = options['benchmark-report']
+    ? readJson(path.resolve(options['benchmark-report']))
+    : null;
+  const adaptivePlanCandidate = buildAdaptivePolicy({
+    triage: triageInput,
+    benchmarkReport,
+    requestedProfile: options['adaptive-profile'] || 'balanced',
+    securityReview: toBoolean(options['security-review'], false)
+  });
+  validateGeneratedArtifact('adaptive-plan', adaptivePlanCandidate, 'adaptive plan');
+  const adaptivePlan = writeOrValidateStablePlan({
+    planPath: adaptivePlanPath,
+    plan: adaptivePlanCandidate,
+    resumeRunId,
+    label: 'Adaptive plan'
+  });
+  validateGeneratedArtifact('adaptive-plan', adaptivePlan, 'adaptive plan');
+  const adaptivePlanHash = semanticArtifactHash(adaptivePlan);
+  const chunkSize = requestedChunkSize || adaptivePlan.budgetPolicy.maxFilesPerChunk;
+  const maxSourceTokens = requestedMaxSourceTokens || adaptivePlan.budgetPolicy.maxSourceTokens;
+  const confidenceThreshold = requestedConfidenceThreshold || adaptivePlan.budgetPolicy.confidenceThreshold;
+  const deltaHops = requestedDeltaHops === null ? adaptivePlan.budgetPolicy.deltaHops : requestedDeltaHops;
+  const expansionCap = requestedExpansionCap || adaptivePlan.budgetPolicy.expansionCap;
+  const tokenBudgetEnforced = options['enforce-token-budget'] === undefined
+    ? requestedChunkSize === null
+    : toBoolean(options['enforce-token-budget'], true);
+  const resolvedOptions = {
+    ...options,
+    'delta-hops': String(deltaHops)
+  };
+
   const scope = prepareIndexAndScope({
-    options,
+    options: resolvedOptions,
     skillDir,
     statePath,
     filesJsonPath: normalizedFilesJsonPath,
@@ -766,8 +911,68 @@ async function runPipeline(options) {
     { allowMissing: true }
   );
   writeJson(scope.activeFilesJsonPath, activeFiles);
-  const chunkSize = requestedChunkSize || DEFAULT_CHUNK_SIZE;
-  const tokenBudgetEnforced = requestedChunkSize === null;
+
+  const indexForRetrieval = loadIndex(scope.indexPath) || {
+    root: repositoryIdentity.repositoryRoot,
+    files: Object.fromEntries(activeFiles.map((filePath) => {
+      let estimatedTokens = 1;
+      try {
+        estimatedTokens = Math.max(1, Math.ceil(fs.statSync(filePath).size / 4));
+      } catch {
+        estimatedTokens = 1;
+      }
+      return [filePath, {
+        relativePath: path.relative(repositoryIdentity.repositoryRoot, filePath),
+        riskHint: 'medium',
+        dependencies: [],
+        symbols: [],
+        estimatedTokens
+      }];
+    }))
+  };
+  const requestedRetrievalMaxTokens = options['retrieval-max-tokens'] === undefined
+    ? null
+    : toPositiveInt(options['retrieval-max-tokens'], maxSourceTokens, '--retrieval-max-tokens');
+  const requestedRetrievalMaxFiles = options['retrieval-max-files'] === undefined
+    ? null
+    : toPositiveInt(options['retrieval-max-files'], chunkSize, '--retrieval-max-files');
+  const retrievalRequestHash = semanticArtifactHash({
+    hypothesesInputHash: semanticInputFileHash(options['hypotheses-json']),
+    requestedMaxTokens: requestedRetrievalMaxTokens,
+    requestedMaxFiles: requestedRetrievalMaxFiles,
+    useIndex: toBoolean(options['use-index'], false)
+  });
+  const hypotheses = options['hypotheses-json']
+    ? readJson(path.resolve(options['hypotheses-json']))
+    : activeFiles.slice(0, Math.min(5, activeFiles.length)).map((filePath, index) => ({
+      id: `SCOPE-${index + 1}`,
+      file: filePath,
+      claim: 'Prioritize the assigned source boundary for behavioral and security analysis.',
+      keywords: [path.basename(filePath)]
+    }));
+  const retrievalPlanCandidate = buildRetrievalPlan({
+    index: indexForRetrieval,
+    hypotheses,
+    maxTokens: requestedRetrievalMaxTokens || maxSourceTokens,
+    maxFiles: requestedRetrievalMaxFiles || chunkSize,
+    dependencyHops: Math.max(1, deltaHops)
+  });
+  validateGeneratedArtifact('retrieval-plan', retrievalPlanCandidate, 'retrieval plan');
+  const retrievalPlan = writeOrValidateStablePlan({
+    planPath: retrievalPlanPath,
+    plan: retrievalPlanCandidate,
+    resumeRunId,
+    label: 'Retrieval plan'
+  });
+  validateGeneratedArtifact('retrieval-plan', retrievalPlan, 'retrieval plan');
+  const retrievalPlanHash = semanticArtifactHash(retrievalPlan);
+  const verificationPlan = verificationPlanPath
+    ? readJson(verificationPlanPath)
+    : autoVerify ? detectVerificationPlan(repositoryIdentity.repositoryRoot) : null;
+  if (verificationRequired && (!verificationPlan || !Array.isArray(verificationPlan.checks) || verificationPlan.checks.length === 0)) {
+    throw new Error('Verification is required, but no executable verification checks were supplied or detected');
+  }
+  const verificationPlanHash = verificationPlan ? semanticArtifactHash(verificationPlan) : null;
 
   const runIdentity = buildRunIdentity({
     runId,
@@ -781,7 +986,13 @@ async function runPipeline(options) {
     maxRetries,
     confidenceThreshold,
     deltaMode: scope.deltaMode,
-    deltaHops: scope.deltaHops
+    deltaHops: scope.deltaHops,
+    adaptivePlanHash,
+    retrievalPlanHash,
+    adaptiveRequestHash,
+    retrievalRequestHash,
+    verificationPlanHash,
+    evidenceCacheProtocol: evidenceCacheDir ? 'world-class-v1' : null
   });
 
   if (resumeRunId) {
@@ -821,7 +1032,12 @@ async function runPipeline(options) {
     tokenBudgetEnforced,
     timeoutMs,
     maxRetries,
-    backoffMs
+    backoffMs,
+    adaptiveProfile: adaptivePlan.profile,
+    adaptivePlanPath,
+    retrievalPlanPath,
+    verificationRequired,
+    evidenceCacheEnabled
   });
 
   let index = loadIndex(scope.indexPath);
@@ -841,7 +1057,11 @@ async function runPipeline(options) {
     mode,
     skillDir,
     index,
-    confidenceThreshold
+    confidenceThreshold,
+    evidenceCacheDir,
+    evidenceCacheOptions,
+    adaptivePlanPath,
+    retrievalPlanPath
   });
 
   if (scope.deltaMode && expandOnLowConfidence) {
@@ -901,7 +1121,11 @@ async function runPipeline(options) {
             mode,
             skillDir,
             index,
-            confidenceThreshold
+            confidenceThreshold,
+            evidenceCacheDir,
+            evidenceCacheOptions,
+            adaptivePlanPath,
+            retrievalPlanPath
           });
         }
       }
@@ -922,11 +1146,30 @@ async function runPipeline(options) {
     || (status.summary.chunkStatus.inProgress || 0) > 0
     || (status.summary.chunkStatus.failed || 0) > 0;
 
-  if (hasOpenOrFailedChunks) {
+  let verificationReport = null;
+  if (!hasOpenOrFailedChunks && verificationPlan) {
+    verificationReport = runVerificationPlan({
+      repoRoot: repositoryIdentity.repositoryRoot,
+      plan: verificationPlan,
+      totalBudgetMs: verificationTotalBudgetMs,
+      maxOutputBytes: verificationMaxOutputBytes
+    });
+    validateGeneratedArtifact('verification-report', verificationReport, 'verification report');
+    writeJson(verificationReportPath, verificationReport);
+    appendJournal(journalPath, {
+      event: 'hybrid-verification',
+      ok: verificationReport.ok,
+      summary: verificationReport.summary
+    });
+  }
+  const verificationFailed = Boolean(verificationReport && verificationRequired && !verificationReport.ok);
+
+  if (hasOpenOrFailedChunks || verificationFailed) {
     appendJournal(journalPath, {
       event: 'fix-planning-skipped',
-      reason: 'incomplete-or-failed-chunks',
-      chunkStatus: status.summary.chunkStatus
+      reason: verificationFailed ? 'required-verification-failed' : 'incomplete-or-failed-chunks',
+      chunkStatus: status.summary.chunkStatus,
+      verification: verificationReport ? verificationReport.summary : null
     });
 
     return {
@@ -950,6 +1193,12 @@ async function runPipeline(options) {
       coveragePath: null,
       coverageMarkdownPath: null,
       factsPath,
+      adaptivePlanPath,
+      retrievalPlanPath,
+      verificationReportPath: verificationReport ? verificationReportPath : null,
+      evidenceCacheDir,
+      adaptiveProfile: adaptivePlan.profile,
+      verification: verificationReport ? verificationReport.summary : null,
       status: status.summary,
       consistency: {
         conflicts: consistency.conflicts.length,
@@ -1001,6 +1250,12 @@ async function runPipeline(options) {
       coveragePath,
       coverageMarkdownPath,
       factsPath,
+      adaptivePlanPath,
+      retrievalPlanPath,
+      verificationReportPath: verificationReport ? verificationReportPath : null,
+      evidenceCacheDir,
+      adaptiveProfile: adaptivePlan.profile,
+      verification: verificationReport ? verificationReport.summary : null,
       status: status.summary,
       consistency: {
         conflicts: consistency.conflicts.length,
@@ -1096,7 +1351,9 @@ async function runPipeline(options) {
     event: 'run-end',
     status: status.summary,
     consistencyConflicts: consistency.conflicts.length,
-    canary: fixPlan.totals.canary
+    canary: fixPlan.totals.canary,
+    adaptiveProfile: adaptivePlan.profile,
+    verification: verificationReport ? verificationReport.summary : null
   });
 
   return {
@@ -1120,6 +1377,12 @@ async function runPipeline(options) {
     coveragePath,
     coverageMarkdownPath,
     factsPath,
+    adaptivePlanPath,
+    retrievalPlanPath,
+    verificationReportPath: verificationReport ? verificationReportPath : null,
+    evidenceCacheDir,
+    adaptiveProfile: adaptivePlan.profile,
+    verification: verificationReport ? verificationReport.summary : null,
     status: status.summary,
     consistency: {
       conflicts: consistency.conflicts.length,

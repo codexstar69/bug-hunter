@@ -48,6 +48,8 @@ test('schema runtime validates schema-valued additionalProperties', () => {
 
 test('schema runtime exposes generated validators for every artifact', () => {
   assert.deepEqual(getKnownArtifacts().sort(), [
+    'adaptive-plan',
+    'benchmark-report',
     'coverage',
     'experiment',
     'findings',
@@ -57,8 +59,10 @@ test('schema runtime exposes generated validators for every artifact', () => {
     'fixer-scope',
     'recon',
     'referee',
+    'retrieval-plan',
     'scan-report',
-    'skeptic'
+    'skeptic',
+    'verification-report'
   ]);
 
   const scopeResult = validateArtifactValue({

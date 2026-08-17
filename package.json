@@ -90,7 +90,17 @@
     "llms-full.txt",
     "LICENSE",
     "scripts/source-config.cjs",
-    "docs/precision-protocol.md"
+    "docs/precision-protocol.md",
+    "scripts/benchmark-suite.cjs",
+    "scripts/adaptive-policy.cjs",
+    "scripts/hybrid-verifier.cjs",
+    "scripts/evidence-cache.cjs",
+    "scripts/retrieval-planner.cjs",
+    "schemas/benchmark-report.schema.json",
+    "schemas/adaptive-plan.schema.json",
+    "schemas/verification-report.schema.json",
+    "schemas/retrieval-plan.schema.json",
+    "docs/world-class-protocol.md"
   ],
   "repository": {
     "type": "git",
@@ -114,7 +124,10 @@
     "check:compat-prompts": "node scripts/generate-compat-prompts.cjs --check",
     "check:generated": "pnpm check:schema-validators && pnpm check:compat-prompts",
     "verify:package": "node scripts/verify-package-inventory.cjs",
-    "doctor": "node bin/bug-hunter doctor"
+    "doctor": "node bin/bug-hunter doctor",
+    "benchmark:fixture": "node -e \"require('fs').mkdirSync('.bug-hunter/benchmark',{recursive:true})\" && node scripts/benchmark-suite.cjs score --manifest evals/benchmark/public-manifest.json --labels evals/benchmark/private-labels.json --runs evals/benchmark/golden-runs.json --output .bug-hunter/benchmark/report.json",
+    "benchmark:gate": "pnpm benchmark:fixture && node scripts/benchmark-suite.cjs gate --report .bug-hunter/benchmark/report.json && node scripts/schema-validate.cjs benchmark-report .bug-hunter/benchmark/report.json",
+    "quality:world-class": "pnpm check:generated && pnpm test && pnpm benchmark:gate && node scripts/run-bug-hunter.cjs preflight --skill-dir . && pnpm verify:package"
   },
   "devDependencies": {
     "ajv": "^8.20.0",

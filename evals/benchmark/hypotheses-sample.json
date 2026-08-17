@@ -1,0 +1,32 @@
+[
+  {
+    "id": "HYP-RUN-INTEGRITY",
+    "priority": 100,
+    "claim": "Adaptive configuration and verification must not bypass fail-closed chunk integrity.",
+    "files": [
+      "scripts/run-bug-hunter.cjs"
+    ],
+    "symbols": [
+      "runPipeline",
+      "processPendingChunks"
+    ],
+    "crossReferences": [
+      "scripts/chunk-scheduler.cjs:1-260",
+      "scripts/state-store.cjs:1-220"
+    ]
+  },
+  {
+    "id": "HYP-FIX-SCOPE",
+    "priority": 80,
+    "claim": "Only verified Referee-authorized executable findings may reach Fixer scope.",
+    "files": [
+      "scripts/artifact-planner.cjs"
+    ],
+    "symbols": [
+      "buildFixerScope"
+    ],
+    "crossReferences": [
+      "scripts/run-bug-hunter.cjs:900-1150"
+    ]
+  }
+]
