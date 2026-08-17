@@ -210,16 +210,39 @@ function normalizeFileStates(state) {
   updateFileMetrics(state);
 }
 
-function setFileStatus({ state, filePath, status, hash }) {
+function setFileStatus({
+  state,
+  filePath,
+  status,
+  hash,
+  initialHash,
+  observedHash,
+  clearObservedHash = false
+}) {
   if (!VALID_FILE_STATUS.has(status)) {
     throw new Error(`Invalid file status: ${status}`);
   }
+  const previous = state.fileStates[filePath]
+    && typeof state.fileStates[filePath] === 'object'
+    && !Array.isArray(state.fileStates[filePath])
+    ? state.fileStates[filePath]
+    : {};
   const nextState = {
+    ...previous,
     status,
     updatedAt: nowIso()
   };
   if (hash) {
     nextState.hash = hash;
+  }
+  if (initialHash) {
+    nextState.initialHash = initialHash;
+  }
+  if (observedHash) {
+    nextState.observedHash = observedHash;
+  }
+  if (clearObservedHash) {
+    delete nextState.observedHash;
   }
   state.fileStates[filePath] = nextState;
 }
@@ -465,10 +488,19 @@ function verifyPendingFiles({ state, files }) {
     }
     try {
       const currentHash = hashFile(normalized);
-      const expectedHash = state.fileStates[normalized] && state.fileStates[normalized].hash;
+      const fileState = state.fileStates[normalized] || {};
+      const expectedHash = fileState.hash;
+      const initialHash = fileState.initialHash || expectedHash;
       if (!expectedHash || expectedHash !== currentHash) {
         changed.push(normalized);
-        setFileStatus({ state, filePath: normalized, status: 'failed', hash: currentHash });
+        setFileStatus({
+          state,
+          filePath: normalized,
+          status: 'failed',
+          hash: expectedHash || currentHash,
+          initialHash: initialHash || currentHash,
+          observedHash: currentHash
+        });
         continue;
       }
       hashes[normalized] = currentHash;
@@ -490,6 +522,7 @@ function markChunkFailed(state, chunk, errorMessage) {
     const fileState = state.fileStates[normalized];
     if (!fileState || fileState.status === 'pending') {
       state.fileStates[normalized] = {
+        ...(fileState || {}),
         status: 'failed',
         updatedAt: failedAt
       };
@@ -604,7 +637,10 @@ function main() {
           return !fileState || fileState.status === 'pending';
         })
         .map((filePath) => {
-          return [String(filePath), {
+          const normalized = String(filePath);
+          const fileState = state.fileStates[normalized];
+          return [normalized, {
+            ...(fileState || {}),
             status: 'failed',
             updatedAt: failedAt
           }];
@@ -663,6 +699,7 @@ function main() {
 
     const scan = [];
     const skip = [];
+    const changed = [];
     const missing = [];
     const unreadable = [];
 
@@ -675,6 +712,20 @@ function main() {
       }
       try {
         const currentHash = hashFile(normalized);
+        const fileState = state.fileStates[normalized] || {};
+        const initialHash = fileState.initialHash || currentHash;
+        if (fileState.initialHash && fileState.initialHash !== currentHash) {
+          changed.push(normalized);
+          setFileStatus({
+            state,
+            filePath: normalized,
+            status: 'failed',
+            hash: fileState.hash || fileState.initialHash,
+            initialHash: fileState.initialHash,
+            observedHash: currentHash
+          });
+          continue;
+        }
         const previous = state.hashCache[normalized];
         if (previous && previous.hash === currentHash) {
           skip.push(normalized);
@@ -682,7 +733,9 @@ function main() {
             state,
             filePath: normalized,
             status: 'skipped',
-            hash: currentHash
+            hash: currentHash,
+            initialHash,
+            clearObservedHash: true
           });
         } else {
           scan.push(normalized);
@@ -690,7 +743,9 @@ function main() {
             state,
             filePath: normalized,
             status: 'pending',
-            hash: currentHash
+            hash: currentHash,
+            initialHash,
+            clearObservedHash: true
           });
         }
       } catch {
@@ -701,7 +756,7 @@ function main() {
 
     updateFileMetrics(state);
     saveState(statePath, state);
-    console.log(JSON.stringify({ ok: true, scan, skip, missing, unreadable }, null, 2));
+    console.log(JSON.stringify({ ok: true, scan, skip, changed, missing, unreadable }, null, 2));
     return;
   }
 
@@ -792,11 +847,14 @@ function main() {
         status: 'scanned',
         scannedAt: nowIso()
       };
+      const fileState = state.fileStates[normalized] || {};
       setFileStatus({
         state,
         filePath: normalized,
         status: 'scanned',
-        hash: currentHash
+        hash: currentHash,
+        initialHash: fileState.initialHash || currentHash,
+        clearObservedHash: true
       });
     }
     state.factCards[chunkId] = normalizedFactCard(chunkId, factCard);
@@ -845,11 +903,14 @@ function main() {
           status: cacheStatus,
           scannedAt: nowIso()
         };
+        const fileState = state.fileStates[normalized] || {};
         setFileStatus({
           state,
           filePath: normalized,
           status: cacheStatus,
-          hash: currentHash
+          hash: currentHash,
+          initialHash: fileState.initialHash || currentHash,
+          clearObservedHash: true
         });
         updatedFiles.push(normalized);
       } catch {

@@ -155,12 +155,13 @@ async function processPendingChunks({
     const scanFiles = hashFilterResult.scan || [];
     const unavailableFiles = [
       ...(hashFilterResult.missing || []),
-      ...(hashFilterResult.unreadable || [])
+      ...(hashFilterResult.unreadable || []),
+      ...(hashFilterResult.changed || [])
     ];
     if (unavailableFiles.length > 0) {
       const preview = unavailableFiles.slice(0, 3).join(', ');
       const suffix = unavailableFiles.length > 3 ? ` (+${unavailableFiles.length - 3} more)` : '';
-      const errorMessage = `Assigned files are missing or unreadable before scanning: ${preview}${suffix}`;
+      const errorMessage = `Assigned files are missing, unreadable, or changed from the run baseline: ${preview}${suffix}`;
       appendJournal(journalPath, {
         event: 'chunk-scope-unavailable',
         chunkId: chunk.id,

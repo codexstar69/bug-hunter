@@ -16,9 +16,9 @@
 - [x] Audit state, hash-cache, retry, resume, and failure semantics for stale or false coverage.
 - [x] Add adversarial regression tests for every confirmed deep-audit defect.
 - [x] Re-run the sealed gate and confirm all PR-triggered CI checks pass.
-- [ ] Preserve the original pre-worker source hash across failed retries and resume.
-- [ ] Reject resumed chunks when assigned source content drifted after a failed worker.
-- [ ] Ensure chunk status alone can never report a pending file as completed coverage.
-- [ ] Accept valid in-repository paths whose basename starts with two dots while still rejecting escapes.
-- [ ] Add regression tests for the post-hardening resume and coverage edge cases.
+- [x] Preserve the original pre-worker source hash across failed retries and resume.
+- [x] Reject resumed chunks when assigned source content drifted after a failed worker.
+- [x] Ensure chunk status alone can never report a pending file as completed coverage.
+- [x] Accept valid in-repository paths whose basename starts with two dots while still rejecting escapes.
+- [x] Add regression tests for the post-hardening resume and coverage edge cases.
 - [ ] Re-run the sealed gate and final PR-triggered CI checks.

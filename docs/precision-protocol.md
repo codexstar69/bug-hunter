@@ -82,3 +82,12 @@ Duplicate observations retain the strongest confidence-backed evidence, union
 cross-references, preserve security STRIDE/CWE metadata, and receive unique
 stable IDs when separate bugs collide on a worker-provided ID. Large-file cache
 keys use streaming SHA-256 rather than size and timestamp surrogates.
+
+## 9. Resume immutability
+
+The first readable hash observed for an assigned file is the immutable content
+baseline for that run. A failed worker cannot establish a new baseline by
+modifying source and then relying on `--resume`; resumed chunks reject drift
+before dispatch. Restoring the original bytes permits a normal retry. Coverage
+status is derived from per-file scan evidence, never from a parent chunk's
+status alone.

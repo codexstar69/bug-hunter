@@ -39,7 +39,9 @@ function writeJsonAtomic(filePath, value) {
 
 function isOutsideRoot(repositoryRoot, candidatePath) {
   const relative = path.relative(repositoryRoot, candidatePath);
-  return relative.startsWith('..') || path.isAbsolute(relative);
+  return relative === '..'
+    || relative.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relative);
 }
 
 function normalizeRunFiles(files, repositoryRoot, options = {}) {

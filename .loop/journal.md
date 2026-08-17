@@ -79,3 +79,11 @@ A final static review found that a source mutation correctly fails the current c
 ## Iteration 16 — post-hardening regressions — failed as expected
 
 The new tests preserved all 190 prior passes and failed exactly three assertions: a clean worker executed successfully after resuming source drift; a done chunk with a pending file produced `COMPLETE`; and `normalizeRunFiles` rejected an in-repository `..valid-source.js`. The test harness itself was corrected and rerun before accepting the coverage failure. Production changes now target only these confirmed behaviors.
+
+## Iteration 17 — resume integrity hardening — passed
+
+The three post-hardening regressions pass and the sealed check exited 0 with
+all 193 tests passing. Per-run source baselines now survive failed attempts,
+resumed drift is rejected before worker dispatch, coverage completion requires
+per-file done evidence, and valid in-repository names beginning with `..` no
+longer collide with the parent-directory escape check.

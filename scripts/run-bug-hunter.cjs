@@ -271,9 +271,6 @@ function toCoverageStatus(fileState, chunkStatus) {
   if (chunkStatus === 'failed') {
     return 'failed';
   }
-  if (chunkStatus === 'done') {
-    return 'done';
-  }
   return 'pending';
 }
 
@@ -318,12 +315,12 @@ function buildCoverageArtifact({ state, fixPlan }) {
       };
     });
 
-  const hasOpenChunks = toArray(state.chunks).some((chunk) => chunk.status !== 'done');
+  const hasIncompleteFiles = fileEntries.some((entry) => entry.status !== 'done');
 
   return {
     schemaVersion: 1,
     iteration: 1,
-    status: hasOpenChunks ? 'IN_PROGRESS' : 'COMPLETE',
+    status: hasIncompleteFiles ? 'IN_PROGRESS' : 'COMPLETE',
     files: fileEntries,
     bugs,
     fixes
