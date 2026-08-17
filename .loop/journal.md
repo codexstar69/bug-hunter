@@ -87,3 +87,7 @@ all 193 tests passing. Per-run source baselines now survive failed attempts,
 resumed drift is rejected before worker dispatch, coverage completion requires
 per-file done evidence, and valid in-repository names beginning with `..` no
 longer collide with the parent-directory escape check.
+
+## Iteration 18 — final 193-test PR-head verification — in progress
+
+The verified resume-hardening commit `0a293c4361ab46da24daaacd68bdda0432afedec` was created by GitHub Actions, so this append-only human-authored ledger commit triggers the pull-request Node 22/24 matrix and sealed precision gate on the exact 193-test hardened tree.
