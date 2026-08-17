@@ -50,3 +50,7 @@ Corrected the stale test-count note from 176 to the final executed total of 181.
 ## Iteration 10 — deep adversarial cross-check — in progress
 
 Reopened the completed implementation for an end-to-end audit rather than relying on the green test suite. The new pass traces discovery, delta selection, chunk construction, hash evidence, retries/resume, Referee authorization, and Fixer scope. Candidate defects will be reproduced with focused regression tests before any production patch is accepted.
+
+## Iteration 11 — nine deep defects reproduced — failed as expected
+
+Added nine adversarial regression probes. The sealed check preserved all 181 prior passes and failed the nine new tests, confirming: code-index/delta order loss; mixed-size chunks exceeding the declared source-token budget; shebang/test/minified discovery drift; findings accepted outside assigned scope; worker-time source mutation reported as complete; weaker duplicate evidence overwriting stronger security evidence while STRIDE/CWE are dropped; non-cryptographic large-file cache keys; Fixer scope authorizing manual-review items; and symlink paths escaping the repository scope. Production patches must make these tests pass without editing the sealed check.
