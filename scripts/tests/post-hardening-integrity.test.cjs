@@ -25,7 +25,7 @@ function parseJsonOutput(result) {
 
 function loadRunInternals() {
   const runner = resolveSkillScript('run-bug-hunter.cjs');
-  const source = fs.readFileSync(runner, 'utf8');
+  const source = fs.readFileSync(runner, 'utf8').replace(/^#!.*\n/, '');
   const withoutMain = source.replace(
     /\nmain\(\)\.catch\([\s\S]*$/,
     '\nmodule.exports = { buildCoverageArtifact, toCoverageStatus };\n'
