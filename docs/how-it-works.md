@@ -177,7 +177,7 @@ Other ecosystems may be detected but are reported `scanner-unsupported` when a
 parser/reachability implementation is unavailable. Unsupported does not mean
 clean.
 
-## Canonical output contract
+## Output contract
 
 Artifacts live in `.bug-hunter/`.
 
