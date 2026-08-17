@@ -1,44 +1,79 @@
 # Bundled Skills
 
-Bug Hunter ships with all agent skills under `skills/` so the repository stays portable and self-contained.
+Bug Hunter ships its role and security skills under `skills/` so the runtime is
+portable, self-contained, and reviewable. The files in `skills/*/SKILL.md` are
+the canonical role instructions; compatibility copies under `prompts/` are
+generated and must stay in sync through `pnpm check:generated`.
 
-## Core Agent Skills
-
-These are the primary pipeline agents — migrated from `prompts/` to be first-class skills:
+## Core role skills
 
 | Skill | Purpose |
-|-------|---------|
-| `hunter/` | Deep behavioral code analysis — finds logic errors, security vulnerabilities, race conditions |
-| `skeptic/` | Adversarial code reviewer — challenges each finding to kill false positives |
-| `referee/` | Independent final arbiter — delivers verdicts with CVSS scoring and PoC generation |
-| `fixer/` | Surgical code repair — implements minimal, precise fixes for verified bugs |
-| `recon/` | Codebase reconnaissance — maps architecture, trust boundaries, and risk priorities |
-| `doc-lookup/` | Unified documentation access — Context Hub (chub) + Context7 API for framework verification |
+|---|---|
+| `recon/` | Maps architecture, entry points, trust boundaries, and risk context |
+| `hunter/` | Finds reachable runtime, logic, data, concurrency, and security bugs |
+| `skeptic/` | Adversarially challenges each Hunter finding to reduce false positives |
+| `referee/` | Independently owns final verdicts and security enrichment |
+| `fixer/` | Applies only immutable-scope, Referee-authorized remediation |
+| `doc-lookup/` | Verifies version-sensitive framework behavior through Context Hub with Context7 fallback |
 
-## Security Skills
-
-Specialized security workflows that integrate with the main Bug Hunter orchestration:
+## Security workflow skills
 
 | Skill | Purpose | Trigger |
-|-------|---------|---------|
-| `commit-security-scan/` | Diff-scoped PR/commit/staged security review | `--pr-security` |
-| `security-review/` | Full security workflow (threat model + code + deps + validation) | `--security-review` |
-| `threat-model-generation/` | STRIDE threat model bootstrap/refresh | `--threat-model` |
-| `vulnerability-validation/` | Exploitability/reachability/CVSS/PoC validation | `--validate-security` |
+|---|---|---|
+| `commit-security-scan/` | PR/commit/staged security review | `--pr-security` |
+| `security-review/` | Repository security workflow | `--security-review` |
+| `threat-model-generation/` | STRIDE threat-model generation/refresh | `--threat-model` |
+| `vulnerability-validation/` | Reachability, exploitability, CVSS, and PoC validation | `--validate-security` |
 
-## How They Connect
+## How the current pipeline connects
 
-Bug Hunter remains the top-level orchestrator (`SKILL.md`). The orchestrator reads agent skills at each pipeline phase:
+The top-level `SKILL.md` remains the public orchestration contract. Deterministic
+runtime helpers surround the role skills with measurable context and integrity
+gates:
 
+```text
+source scope
+  -> deterministic triage
+  -> adaptive plan (fast | balanced | assurance, when requested/available)
+  -> Recon
+  -> hypothesis-directed retrieval
+  -> Hunter + documentation verification
+  -> Skeptic
+  -> Referee
+  -> optional required hybrid verification
+  -> scan report
+  -> optional fix strategy + immutable Fixer scope
+  -> optional Fixer + post-fix verification
 ```
-Recon (skills/recon/)
-  → Hunter (skills/hunter/) + doc-lookup (skills/doc-lookup/)
-    → Skeptic (skills/skeptic/) + doc-lookup
-      → Referee (skills/referee/)
-        → Fix Strategy + Fix Plan
-          → Fixer (skills/fixer/) + doc-lookup
-```
 
-All doc-lookup calls use Context Hub (chub) as the primary documentation source with Context7 API as automatic fallback.
+Supporting runtime layers include:
 
-All artifacts are written under `.bug-hunter/` using Bug Hunter-native conventions.
+- `scripts/adaptive-policy.cjs` — bounded context/reviewer/verification policy
+- `scripts/retrieval-planner.cjs` — hypothesis-ranked evidence under hard
+  file/token budgets
+- `scripts/evidence-cache.cjs` — exact content-addressed fact reuse
+- `scripts/hybrid-verifier.cjs` — bounded argv-only tests/type/static/fuzz checks
+- `scripts/benchmark-suite.cjs` — precision, recall, calibration, stability,
+  cost, latency, and Pareto-quality measurement
+
+These helpers do not replace the role boundary: Hunter proposes, Skeptic
+challenges, Referee decides, and only explicitly authorized Fixer work may
+mutate source.
+
+## Artifact model
+
+All runtime artifacts live under `.bug-hunter/`. Important canonical JSON
+contracts include `adaptive-plan.json`, `retrieval-plan.json`,
+`hunter-findings.json`, `skeptic.json`, `referee.json`,
+`verification-report.json`, `scan-report.json`, `fixer-scope.json`, and
+`benchmark-report.json`.
+
+JSON is the automation source of truth. Markdown output is explanatory or a
+rendered human-readable view.
+
+## Contributor rule
+
+Edit canonical role skills under `skills/`, then regenerate/check compatibility
+prompts. Do not hand-edit generated `prompts/hunter.md`, `prompts/skeptic.md`,
+`prompts/referee.md`, `prompts/fixer.md`, `prompts/recon.md`, or
+`prompts/doc-lookup.md`.
