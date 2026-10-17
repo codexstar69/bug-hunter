@@ -15,6 +15,7 @@ const { execFileSync } = require('child_process');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const parallel = require('./parallel-search.cjs');
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -147,11 +148,34 @@ function pickLang(entry, hint) {
 
 // ── Main: search ────────────────────────────────────────────────────────────
 
-async function search(library, query) {
+function sourceError(source) {
+  if (source === 'none') return 'Documentation lookup is disabled';
+  if (source && !['chub', 'context7', 'parallel'].includes(source)) {
+    return 'Unknown documentation source; use chub, context7, parallel, or none';
+  }
+  return null;
+}
+
+async function search(library, query, opts = {}) {
+  const error = sourceError(opts.source);
+  if (error) return { library, query, error };
+  if (opts.source === 'parallel') {
+    try {
+      const results = await parallel.search(library, query, opts);
+      if (!results.length) return { library, query, source: 'parallel', error: 'No Parallel documentation results found' };
+      return {
+        library, query, parallel_results: results, recommended_source: 'parallel',
+        recommended_id: results[0].url,
+        hint: 'Fetch a selected page only if excerpts are insufficient: doc-lookup.cjs get <page-url> <question> --source parallel'
+      };
+    } catch (err) {
+      return { library, query, source: 'parallel', error: err.message };
+    }
+  }
   const source = { chub: null, context7: null };
 
   // 1. Try chub
-  if (chubAvailable()) {
+  if (opts.source !== 'context7' && chubAvailable()) {
     const results = chubSearch(library);
     if (results.length > 0) {
       source.chub = results.map((r) => ({
@@ -166,9 +190,11 @@ async function search(library, query) {
 
   // 2. Try Context7
   try {
-    const c7 = await context7Request('/libs/search', { libraryName: library, query });
-    if (c7 && (Array.isArray(c7) ? c7.length > 0 : c7.results?.length > 0)) {
-      source.context7 = c7;
+    if (opts.source !== 'chub') {
+      const c7 = await context7Request('/libs/search', { libraryName: library, query });
+      if (c7 && (Array.isArray(c7) ? c7.length > 0 : c7.results?.length > 0)) {
+        source.context7 = c7;
+      }
     }
   } catch (err) {
     source.context7_error = err.message;
@@ -207,6 +233,15 @@ async function search(library, query) {
 // ── Main: get (fetch docs) ──────────────────────────────────────────────────
 
 async function get(idOrLibrary, query, opts = {}) {
+  const error = sourceError(opts.source);
+  if (error) return { error };
+  if (opts.source === 'parallel') {
+    try {
+      return await parallel.get(idOrLibrary, query, opts);
+    } catch (err) {
+      return { source: 'parallel', error: err.message };
+    }
+  }
   const forceSource = opts.source; // 'chub' | 'context7' | undefined
   const lang = opts.lang;
 
@@ -295,8 +330,10 @@ function parseCliOpts(args) {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--lang' && args[i + 1]) {
       opts.lang = args[++i];
-    } else if (args[i] === '--source' && args[i + 1]) {
+    } else if (args[i] === '--source' && args[i + 1] && !args[i + 1].startsWith('--')) {
       opts.source = args[++i];
+    } else if (args[i] === '--source') {
+      throw new Error('--source requires chub, context7, parallel, or none');
     } else {
       positional.push(args[i]);
     }
@@ -308,13 +345,14 @@ async function main() {
   const command = process.argv[2];
   const args = process.argv.slice(3);
   if (command === 'search') {
-    const [library, ...queryParts] = args;
+    const { positional, opts } = parseCliOpts(args);
+    const [library, ...queryParts] = positional;
     const query = queryParts.join(' ');
     if (!library || !query) {
       console.error('Usage: doc-lookup.cjs search <library> <query>');
       process.exit(1);
     }
-    const result = await search(library, query);
+    const result = await search(library, query, opts);
     console.log(JSON.stringify(result, null, 2));
     if (result.error) {
       process.exitCode = 1;
@@ -327,7 +365,7 @@ async function main() {
     const [idOrLib, ...queryParts] = positional;
     const query = queryParts.join(' ');
     if (!idOrLib || !query) {
-      console.error('Usage: doc-lookup.cjs get <library-or-id> <query> [--lang js|py] [--source chub|context7]');
+      console.error('Usage: doc-lookup.cjs get <library-or-id> <query> [--lang js|py] [--source chub|context7|parallel|none]');
       process.exit(1);
     }
     const result = await get(idOrLib, query, opts);
@@ -352,6 +390,7 @@ async function main() {
   console.error('  search <library> <query>         — find docs across chub + Context7');
   console.error('  get <id-or-lib> <query> [opts]   — fetch docs (chub first, Context7 fallback)');
   console.error('  context <id> <query>             — alias for get (backward compat)');
+  console.error('  --source chub|context7|parallel|none — select a source (default unchanged)');
   process.exit(1);
 }
 

@@ -81,6 +81,7 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
     'render-report.cjs',
     'fix-lock.cjs',
     'doc-lookup.cjs',
+    'parallel-search.cjs',
     'context7-api.cjs',
     'delta-mode.cjs',
     'pr-scope.cjs'

@@ -395,6 +395,19 @@ Context Hub is optional:
 npm install -g @aisuite/chub
 ```
 
+For documentation beyond the curated sources, select free anonymous
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp):
+
+```bash
+node "$SKILL_DIR/scripts/doc-lookup.cjs" search "express" "trust proxy req.ip" --source parallel
+node "$SKILL_DIR/scripts/doc-lookup.cjs" get "https://expressjs.com/en/guide/behind-proxies.html" "trust proxy req.ip" --source parallel
+```
+
+Search uses Fast mode; no account or API key is needed. Selection is explicit
+per lookup, leaving the default Context Hub/Context7 workflow unchanged. See
+[`skills/doc-lookup/SKILL.md`](skills/doc-lookup/SKILL.md) for source selection,
+network access, limits, and evidence handling.
+
 ### False-positive reduction
 
 Bug Hunter reduces noise through several independent checks:
