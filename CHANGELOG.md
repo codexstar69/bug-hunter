@@ -13,6 +13,9 @@ lag the source tree. Do not infer publication from `package.json` alone.
 
 ### Added
 
+- Optional anonymous Parallel Search MCP documentation search and page fetching
+  through `doc-lookup.cjs --source parallel`, with bounded requests and explicit
+  source selection. Existing Context Hub/Context7 defaults remain unchanged.
 - Measurable hidden-label benchmark scoring for precision, recall, F1,
   severity-weighted recall, false positives per KLOC, calibration, repeat
   stability, token/cost efficiency, latency, and time to first true positive.

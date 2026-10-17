@@ -183,6 +183,7 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'scripts', 'render-report.cjs'),
     path.join(skillDir, 'scripts', 'fix-lock.cjs'),
     path.join(skillDir, 'scripts', 'doc-lookup.cjs'),
+    path.join(skillDir, 'scripts', 'parallel-search.cjs'),
     path.join(skillDir, 'scripts', 'context7-api.cjs'),
     path.join(skillDir, 'scripts', 'delta-mode.cjs'),
     path.join(skillDir, 'scripts', 'pr-scope.cjs'),

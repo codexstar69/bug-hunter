@@ -44,6 +44,7 @@
     "scripts/delta-mode.cjs",
     "scripts/dep-scan.cjs",
     "scripts/doc-lookup.cjs",
+    "scripts/parallel-search.cjs",
     "scripts/experiment-loop.cjs",
     "scripts/fix-lock.cjs",
     "scripts/generated-schema-validators.cjs",
