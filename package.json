@@ -57,6 +57,7 @@
     "access": "public"
   },
   "scripts": {
+    "prepublishOnly": "node scripts/prepublish-guard.cjs",
     "prepack": "node --test scripts/tests/*.test.cjs",
     "test": "node --test scripts/tests/*.test.cjs",
     "doctor": "node bin/bug-hunter doctor",
