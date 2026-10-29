@@ -6,7 +6,6 @@ const { getEntry, hashDescriptor, putEntry } = require('./evidence-cache.cjs');
 const {
   appendJournal,
   fillTemplate,
-  runJsonScript,
   runWithRetry
 } = require('./process-runner.cjs');
 
@@ -51,8 +50,7 @@ function semanticJsonHash(filePath) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-function buildEvidenceDescriptor({ statePath, scanFiles, adaptivePlanPath, retrievalPlanPath }) {
-  const state = readJson(statePath);
+function buildEvidenceDescriptor({ state, scanFiles, adaptivePlanPath, retrievalPlanPath }) {
   const sources = scanFiles.map((filePath) => {
     const canonical = canonicalFilePath(filePath);
     const fileState = state.fileStates && state.fileStates[canonical];
@@ -153,7 +151,7 @@ function buildHeuristicFactCard({ chunkId, scanFiles, findings, index }) {
 
 async function processPendingChunks({
   statePath,
-  stateScript,
+  stateOwner,
   chunksDir,
   journalPath,
   workerCmdTemplate,
@@ -174,7 +172,7 @@ async function processPendingChunks({
   retrievalPlanPath = ''
 }) {
   while (true) {
-    const next = runJsonScript(stateScript, ['next-chunk', statePath]);
+    const next = stateOwner.execute('next-chunk');
     if (next.done) {
       break;
     }
@@ -186,7 +184,17 @@ async function processPendingChunks({
     const cachedFactsJsonPath = path.join(chunksDir, `${chunk.id}-cached-facts.json`);
     writeJson(chunkFilesJsonPath, chunk.files);
 
-    const hashFilterResult = runJsonScript(stateScript, ['hash-filter', statePath, chunkFilesJsonPath]);
+    const hashFilterResult = stateOwner.batch(() => {
+      const result = stateOwner.execute('hash-filter', chunkFilesJsonPath);
+      const unavailable = [...result.missing, ...result.unreadable, ...result.changed];
+      if (unavailable.length > 0) {
+        const message = `Assigned files are missing, unreadable, or changed from the run baseline: ${unavailable.slice(0, 3).join(', ')}`;
+        stateOwner.execute('mark-chunk', chunk.id, 'failed', message.slice(0, 240));
+      } else {
+        stateOwner.execute('mark-chunk', chunk.id, result.scan.length > 0 ? 'in_progress' : 'done');
+      }
+      return result;
+    });
     const scanFiles = hashFilterResult.scan || [];
     const unavailableFiles = [
       ...(hashFilterResult.missing || []),
@@ -194,16 +202,12 @@ async function processPendingChunks({
       ...(hashFilterResult.changed || [])
     ];
     if (unavailableFiles.length > 0) {
-      const preview = unavailableFiles.slice(0, 3).join(', ');
-      const suffix = unavailableFiles.length > 3 ? ` (+${unavailableFiles.length - 3} more)` : '';
-      const errorMessage = `Assigned files are missing, unreadable, or changed from the run baseline: ${preview}${suffix}`;
       appendJournal(journalPath, {
         event: 'chunk-scope-unavailable',
         chunkId: chunk.id,
         unavailableCount: unavailableFiles.length,
         unavailableFiles: unavailableFiles.slice(0, 20)
       });
-      runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'failed', errorMessage.slice(0, 240)]);
       if (failFast) {
         throw new Error(`Chunk ${chunk.id} has unavailable assigned files and fail-fast is enabled`);
       }
@@ -215,7 +219,6 @@ async function processPendingChunks({
         chunkId: chunk.id,
         reason: 'hash-cache-no-changes'
       });
-      runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'done']);
       continue;
     }
 
@@ -227,7 +230,7 @@ async function processPendingChunks({
     let cachedFacts = null;
     if (evidenceCacheDir) {
       evidenceDescriptor = buildEvidenceDescriptor({
-        statePath,
+        state: stateOwner.read(),
         scanFiles,
         adaptivePlanPath,
         retrievalPlanPath
@@ -251,7 +254,6 @@ async function processPendingChunks({
       }
     }
     writeJson(cachedFactsJsonPath, cachedFacts || {});
-    runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'in_progress']);
 
     const command = fillTemplate(workerCmdTemplate, {
       chunkId: chunk.id,
@@ -305,7 +307,7 @@ async function processPendingChunks({
 
     if (!runResult.ok) {
       const errorMessage = (runResult.result && runResult.result.stderr) || 'worker failed';
-      runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'failed', errorMessage.slice(0, 240)]);
+      stateOwner.execute('mark-chunk', chunk.id, 'failed', errorMessage.slice(0, 240));
       appendJournal(journalPath, {
         event: 'chunk-failed',
         chunkId: chunk.id,
@@ -327,16 +329,14 @@ async function processPendingChunks({
       }));
     }
 
-    const commitResult = runJsonScript(stateScript, [
-      'commit-chunk',
-      statePath,
+    const commitResult = stateOwner.execute('commit-chunk',
       chunk.id,
       scanFilesJsonPath,
       findingsJsonPath,
       factsJsonPath,
       String(confidenceThreshold),
       'orchestrator'
-    ]);
+    );
     if (!commitResult.ok) {
       appendJournal(journalPath, {
         event: 'chunk-integrity-failed',

@@ -1,97 +1,95 @@
 ---
 title: Skeptic Validation Examples
-description: Calibration cases for adversarial finding review.
-prompt: |
-  launch parallel agnents and finish it all
-
-  Preserve the legacy Skeptic calibration content and make
-  @skills/skeptic/SKILL.md the canonical runtime source.
+description: Checked acceptance, counter-evidence, and unresolved boundaries.
 ---
 
-# Skeptic Validation Examples
+# Skeptic calibration examples
 
-Role-skill calibration examples showing how to challenge Hunter findings. Study the reasoning process — the Skeptic's job is to kill false positives, not confirm real bugs.
+These illustrative cases exercise both defects and negative controls. Accept only a traced defect; disprove only a checked mechanism. Missing proof of either leaves manual review.
 
----
+## Example 1: ACCEPT — public SQL interpolation
 
-## Example 1: ACCEPT — Real SQL Injection
+Read `src/api/users.py:45-49` and `src/routes.py:8-12`: public `q` reaches an interpolated query and execution without a guard. Walking the quote payload changes the query and returns other users' rows.
 
-**Hunter finding:** BUG-1, Critical, `src/api/users.py:47` — SQL injection via f-string.
+```json
+[
+  {
+    "bugId": "BUG-1",
+    "response": "ACCEPT",
+    "analysisSummary": "src/routes.py:8-12 passes public q to src/api/users.py:47-48, where SQL interpolation then execution changes the predicate for q=' OR '1'='1. The traced path exposes other rows."
+  }
+]
+```
 
-**Skeptic process:**
-1. Read `src/api/users.py:45-52` — confirmed f-string interpolation in SQL
-2. Searched for validation middleware on the route — none found
-3. Checked if ORM is used elsewhere — yes, but NOT in this function
-4. Looked for input sanitization — none before `search_users()` is called
+## Example 2: DISPROVE — allowlist before interpolation
 
-**Verdict:** `ACCEPT` — No mitigation found. The f-string directly interpolates user input into SQL. Cannot disprove.
+Read the route mounting, the guard implementation, and the query. `middleware/validation.js:23` rejects every category except four fixed strings; the route at `routes/products.js:15` invokes it before the query. The rejected payload never reaches the sink.
 
----
+```json
+[
+  {
+    "bugId": "BUG-2",
+    "response": "DISPROVE",
+    "analysisSummary": "The SQL payload is rejected before the query on this route.",
+    "counterEvidence": "routes/products.js:15 calls validateRequest before the handler; middleware/validation.js:23 accepts only electronics, clothing, food, or other."
+  }
+]
+```
 
-## Example 2: ACCEPT — Real XSS via dangerouslySetInnerHTML
+## Example 3: MANUAL_REVIEW — command arguments from a queue
 
-**Hunter finding:** BUG-5, Medium, `src/components/UserProfile.jsx:18` — stored XSS.
+Read `src/workers/imageProcessor.js:56-60`: the consumer interpolates `inputPath` into `exec()`. The publisher is in an unavailable service. A server-generated path and an attacker-supplied filename imply different outcomes; neither is established by the consumer.
 
-**Skeptic process:**
-1. Read the component — confirmed `dangerouslySetInnerHTML={{ __html: user.bio }}`
-2. Searched for DOMPurify or sanitize-html imports — not found in this file or its imports
-3. Checked API route that saves bio — no server-side HTML sanitization
-4. React auto-escaping is explicitly BYPASSED by dangerouslySetInnerHTML
+```json
+[
+  {
+    "bugId": "BUG-3",
+    "response": "MANUAL_REVIEW",
+    "analysisSummary": "The unresolved fact is who controls inputPath at the publisher. Inspect that service's producer and validation before deciding whether src/workers/imageProcessor.js:56-60 permits command injection."
+  }
+]
+```
 
-**Verdict:** `ACCEPT` — dangerouslySetInnerHTML with unsanitized user content. React's XSS protection is deliberately bypassed.
+## Example 4: Nullable contract — unsafe caller and narrowed control
 
----
+Read the producer at `src/client.ts:4`: `getProfile(): Promise<Profile | null>` returns null for valid accounts without profiles. In the vulnerable version, `src/profile.ts:8` directly reads `.name`. In the fixed version, lines 8–10 return an empty state for null before dereferencing. These are two separate fixture findings:
 
-## Example 3: DISPROVE — SQL Injection Behind Joi Validation
+```json
+[
+  {
+    "bugId": "BUG-4-vulnerable",
+    "response": "ACCEPT",
+    "analysisSummary": "src/client.ts:4 returns null for a valid no-profile account; src/profile.ts:8 immediately dereferences .name. Opening this account crashes the view."
+  },
+  {
+    "bugId": "BUG-4-fixed",
+    "response": "DISPROVE",
+    "analysisSummary": "The caller narrows the nullable result before dereferencing it.",
+    "counterEvidence": "src/profile.ts:8-10 checks profile === null and returns the empty state before profile.name."
+  }
+]
+```
 
-**Hunter finding:** BUG-7, High, `src/api/products.js:78` — SQL injection.
+## Example 5: Go map — concurrent writes and synchronized control
 
-**Skeptic process:**
-1. Read `src/api/products.js:78-82` — confirmed string interpolation in SQL
-2. Traced the route: `routes/products.js:15` → `validateRequest(categorySchema)` middleware runs FIRST
-3. Read `middleware/validation.js:23` — found `Joi.string().valid('electronics', 'clothing', 'food', 'other')`
-4. Joi schema restricts input to 4 predefined enum values — SQL injection payload cannot pass validation
-5. Request returns 400 before reaching the vulnerable code
+Read `cache.go:7-12` and `server.go:9`: ordinary net/http handler goroutines write one shared map. In the fixed version, `cache.go:8-16` uses a `sync.Mutex`; inspect all readers/writers to confirm they hold that same lock. Go memory safety does not exclude this concurrency defect.
 
-**Verdict:** `DISPROVE` — Input validated by Joi schema at `middleware/validation.js:23`. Only 4 enum values are accepted; SQL injection payloads are rejected with 400 status before reaching this code.
+```json
+[
+  {
+    "bugId": "BUG-5-vulnerable",
+    "response": "ACCEPT",
+    "analysisSummary": "server.go:9 registers put as an HTTP handler; cache.go:7 shares the map and cache.go:12 writes without a lock. Concurrent valid requests can terminate the server."
+  },
+  {
+    "bugId": "BUG-5-fixed",
+    "response": "DISPROVE",
+    "analysisSummary": "Every access is protected by the same mutex in this version.",
+    "counterEvidence": "cache.go:8-16 locks mu before the map write and defers unlock; all reads at cache.go:20-25 also hold mu."
+  }
+]
+```
 
----
+## Boundary calibration
 
-## Example 4: DISPROVE — "IDOR" on JWT-Sourced userId
-
-**Hunter finding:** BUG-9, High, `src/repositories/orderRepository.js:23` — IDOR on userId.
-
-**Skeptic process:**
-1. Read the repository code — `userId` is interpolated into SQL
-2. Traced caller: `controllers/orderController.js:15` → `userId = req.user.id`
-3. `req.user` is populated by JWT middleware at `middleware/auth.js:15`
-4. JWT is cryptographically signed by server — user cannot modify their own `id`
-5. The `userId` value is NOT user-controlled input — it's from a server-signed token
-
-**Verdict:** `DISPROVE` — `userId` extracted from server-signed JWT (`req.user.id`), not from user-controlled input. User cannot forge or modify their JWT ID without the signing secret. Not exploitable as IDOR.
-
----
-
-## Example 5: MANUAL REVIEW — Command Injection via Message Queue
-
-**Hunter finding:** BUG-11, High, `src/workers/imageProcessor.js:56` — command injection.
-
-**Skeptic process:**
-1. Read `src/workers/imageProcessor.js:56-60` — confirmed `exec()` with string interpolation
-2. Code is in a background worker, NOT directly callable from HTTP
-3. Worker consumes messages from `image-processing` queue
-4. Message contains `{ inputPath, size, outputPath }`
-5. **Cannot trace** where these values originate — the publisher is in a different service
-6. If `inputPath` includes user-provided filename → exploitable. If server-generated UUID → safe.
-
-**Verdict:** `ACCEPT (LOW CONFIDENCE)` — The `exec()` call is dangerous, but data flow crosses service boundaries via message queue. Cannot fully verify if `inputPath` is user-controlled or server-generated. Flag for manual review.
-
----
-
-## Key Calibration Points
-
-**DISPROVE when:** You find specific code that prevents exploitation (validation middleware, parameterized queries, framework protection, trusted input source). Always cite the exact file + line.
-
-**ACCEPT when:** You cannot find any mitigation after reading the actual code. Don't speculate about mitigations that might exist — if you can't find the code, accept the finding.
-
-**LOW CONFIDENCE when:** Data flow crosses service boundaries, goes through message queues, or involves complex multi-step chains you can't fully trace.
+Fixed initial hosts, administrator-looking flags, log strings, short regex runs, and UI auth guards do not establish defenses. Check URL redirects and credentials, actual input provenance, downstream log consumers, reachable input cost, and server authorization respectively. If the relevant fact cannot be traced, use `MANUAL_REVIEW` and name it. A checked bound, encoder, trusted source, or server guard can support `DISPROVE` only for the path it actually protects.

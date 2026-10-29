@@ -44,83 +44,39 @@ function parseCount({ value, fallback, label }) {
   return Number(value);
 }
 
-function findingText(finding) {
-  return [
-    finding.claim,
-    finding.evidence,
-    finding.runtimeTrigger,
-    finding.category
-  ].filter((value) => {
-    return typeof value === 'string';
-  }).join(' ').toLowerCase();
+const { findingErrors, matchFindings } = require('../scripts/benchmark-suite.cjs');
+
+function calibrationLabels(benchmark) {
+  if (Array.isArray(benchmark.expected)) {
+    return benchmark.expected.map((entry) => ({ ...entry,
+      labelId: entry.labelId || entry.id, severity: entry.severity || entry.severities?.[0] }));
+  }
+  const labels = JSON.parse(fs.readFileSync(path.resolve(__dirname, benchmark.labelsFile), 'utf8'));
+  const entry = labels.cases.find((item) => item.id === benchmark.caseId);
+  if (!entry) throw new Error('fixture calibration case is missing');
+  return entry.findings;
 }
 
 function findingMatchesExpectation({ finding, expectation }) {
-  const normalizedFile = String(finding.file || '').replaceAll('\\', '/');
-  if (!normalizedFile.endsWith(`/${expectation.file}`) && normalizedFile !== expectation.file) {
-    return false;
-  }
-  if (!expectation.severities.includes(finding.severity)) {
-    return false;
-  }
-  const text = findingText(finding);
-  return expectation.keywordGroups.every((keywords) => {
-    return keywords.some((keyword) => {
-      return text.includes(keyword);
-    });
-  });
+  return matchFindings([finding], calibrationLabels({ expected: [expectation] })).matches.length === 1;
 }
 
-function evaluate({ findings, benchmark, minRecall, maxFalsePositives }) {
-  if (!Array.isArray(findings)) {
-    throw new Error('findings JSON must be an array');
-  }
-  if (!benchmark || !Array.isArray(benchmark.expected)) {
-    throw new Error('benchmark expected findings must be an array');
-  }
-
-  const matches = benchmark.expected.map((expectation) => {
-    const findingIndex = findings.findIndex((finding) => {
-      return findingMatchesExpectation({ finding, expectation });
-    });
-    return {
-      expectationId: expectation.id,
-      matched: findingIndex >= 0,
-      findingIndex: findingIndex >= 0 ? findingIndex : null
-    };
-  });
-  const matchedFindingIndexes = new Set(matches.filter((match) => {
-    return match.matched;
-  }).map((match) => {
-    return match.findingIndex;
-  }));
-  const matched = matches.filter((match) => {
-    return match.matched;
-  }).length;
-  const falsePositives = findings.filter((finding, index) => {
-    return !matchedFindingIndexes.has(index);
-  }).length;
-  const recall = benchmark.expected.length === 0 ? 1 : matched / benchmark.expected.length;
-  const ok = recall >= minRecall && falsePositives <= maxFalsePositives;
-
-  return {
-    ok,
-    benchmarkSchemaVersion: benchmark.schemaVersion,
-    expected: benchmark.expected.length,
-    matched,
-    missing: matches.filter((match) => {
-      return !match.matched;
-    }).map((match) => {
-      return match.expectationId;
-    }),
-    falsePositives,
-    recall,
-    thresholds: {
-      minRecall,
-      maxFalsePositives
-    },
-    matches
-  };
+function evaluate({ findings, benchmark, minRecall = 1, maxFalsePositives = 0 }) {
+  if (!Array.isArray(findings)) throw new Error('findings JSON must be an array');
+  const errors = findings.flatMap(findingErrors);
+  if (errors.length) throw new Error(errors.join('; '));
+  const labels = calibrationLabels(benchmark);
+  const matching = matchFindings(findings, labels);
+  const byLabel = new Map(matching.matches.map((match) => [match.label.labelId, match.findingIndex]));
+  const matched = matching.matches.length;
+  const falsePositives = matching.unmatchedFindingIndexes.length;
+  const recall = labels.length === 0 ? 1 : matched / labels.length;
+  const matches = labels.map((label) => ({ expectationId: label.labelId,
+    matched: byLabel.has(label.labelId), findingIndex: byLabel.get(label.labelId) ?? null }));
+  return { ok: recall >= minRecall && falsePositives <= maxFalsePositives,
+    benchmarkSchemaVersion: benchmark.schemaVersion, expected: labels.length, matched,
+    missing: labels.filter((label) => !byLabel.has(label.labelId)).map((label) => label.labelId),
+    falsePositives, recall, thresholds: { minRecall, maxFalsePositives }, matches };
 }
 
 function main() {

@@ -263,3 +263,17 @@ versions, and comparable baseline scanners.
 - `docs/cli-reference.md`: public interfaces
 - `docs/how-it-works.md`: architecture and outputs
 - `docs/troubleshooting.md`: recovery
+
+## Compact dispatch and loops
+
+Delegated orchestration reads SKILL.md, the selected mode, and modes/dispatch.md.
+The payload-guard.cjs render command reads the canonical role and wrapper itself,
+then writes a deterministic task file. Dispatch: Read <abs task path> and follow it.
+Only a backend unable to read files uses the documented inline fallback.
+Local-sequential execution reads each role progressively without copied role rules.
+
+Every backend uses modes/loop.md. The default iteration cap is
+max(12, min(200, ceil(scannableFiles / max(fileBudget, 1)) + 8)); explicit caps win.
+Recon is reused across iterations with unchanged triage-listed source hashes.
+Large-codebase mode runs Recon once, skips empty domain review, and deduplicates
+boundary observations against reviewed findings before additional verification.

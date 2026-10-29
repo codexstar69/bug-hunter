@@ -26,6 +26,11 @@ coverage completes.
 
 ## 1. Install for one agent
 
+These instructions describe v3.2.0. On 2026-10-29 npm `latest` is still
+v3.0.8, which lacks the current target and integrity checks. Until v3.2.0 is
+published, use the GitHub-source commands in sections 1 and 2. Maintainers can
+[validate the release before tagging](agent-installation.md#release-validation-maintainers).
+
 For the latest published package, install Bug Hunter for Codex with:
 
 ```bash
@@ -68,7 +73,11 @@ npx --yes https://github.com/codexstar69/bug-hunter/archive/refs/heads/main.tar.
 ```
 
 A complete target check reports that the managed runtime and install manifest
-are current for the CLI package performing the check. Do not mix an old global
+are current for the CLI package performing the check, and verifies file
+contents against recorded SHA-256 digests and the package. Complete unmanaged
+copies receive a warning. Bare `doctor` checks the supported agent targets and
+reports legacy copies; add `--json` for a machine-readable report. Missing,
+stale, or corrupted selected installs return a non-zero exit status. Do not mix an old global
 CLI with a newer source install when diagnosing version mismatches.
 
 Restart the coding agent if it was open during installation.

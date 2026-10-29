@@ -8,7 +8,7 @@ All phases are dispatched using the `AGENT_BACKEND` selected during SKILL prefli
 
 ## Triage Integration
 
-Before any phase, check for `.bug-hunter/triage.json` (written by Step 1). If present:
+Before any phase, check for `.bug-hunter/triage.json` (written by `SKILL.md › Deterministic triage before model work`). If present:
 - Use `triage.riskMap` as the risk map — skip Recon's file classification.
 - Use `triage.scanOrder` as the Hunter's file order.
 - Use `triage.fileBudget` as FILE_BUDGET.
@@ -16,7 +16,11 @@ Before any phase, check for `.bug-hunter/triage.json` (written by Step 1). If pr
 
 ---
 
-## Step 4: Run Recon
+## Run Recon
+
+Under `--loop`, reuse validated `.bug-hunter/recon.json` while triage-listed
+source hashes match the baseline; skip this phase after the first iteration
+as required by `modes/loop.md`.
 
 Dispatch Recon using the standard dispatch pattern (see `dispatch.md`, role=`recon`).
 
@@ -30,7 +34,7 @@ Report architecture summary to user.
 
 ---
 
-## Step 5: Optional read-only dual-lens scout pass (safe parallel)
+## Optional read-only dual-lens scout pass (safe parallel)
 
 **This step is optional** — skip it if the codebase is straightforward or if `AGENT_BACKEND = "local-sequential"`.
 
@@ -43,23 +47,19 @@ Launch two scout Hunters in parallel on CRITICAL+HIGH files only:
    ```
 2. Fill payloads: Scout-A = security lens, Scout-B = logic lens. Both scan the same CRITICAL+HIGH files.
 3. Validate both payloads.
-4. Dispatch in parallel:
-   ```
-   subagent({ tasks: [
-       { agent: "scout-hunter-security", task: "<security scout template>", output: ".bug-hunter/scout-a.md" },
-       { agent: "scout-hunter-logic", task: "<logic scout template>", output: ".bug-hunter/scout-b.md" }
-   ]})
-   ```
+4. Render both tasks through `dispatch.md`, using separate outputFilePath
+   values for the scout findings artifacts. Dispatch in parallel with
+   `Read <abs scout task path> and follow it`; never inline role instructions.
 5. Wait for both. Merge scout shortlists into hints for the deep Hunter.
 
 **Scout pass rules:**
 - Scouts are READ-ONLY — they never modify files or state.
-- If either scout dispatch fails, disable scout pass and continue to Step 5-deep without hints.
+- If either scout dispatch fails, disable scout pass and continue to Run Deep Hunter without hints.
 - Scout findings alone are NOT the final result — they only inform the deep scan.
 
 ---
 
-## Step 5-deep: Run Deep Hunter
+## Run Deep Hunter
 
 Dispatch Hunter using the standard dispatch pattern (see `dispatch.md`, role=`hunter`).
 
@@ -67,24 +67,25 @@ Pass to the Hunter:
 - File list in risk-map order. If triage exists, use `triage.scanOrder`.
 - Risk map from Recon (or triage).
 - Tech stack from Recon.
-- If scout hints exist (from Step 5), use them to prioritize certain code sections, but scan all files regardless.
-- `skills/doc-lookup/SKILL.md` contents as phase-specific context.
+- If scout hints exist (from the scout pass), use them to prioritize certain code sections, but scan all files regardless.
 
 After completion, read `.bug-hunter/hunter-findings.json`.
 
 **Merge scout + deep findings:** If scout pass ran, compare scout findings with deep Hunter findings. Promote any scout-only findings (bugs the deep Hunter missed) into the findings list for Skeptic review.
 
-If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to Step 7 (Final Report) in SKILL.md.
+---
+
+## Gap-fill check
+
+Compare actual file coverage against the queue. Dispatch a gap-fill Hunter
+for missed assigned source in risk order, within remaining capacity. Preserve
+pending coverage when files cannot be read.
 
 ---
 
-## Step 5-verify: Gap-fill check
+If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to `SKILL.md › Join and present the scan result`.
 
-Same as small mode: compare FILES SCANNED vs risk map, then re-scan any missed queued scannable files in priority order.
-
----
-
-## Step 6: Run Skeptic
+## Run Skeptic
 
 Dispatch Skeptic using the standard dispatch pattern (see `dispatch.md`, role=`skeptic`).
 
@@ -98,7 +99,7 @@ If only one service/directory: use a single Skeptic.
 
 ---
 
-## Step 7: Run Referee
+## Run Referee
 
 Dispatch Referee using the standard dispatch pattern (see `dispatch.md`, role=`referee`).
 
@@ -108,6 +109,6 @@ After completion, read `.bug-hunter/referee.json`, then render `.bug-hunter/repo
 
 ---
 
-## After Step 7
+## Return to the scan report
 
-Proceed to **Step 7** (Final Report) in SKILL.md.
+Proceed to `SKILL.md › Join and present the scan result`.

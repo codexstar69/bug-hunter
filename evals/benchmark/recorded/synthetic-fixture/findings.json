@@ -1,0 +1,76 @@
+[
+  {
+    "bugId": "FIXTURE-2-1",
+    "file": "auth.js",
+    "lines": "8-10",
+    "category": "security",
+    "severity": "Critical",
+    "claim": "SQL injection through concatenated query with interpolated email",
+    "evidence": "SQL injection through concatenated query with interpolated email",
+    "runtimeTrigger": "SQL injection through concatenated query with interpolated email",
+    "crossReferences": [
+      "auth.js:8-10"
+    ],
+    "confidenceScore": 96,
+    "stride": "Tampering",
+    "cwe": "CWE-89"
+  },
+  {
+    "bugId": "FIXTURE-2-2",
+    "file": "auth.js",
+    "lines": "16",
+    "category": "security",
+    "severity": "High",
+    "claim": "Hardcoded JWT secret permits token forgery",
+    "evidence": "Hardcoded JWT secret permits token forgery",
+    "runtimeTrigger": "Hardcoded JWT secret permits token forgery",
+    "crossReferences": [
+      "auth.js:16"
+    ],
+    "confidenceScore": 96,
+    "stride": "Spoofing",
+    "cwe": "CWE-321"
+  },
+  {
+    "bugId": "FIXTURE-2-3",
+    "file": "auth.js",
+    "lines": "32-37",
+    "category": "logic",
+    "severity": "High",
+    "claim": "Admin role truthy authorization check uses loose equality",
+    "evidence": "Admin role truthy authorization check uses loose equality",
+    "runtimeTrigger": "Admin role truthy authorization check uses loose equality",
+    "crossReferences": [
+      "auth.js:32-37"
+    ],
+    "confidenceScore": 96
+  },
+  {
+    "bugId": "FIXTURE-2-4",
+    "file": "users.js",
+    "lines": "8-12",
+    "category": "logic",
+    "severity": "Medium",
+    "claim": "Pagination off-by-one offset skips first page",
+    "evidence": "Pagination off-by-one offset skips first page",
+    "runtimeTrigger": "Pagination off-by-one offset skips first page",
+    "crossReferences": [
+      "users.js:8-12"
+    ],
+    "confidenceScore": 96
+  },
+  {
+    "bugId": "FIXTURE-2-6",
+    "file": "users.js",
+    "lines": "39-44",
+    "category": "type-safety",
+    "severity": "High",
+    "claim": "bcrypt password lacks non-string type validation",
+    "evidence": "bcrypt password lacks non-string type validation",
+    "runtimeTrigger": "bcrypt password lacks non-string type validation",
+    "crossReferences": [
+      "users.js:39-44"
+    ],
+    "confidenceScore": 96
+  }
+]

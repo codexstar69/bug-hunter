@@ -21,7 +21,7 @@ function appendJournal(logPath, event) {
 }
 
 function runJsonScript(scriptPath, args) {
-  const result = childProcess.spawnSync('node', [scriptPath, ...args], {
+  const result = childProcess.spawnSync(process.execPath, [scriptPath, ...args], {
     cwd: process.cwd(),
     encoding: 'utf8',
     maxBuffer: DEFAULT_MAX_OUTPUT_BYTES,
@@ -43,7 +43,7 @@ function runJsonScript(scriptPath, args) {
 }
 
 function runTextScript(scriptPath, args) {
-  const result = childProcess.spawnSync('node', [scriptPath, ...args], {
+  const result = childProcess.spawnSync(process.execPath, [scriptPath, ...args], {
     cwd: process.cwd(),
     encoding: 'utf8',
     maxBuffer: DEFAULT_MAX_OUTPUT_BYTES,

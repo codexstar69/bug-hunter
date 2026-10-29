@@ -177,7 +177,7 @@ test('README preserves substantial product and security topic coverage', () => {
   });
   const restorationWordCount = readme.trim().split(/\s+/).length;
   const hardExclusionSection = skepticSkill.match(
-    /### Hard exclusions[\s\S]*?(?=\nFormat:)/
+    /## Settled false-positive classes[\s\S]*?(?=\n## )/
   );
   assert.notEqual(hardExclusionSection, null);
   const hardExclusionCount = [
@@ -188,7 +188,7 @@ test('README preserves substantial product and security topic coverage', () => {
   assert.deepEqual(missingImages, []);
   assert.deepEqual(mutableDocumentationImages, []);
   assert.equal(restorationWordCount >= 4000, true);
-  assert.match(readme, new RegExp(`${String(hardExclusionCount)} hard exclusions`));
+  assert.match(readme, new RegExp(`${String(hardExclusionCount)} settled false-positive classes`));
   assert.match(readme, /CVSS 3\.1/);
   assert.match(readme, /Context Hub[\s\S]*Context7/);
   assert.match(readme, /security code scanner/);

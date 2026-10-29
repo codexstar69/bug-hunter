@@ -243,3 +243,47 @@ The final response should distinguish:
 Do not ask it to imitate Bug Hunter from memory. Verify the exact installed
 target/package source, restart the agent, and follow
 [troubleshooting](troubleshooting.md).
+
+## Loop tracking and diagnostics
+
+Every backend uses `modes/loop.md`. The default cap scales with queued source:
+`max(12, min(200, ceil(scannableFiles / max(fileBudget, 1)) + 8))`.
+A caller-supplied cap overrides it. For a 600-file queue with a 30-file budget,
+that is 28 iterations, rather than stopping after ten. A cap stop is partial
+coverage, never a completion claim. Recon runs once per unchanged-source run;
+later iterations reuse its schema-valid artifact. Changed source ends the old
+run and requires new triage, hashes, and Recon.
+
+Experiment helpers work from the target repository when SKILL_DIR is the
+absolute installed skill path:
+
+```bash
+node "$SKILL_DIR/scripts/experiment-loop.cjs" init \
+  .bug-hunter/experiment.jsonl audit bugs_confirmed higher count \
+  --scannable-files 600 --file-budget 30
+node "$SKILL_DIR/scripts/experiment-loop.cjs" status .bug-hunter/experiment.jsonl
+node "$SKILL_DIR/scripts/experiment-loop.cjs" stop
+```
+
+Initialization starts an append-only JSONL segment with its own baseline and
+counter. Each result records status (`keep`, `discard`, `crash`, or
+`checks_failed`), primary metric, optional secondary metrics, duration, and
+description. Resume markers retain the same segment. Secondary metric names
+lock after its first result; keep them consistent. `bugs_confirmed` counts
+Referee-confirmed bugs; useful secondary metrics include `false_positives`
+(count), `files_scanned` (count), and `fix_success_rate` (percent). These measure
+outcomes; maximizing finding volume never overrides evidence or coverage.
+
+| Guardrail | Contract |
+|---|---|
+| Iteration cap | Formula above, or an explicit caller cap |
+| Stop file | Checked before each iteration and experiment run |
+| Repeated crashes | Three consecutive crashes halt the session |
+| Resume cooldown | Five minutes between resume events |
+| Backpressure checks | Optional checks must pass before keeping a result |
+| Mutation | Logging uses `--auto-commit false`; commit authority is separate |
+
+Use `check-continue` as the gateway, then `record-resume` only when permitted.
+Do not call init to bypass a cap or cooldown. Clear a user stop with
+`clear-stop` only after the user requests resumption. The JSONL log tracks
+experiments; canonical per-file coverage remains in coverage/state artifacts.

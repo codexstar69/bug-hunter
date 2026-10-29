@@ -1,211 +1,125 @@
-# Large Codebase Strategy (> FILE_BUDGET×3 files)
+# Large-codebase mode
 
-This mode handles truly large codebases (monorepos, enterprise apps, 200+ source files) that cannot be audited in a single pass or even a single `--loop` run. It replaces the naive "flat chunk by position" approach with domain-aware, multi-tier scanning.
+Use domain Hunters and bounded review batches; read `dispatch.md` for delegated
+roles. Single-pass is the default; `--loop` continues queued coverage.
 
-## Why the standard modes fail at scale
+## Prepare once: triage, index, Recon
 
-1. **Recon overflows**: Classifying 1,000+ files in one pass exhausts context before scanning starts.
-2. **Flat chunking loses domain context**: A Hunter scanning `auth/login.ts` + `billing/invoice.ts` in the same chunk has no coherent understanding of either domain.
-3. **Cross-service bugs are invisible**: The most dangerous bugs live at service boundaries (auth → payments, orders → inventory), but flat chunks never group these together.
-4. **Skeptic/Referee see everything at once**: Merging 50+ findings into one Skeptic pass is itself a context overflow.
+Use `.bug-hunter/triage.json` from
+`SKILL.md › Deterministic triage before model work`; run triage if absent.
+Use its `domainFileLists`, `domains`, `scanOrder`, and `fileBudget`.
 
-## The Strategic Approach: Domain-First, Tiered Scanning
+Write the risk-ordered `.bug-hunter/source-files.json`. Set FILE_BUDGET from
+triage and SOURCE_TOKEN_BUDGET from the caller or 48000. Initialize once;
+resume preserves the original hashes:
 
-### Tier 0: Rapid Recon (already done by triage)
-
-**If triage was run (Step 1)**, Tier 0 is already complete. The triage JSON at `.bug-hunter/triage.json` contains:
-- `domains`: all domains with tier classification, file counts, and risk breakdown
-- `domainFileLists`: per-domain file paths — use these directly as the file list for each Tier 1 domain audit
-- `fileBudget`, `scanOrder`, `tokenEstimate`
-
-Read the triage JSON and proceed directly to Tier 1. Do NOT re-scan the filesystem.
-
-**If triage was NOT run** (e.g., Recon was invoked directly), do a structural scan:
-
-1. **Discover the domain map** using directory structure:
-   ```bash
-   # Use whichever tool is available:
-   # fd:   fd -t d --max-depth 2 . <target> | head -50
-   # find: find <target> -maxdepth 2 -type d | head -50
-   # ls:   ls -d <target>/*/ <target>/*/*/ 2>/dev/null | head -50
-   ```
-2. **Count files per domain**:
-   ```bash
-   # fd:   fd -e ts -e js -e py -e go -e rs . "$dir" | wc -l
-   # find: find "$dir" -type f \( -name '*.ts' -o -name '*.js' \) | wc -l
-   # ls -R: ls -R "$dir" | wc -l  (rough estimate)
-   ```
-3. **Classify domains (not files) by risk**:
-   - CRITICAL domains: auth, payments, security, API gateways, middleware
-   - HIGH domains: core business logic, database models, state management
-   - MEDIUM domains: utilities, helpers, formatting, UI components
-   - LOW domains: tests, docs, config, scripts, migrations
-
-4. **Write the domain map** to `.bug-hunter/domain-map.json`:
-   ```json
-   {
-     "domains": [
-       { "path": "packages/auth", "tier": "CRITICAL", "fileCount": 42 },
-       { "path": "packages/billing", "tier": "CRITICAL", "fileCount": 38 },
-       { "path": "packages/api-gateway", "tier": "CRITICAL", "fileCount": 25 },
-       { "path": "packages/orders", "tier": "HIGH", "fileCount": 56 },
-       { "path": "packages/notifications", "tier": "MEDIUM", "fileCount": 31 },
-       { "path": "packages/ui-components", "tier": "LOW", "fileCount": 120 }
-     ],
-     "totalFiles": 512,
-     "criticalFiles": 105,
-     "highFiles": 156,
-     "mediumFiles": 131,
-     "lowFiles": 120
-   }
-   ```
-
-This is fast — no file reading, just directory listing and heuristic classification.
-
-### Tier 1: Domain-Scoped Deep Audits
-
-Process ONE domain at a time, running the **full pipeline** (Recon → Hunter → Skeptic → Referee) within each domain:
-
-```
-For each domain (CRITICAL first, then HIGH, then MEDIUM, then LOW):
-  1. Get this domain's file list:
-     - If triage exists: use triage.domainFileLists[domainPath]
-     - If no triage: use fd/find to list files in this domain's directory
-  2. Run Recon on THIS domain only → domain-specific risk map and tech stack
-  3. Run Hunter on THIS domain only → domain-specific findings
-  4. Run Skeptic on THIS domain's findings only → challenges
-  5. Run Referee on THIS domain only → confirmed bugs
-
-  Write domain results to:
-    .bug-hunter/domains/<domain-name>/recon.md
-    .bug-hunter/domains/<domain-name>/findings.json
-    .bug-hunter/domains/<domain-name>/skeptic.json
-    .bug-hunter/domains/<domain-name>/referee.json
-
-  Record in state:
-    node "$SKILL_DIR/scripts/bug-hunter-state.cjs" record-findings ...
+```bash
+node "$SKILL_DIR/scripts/bug-hunter-state.cjs" init .bug-hunter/state.json large-codebase .bug-hunter/source-files.json "$FILE_BUDGET" "$SOURCE_TOKEN_BUDGET" true
+node "$SKILL_DIR/scripts/code-index.cjs" build .bug-hunter/index.json .bug-hunter/source-files.json "$PWD"
 ```
 
-**Why this works**: Each domain audit is self-contained. The Hunter scanning `packages/auth` has full context of the auth domain — middleware, models, routes, utils — all in one coherent pass. The Skeptic only has to validate 3-8 findings from that domain, not 50 from everywhere.
+Dispatch **one Recon per run** to enrich triage technology and trust boundaries.
+Validate `.bug-hunter/recon.json` and share it with domain/boundary Hunters.
+Reuse it under `modes/loop.md`; changed source hashes fail the current run.
 
-**Domain size handling**: If a single domain exceeds FILE_BUDGET, chunk it using the existing Extended mode chunking, but WITHIN the domain boundary. This keeps domain coherence even when chunking.
+## Tier 1: Domain Hunters and review
 
-### Tier 2: Cross-Domain Boundary Audit
+Process domains and their files in triage risk order:
 
-After all individual domains are audited, run a **boundary-focused pass** that specifically targets service interaction points:
+1. Write its exact ordered `domainFileLists` array to the domain's
+   source-files.json and initialize a domain state once with explicit budgets:
 
-1. **Identify boundary files**: Files that import from or are imported by other domains.
-   Use whichever search tool is available:
    ```bash
-   # rg:   rg -l "from ['\"]\.\./(auth|billing|orders)" packages/api-gateway/
-   # grep: grep -rl "from.*\.\./auth\|from.*\.\./billing" packages/api-gateway/
-   # Read: manually read entry files of each domain and trace cross-domain imports
+   node "$SKILL_DIR/scripts/bug-hunter-state.cjs" init ".bug-hunter/domains/<domain>/state.json" large-codebase ".bug-hunter/domains/<domain>/source-files.json" "$FILE_BUDGET" "$SOURCE_TOKEN_BUDGET" true
    ```
 
-2. **Build boundary pairs**: Group files by the domains they connect:
+   Check domain source against the run ledger's hashes before initialization.
+   Use that domain state for chunk commands; never take a global chunk spanning
+   unrelated domains. Capacity limits split oversized domains automatically.
+2. Get the next chunk and mark it in progress. Give each attempt a unique
+   output: `.bug-hunter/domains/<domain>/chunks/<chunk-id>/<attempt>/findings.json`.
+   Use globally unique bugIds. Dispatch Hunter with shared recon.json, then:
+
+   ```bash
+   node "$SKILL_DIR/scripts/bug-hunter-state.cjs" next-chunk ".bug-hunter/domains/<domain>/state.json"
+   node "$SKILL_DIR/scripts/bug-hunter-state.cjs" mark-chunk ".bug-hunter/domains/<domain>/state.json" "<chunk-id>" in_progress
+   node "$SKILL_DIR/scripts/schema-validate.cjs" findings ".bug-hunter/domains/<domain>/chunks/<chunk-id>/<attempt>/findings.json"
+   node "$SKILL_DIR/scripts/bug-hunter-state.cjs" hash-verify .bug-hunter/state.json ".bug-hunter/domains/<domain>/chunks/<chunk-id>/<attempt>/read-files.json"
    ```
-   auth ↔ api-gateway: [gateway/auth-middleware.ts, auth/token-service.ts]
-   billing ↔ orders: [orders/checkout.ts, billing/charge.ts]
-   auth ↔ billing: [billing/subscription-guard.ts, auth/permissions.ts]
+
+   Stop on nonzero hash-verify or nonempty changed/missing/unreadable arrays.
+   Only after this check, record that attempt's findings, hash-update its actual
+   read-file list in run/domain ledgers, then mark the chunk done:
+
+   ```bash
+   node "$SKILL_DIR/scripts/bug-hunter-state.cjs" record-findings ".bug-hunter/domains/<domain>/state.json" ".bug-hunter/domains/<domain>/chunks/<chunk-id>/<attempt>/findings.json" large-codebase
+   node "$SKILL_DIR/scripts/bug-hunter-state.cjs" mark-chunk ".bug-hunter/domains/<domain>/state.json" "<chunk-id>" done
    ```
 
-3. **For each boundary pair**: Run a focused Hunter scan that reads files from BOTH domains simultaneously. The Hunter prompt should emphasize:
-   - Trust boundary violations (does domain A trust unvalidated data from domain B?)
-   - Contract mismatches (does the caller assume a return type the callee doesn't guarantee?)
-   - Race conditions across domain boundaries
-   - Auth/permission gaps between services
+   Unread files remain pending; chunk completion alone is not file coverage.
+3. Once the domain's chunks finish, write the ordered successful attempt paths
+   to its `finding-paths.json`, then merge once before Skeptic:
 
-4. **Challenge + Verify** boundary findings through the normal Skeptic → Referee pipeline.
+   ```bash
+   node "$SKILL_DIR/scripts/payload-guard.cjs" merge-findings ".bug-hunter/domains/<domain>/finding-paths.json" --out ".bug-hunter/domains/<domain>/findings.json"
+   ```
 
-Write boundary results to `.bug-hunter/domains/_boundaries/`.
+   **Zero findings:** skip Skeptic and Referee for that domain, preserving its
+   coverage, and continue. Otherwise dispatch Skeptic then Referee on the merged
+   domain findings; validate `skeptic.json` and `referee.json`. Missing review
+   stays unresolved. Do not run another Recon here.
+4. Join findings with Referee verdicts by bugId into
+   `.bug-hunter/reviewed-findings.json`, including dismissed/manual-review rows.
 
-### Tier 3: Merge and Report
+Three single-chunk domains, two nonempty, dispatch 1 Recon, 3 Hunters,
+2 Skeptics, and 2 Referees; boundary Hunters follow actual index edges.
 
-After all domains + boundaries are audited:
+## Tier 2: Cross-domain boundaries
 
-1. Read all domain `referee.json` files and boundary results.
-2. Merge findings, deduplicate by file + line + claim.
-3. Renumber BUG-IDs globally.
-4. Build the final report per Step 7 in SKILL.md.
+Derive pairs from the built index's reverseDependencies and exact triage domain
+membership, rather than scanning import text or guessing prefix matches:
 
-## State Management for Large Codebases
-
-Use `.bug-hunter/state.json` with domain-aware structure:
-
-```json
-{
-  "mode": "large-codebase",
-  "domainMap": ".bug-hunter/domain-map.json",
-  "domains": {
-    "packages-auth": { "status": "done", "findings": 5, "confirmed": 3 },
-    "packages-billing": { "status": "in_progress", "findings": 0, "confirmed": 0 },
-    "packages-orders": { "status": "pending", "findings": 0, "confirmed": 0 }
-  },
-  "boundaries": {
-    "auth-billing": { "status": "pending" },
-    "auth-api-gateway": { "status": "pending" }
-  },
-  "totalConfirmed": 3,
-  "lastUpdated": "2026-03-10T00:00:00Z"
-}
+```bash
+node "$SKILL_DIR/scripts/payload-guard.cjs" boundary-pairs \
+  .bug-hunter/index.json .bug-hunter/triage.json --out .bug-hunter/boundary-pairs.json
 ```
 
-**Resume**: If the process is interrupted, read state and skip domains with status `done`. Resume from the first `pending` or `in_progress` domain.
+For each pair, assign a stable pair-id and use its own state and chunk paths:
+`.bug-hunter/domains/_boundaries/<pair-id>/chunks/<chunk-id>/<attempt>/findings.json`.
+Dispatch Hunter with shared Recon and files from both domains. Follow Tier 1's
+hash-verify-before-record/completion rule against the original run ledger, then
+merge successful chunk artifacts once using `merge-findings` into
+`.bug-hunter/domains/_boundaries/<pair-id>/findings.json`. An empty index edge
+set means no indexed pairs; report unresolved/dynamic dependency limitations.
 
-## When to use `--loop` with large-codebase mode
+**Before boundary verification**, compare observations with the Tier-1 ledger:
 
-`--loop` wraps the domain iteration in a ralph-loop. Each loop iteration processes ONE domain (or one boundary pair). This means:
-- Iteration 1: Tier 0 (rapid recon + domain map)
-- Iteration 2: Tier 1 domain "auth" (full pipeline)
-- Iteration 3: Tier 1 domain "billing" (full pipeline)
-- ...
-- Iteration N-2: Tier 2 boundary audits
-- Iteration N-1: Tier 3 merge and report
-- Iteration N: Coverage check → DONE or continue with missed domains
+```bash
+node "$SKILL_DIR/scripts/payload-guard.cjs" dedup-boundaries \
+  ".bug-hunter/domains/_boundaries/<pair-id>/findings.json" .bug-hunter/reviewed-findings.json \
+  --out ".bug-hunter/domains/_boundaries/<pair-id>/dispatch.json"
+```
 
-The ralph-loop's coverage check reads the state file and only marks DONE when all queued domains show status `done`.
+Only reuse a verdict against the unchanged source baseline. The helper matches
+same file, overlapping line range, same category and same claim with a unique
+reviewed entry. It preserves the boundary observation and existing bugId/verdict under
+`reused`. Invalid ranges, unresolved entries, and ambiguous overlaps remain in
+`findings` for review. Retain evidence/security metadata when joining reused
+observations; never renumber IDs before joining. The helper also writes
+schema-valid `reused-findings.json` and `reused-referee.json` beside dispatch.json,
+using each observation's bugId with the existing complete verdict. Incomplete
+verdicts stay in the review queue.
+Dispatch Skeptic and Referee only for the new `findings`; skip both if empty.
+Reused manual-review verdicts stay non-writable.
 
-## Default autonomous behavior
+## Tier 3: Join and report
 
-Autonomous mode is exhaustive by default:
-- Finish all CRITICAL domains first.
-- Then continue through HIGH domains.
-- Then continue through MEDIUM domains.
-- Then continue through LOW domains.
-- Only stop when the domain queue is exhausted, the user interrupts, or a hard blocker prevents safe progress.
+Join domain and boundary artifacts by stable bugId, preserving unreviewed and
+failed outcomes. Deduplicate before any optional final display renumbering.
+Merge each pair's `reused-findings.json` and `reused-referee.json` with its new
+Hunter/Referee rows and domain artifacts; include dismissed/manual-review rows
+in the scan report. Write canonical merged Hunter/Referee artifacts, then follow
+`SKILL.md › Join and present the scan result` with per-domain coverage.
 
-## Optimization: Delta-first for repeat scans
-
-If `.bug-hunter/state.json` exists from a previous run AND `--delta` is specified:
-1. Run `git diff --name-only <last-commit>` to find changed files.
-2. Map changed files to their domains.
-3. Re-audit ONLY the affected domains (not the whole codebase).
-4. Re-run boundary audit only for boundaries involving affected domains.
-
-This makes repeat scans on large codebases take minutes instead of hours.
-
-## Context Budget for Large Codebases
-
-Each domain audit uses its own context budget independently:
-- Domain Recon: lightweight (just this domain's files)
-- Domain Hunter: FILE_BUDGET applies to this domain's files only
-- Domain Skeptic: only this domain's findings
-- Domain Referee: only this domain's findings + challenges
-
-If a single domain exceeds FILE_BUDGET, it gets its own Extended-mode chunking within the domain boundary. The key insight is: **chunking happens within domains, not across them**.
-
-## Checklist for the Orchestrator
-
-When executing large-codebase mode:
-
-- [ ] Tier 0: Run rapid recon, produce domain map
-- [ ] Tier 1: For each CRITICAL domain, run full pipeline
-- [ ] Tier 1: For each HIGH domain, run full pipeline
-- [ ] Tier 1: For each MEDIUM domain, run full pipeline (or skip if --fast)
-- [ ] Tier 2: Identify boundary pairs from cross-domain imports
-- [ ] Tier 2: Run boundary-focused Hunter on each pair
-- [ ] Tier 2: Challenge + verify boundary findings
-- [ ] Tier 3: Merge all domain + boundary findings
-- [ ] Tier 3: Deduplicate and renumber
-- [ ] Tier 3: Build final report with per-domain breakdown
-- [ ] Coverage: All queued domains done? If not, continue.
+When looping, reuse Recon and advance pending chunks/domains. Adaptive `fast`
+may narrow optional context, never drop queued MEDIUM/LOW source.

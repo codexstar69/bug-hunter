@@ -109,7 +109,9 @@ Integrations that invoke `scripts/run-bug-hunter.cjs` directly can provide
 additional controls such as:
 
 ```text
+--chunk-size <n>
 --max-source-tokens <n>
+--enforce-token-budget <true|false>
 --confidence-threshold <n>
 --triage-path <triage.json>
 --benchmark-report <benchmark-report.json>
@@ -119,12 +121,34 @@ additional controls such as:
 --verification-report <verification-report.json>
 --verification-required <true|false>
 --verification-total-budget-ms <milliseconds>
---evidence-cache <directory>
+--evidence-cache <directory|true|false>
+--evidence-cache-dir <directory>
 ```
 
 These are **not automatically public `/bug-hunter` flags**. They belong to the
 runner/integration surface and are persisted in run identity where relevant.
-Explicit limits override adaptive defaults.
+Explicit limits override adaptive defaults. File count and source-token limits apply
+independently in both `run` and `plan`, including when `--chunk-size` is supplied.
+A file exceeding the token budget is isolated and marked `oversized`; disabling
+token enforcement requires `--enforce-token-budget false`. The state helper's
+`init` command also enforces tokens by default; its final positional `false`
+argument remains an explicit opt-out.
+
+`--evidence-cache <directory>` selects the cache location. The boolean forms
+`--evidence-cache true` (or the bare flag) and `--evidence-cache false` enable or
+disable caching. The default cache is shared across runs at
+`<repository>/.bug-hunter/evidence-cache`; `--evidence-cache-dir` remains supported.
+An explicit directory on `--evidence-cache` takes precedence over that alias.
+`--verification-report` and `--verification-report-path` name the same output
+(the latter takes precedence if both are supplied). Unknown runner flags exit
+with a non-zero status and name the unrecognized flag.
+
+Initialization and scope expansion record source hashes before dispatch. Resume
+retains those baselines, so edits to pending files fail closed. A runner holds a
+state owner lock while it operates; another writer fails clearly, while `status`
+and `next-chunk` can inspect atomic snapshots. Locks left by a dead local runner
+are reclaimed on resume. A malformed lock or an interrupted lock mutation gate
+fails closed and requires inspection before removal.
 
 ## Canonical runner outputs
 

@@ -43,12 +43,13 @@ test('CI uses supported Node releases and installs the locked toolchain', () => 
   assert.doesNotMatch(workflow, /node-version: \[(?:18|20)/);
 });
 
-test('publish workflow is release-only, provenance-bound, and quality-gated', () => {
+test('publish workflow supports dry runs while remaining provenance-bound and quality-gated', () => {
   const workflow = fs.readFileSync(
     resolveSkillScript('..', '.github', 'workflows', 'publish.yml'),
     'utf8'
   );
-  assert.doesNotMatch(workflow, /workflow_dispatch/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /dry_run:[\s\S]*default: true/);
   assert.match(workflow, /node scripts\/prepublish-guard\.cjs/);
   assert.match(workflow, /npm publish --access public/);
   assert.match(workflow, /id-token: write/);

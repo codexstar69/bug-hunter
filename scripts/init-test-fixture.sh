@@ -15,5 +15,5 @@ fi
 cd "$FIXTURE_DIR"
 git init
 git add -A
-git commit -m "initial commit: test fixture with planted bugs"
+git commit -m "initial commit: calibration test fixture"
 echo "test-fixture git repo initialized at $FIXTURE_DIR"

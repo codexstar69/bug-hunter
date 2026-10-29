@@ -24,7 +24,7 @@ When you need to verify a claim about how a library, framework, or API actually 
 
 The lookup script tries **Context Hub (chub)** first for curated, versioned docs, then falls back to **Context7** when chub doesn't have the library.
 
-**Step 1: Search for the library**
+**Search for the library**
 ```bash
 node "$SKILL_DIR/scripts/doc-lookup.cjs" search "<library>" "<what you need to know>"
 ```
@@ -32,7 +32,7 @@ Example: `node "$SKILL_DIR/scripts/doc-lookup.cjs" search "prisma" "SQL injectio
 
 This returns results from both sources with a `recommended_source` and `recommended_id`.
 
-**Step 2: Fetch documentation**
+**Fetch documentation**
 ```bash
 node "$SKILL_DIR/scripts/doc-lookup.cjs" get "<library-or-id>" "<specific question>"
 ```

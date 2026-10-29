@@ -32,6 +32,7 @@ const {
   selectRefereeAuthorizedFindings
 } = require('./artifact-planner.cjs');
 const { processPendingChunks } = require('./chunk-scheduler.cjs');
+const { openStateOwner } = require('./bug-hunter-state.cjs');
 const { buildAdaptivePolicy } = require('./adaptive-policy.cjs');
 const { detectPlan: detectVerificationPlan, runPlan: runVerificationPlan } = require('./hybrid-verifier.cjs');
 const { buildRetrievalPlan } = require('./retrieval-planner.cjs');
@@ -54,9 +55,9 @@ const DEFAULT_EXPANSION_CAP = 40;
 function usage() {
   console.error('Usage:');
   console.error('  run-bug-hunter.cjs preflight [--skill-dir <path>] [--available-backends <csv>] [--backend <name>]');
-  console.error('  run-bug-hunter.cjs run --files-json <path> --worker-cmd <template> [--run-id <id> | --resume <run-id>] [--referee-path <path>] [--fixer-scope-path <path>] [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--max-source-tokens <n>] [--timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
+  console.error('  run-bug-hunter.cjs run --files-json <path> --worker-cmd <template> [--run-id <id> | --resume <run-id>] [--referee-path <path>] [--fixer-scope-path <path>] [--mode <name>] [--skill-dir <path>] [--state <path>] [--chunk-size <n>] [--max-source-tokens <n>] [--enforce-token-budget <true|false>] [--timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>] [--available-backends <csv>] [--backend <name>] [--fail-fast <true|false>] [--use-index <true|false>] [--index-path <path>] [--delta-mode <true|false>] [--changed-files-json <path>] [--delta-hops <n>] [--expand-on-low-confidence <true|false>] [--confidence-threshold <n>] [--canary-size <n>] [--expansion-cap <n>] [--strategy-path <path>] [--strategy-markdown-path <path>]');
   console.error('  run-bug-hunter.cjs phase --artifact <name> --output-path <path> --worker-cmd <template> [--phase-name <name>] [--skill-dir <path>] [--journal-path <path>] [--render-cmd <template>] [--render-output-path <path>] [--timeout-ms <n>] [--render-timeout-ms <n>] [--max-output-bytes <n>] [--kill-grace-ms <n>] [--max-retries <n>] [--backoff-ms <n>]');
-  console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--max-source-tokens <n>] [--plan-path <path>]');
+  console.error('  run-bug-hunter.cjs plan --files-json <path> [--mode <name>] [--skill-dir <path>] [--chunk-size <n>] [--max-source-tokens <n>] [--enforce-token-budget <true|false>] [--plan-path <path>]');
 }
 
 function nowIso() {
@@ -66,6 +67,26 @@ function nowIso() {
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
+
+const RUNNER_FLAGS = new Set([
+  'adaptive-plan-path', 'adaptive-profile', 'artifact', 'auto-verify',
+  'available-backends', 'backend', 'backoff-ms', 'benchmark-report',
+  'cache-max-age-days', 'cache-max-bytes', 'cache-max-entries', 'canary-size',
+  'changed-files-json', 'chunk-size', 'confidence-threshold', 'consistency-report',
+  'coverage-markdown-path', 'coverage-path', 'delta-hops', 'delta-mode',
+  'enforce-token-budget', 'evidence-cache', 'evidence-cache-dir', 'expand-on-low-confidence',
+  'expansion-cap', 'facts-path', 'fail-fast', 'files-json',
+  'fix-plan-path', 'fixer-scope-path', 'hypotheses-json', 'index-path',
+  'journal-path', 'kill-grace-ms', 'max-output-bytes', 'max-retries',
+  'max-source-tokens', 'mode', 'output-path', 'phase-name',
+  'plan-path', 'referee-path', 'render-cmd', 'render-output-path',
+  'render-timeout-ms', 'resume', 'retrieval-max-files', 'retrieval-max-tokens',
+  'retrieval-plan-path', 'run-id', 'security-review', 'skill-dir',
+  'state', 'strategy-markdown-path', 'strategy-path', 'timeout-ms',
+  'triage-path', 'use-index', 'verification-max-output-bytes', 'verification-plan',
+  'verification-report', 'verification-report-path', 'verification-required', 'verification-total-budget-ms',
+  'worker-cmd',
+]);
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -78,6 +99,9 @@ function parseArgs(argv) {
       continue;
     }
     const key = token.slice(2);
+    if (!RUNNER_FLAGS.has(key)) {
+      throw new Error(`Unknown flag: --${key}`);
+    }
     const value = rest[index + 1];
     if (!value || value.startsWith('--')) {
       options[key] = 'true';
@@ -174,6 +198,7 @@ function requiredScripts(skillDir) {
     path.join(skillDir, 'scripts', 'adaptive-policy.cjs'),
     path.join(skillDir, 'scripts', 'hybrid-verifier.cjs'),
     path.join(skillDir, 'scripts', 'evidence-cache.cjs'),
+    path.join(skillDir, 'scripts', 'link-lock.cjs'),
     path.join(skillDir, 'scripts', 'retrieval-planner.cjs'),
     path.join(skillDir, 'scripts', 'payload-guard.cjs'),
     path.join(skillDir, 'scripts', 'schema-validate.cjs'),
@@ -703,7 +728,7 @@ function prepareIndexAndScope({
     appendJournal(journalPath, {
       event: 'delta-selected',
       selected: (deltaResult.selected || []).length,
-      expansionCandidates: (deltaResult.expansionCandidates || []).length
+      expansionCandidates: (deltaResult.expansionCandidatesCount ?? (deltaResult.expansionCandidates || []).length)
     });
   }
 
@@ -743,6 +768,15 @@ async function runPipeline(options) {
   const statePath = path.resolve(
     options.state || path.join('.bug-hunter', 'runs', runId, 'state.json')
   );
+  const stateOwner = openStateOwner(statePath);
+  try {
+    return await runOwnedPipeline({ options, skillDir, backend, mode, filesJsonPath, resumeRunId, runId, statePath, stateOwner });
+  } finally {
+    stateOwner.close();
+  }
+}
+
+async function runOwnedPipeline({ options, skillDir, backend, mode, filesJsonPath, resumeRunId, runId, statePath, stateOwner }) {
   const identityPath = `${statePath}.identity.json`;
   const requestedChunkSize = options['chunk-size'] === undefined
     ? null
@@ -794,7 +828,6 @@ async function runPipeline(options) {
   const journalPath = path.resolve(
     options['journal-path'] || path.join(path.dirname(statePath), 'run.log')
   );
-  const stateScript = path.join(skillDir, 'scripts', 'bug-hunter-state.cjs');
   const deltaModeScript = path.join(skillDir, 'scripts', 'delta-mode.cjs');
   const chunksDir = path.resolve(path.dirname(statePath), 'chunks');
   const consistencyReportPath = path.resolve(options['consistency-report'] || path.join(path.dirname(statePath), 'consistency.json'));
@@ -807,7 +840,7 @@ async function runPipeline(options) {
   const factsPath = path.resolve(options['facts-path'] || path.join(path.dirname(statePath), 'bug-hunter-facts.json'));
   const adaptivePlanPath = path.resolve(options['adaptive-plan-path'] || path.join(path.dirname(statePath), 'adaptive-plan.json'));
   const retrievalPlanPath = path.resolve(options['retrieval-plan-path'] || path.join(path.dirname(statePath), 'retrieval-plan.json'));
-  const verificationReportPath = path.resolve(options['verification-report-path'] || path.join(path.dirname(statePath), 'verification-report.json'));
+  const verificationReportPath = path.resolve(options['verification-report-path'] || options['verification-report'] || path.join(path.dirname(statePath), 'verification-report.json'));
   const verificationPlanPath = options['verification-plan'] ? path.resolve(options['verification-plan']) : null;
   const autoVerify = toBoolean(options['auto-verify'], false);
   const verificationRequired = toBoolean(options['verification-required'], false);
@@ -821,9 +854,15 @@ async function runPipeline(options) {
     DEFAULT_MAX_OUTPUT_BYTES,
     '--verification-max-output-bytes'
   );
-  const evidenceCacheEnabled = toBoolean(options['evidence-cache'], true);
+  const evidenceCacheValue = options['evidence-cache'];
+  const evidenceCacheEnabled = toBoolean(evidenceCacheValue, true);
+  const evidenceCacheDirectory = evidenceCacheValue
+    && !['true', 'false'].includes(String(evidenceCacheValue).toLowerCase())
+    ? evidenceCacheValue
+    : null;
   const evidenceCacheDir = evidenceCacheEnabled
-    ? path.resolve(options['evidence-cache-dir'] || path.join(path.dirname(statePath), 'evidence-cache'))
+    ? path.resolve(evidenceCacheDirectory || options['evidence-cache-dir']
+      || path.join(getRepositoryIdentity().repositoryRoot, '.bug-hunter', 'evidence-cache'))
     : null;
   const evidenceCacheOptions = {
     maxEntries: toPositiveInt(options['cache-max-entries'], 10000, '--cache-max-entries'),
@@ -886,9 +925,7 @@ async function runPipeline(options) {
   const confidenceThreshold = requestedConfidenceThreshold || adaptivePlan.budgetPolicy.confidenceThreshold;
   const deltaHops = requestedDeltaHops === null ? adaptivePlan.budgetPolicy.deltaHops : requestedDeltaHops;
   const expansionCap = requestedExpansionCap || adaptivePlan.budgetPolicy.expansionCap;
-  const tokenBudgetEnforced = options['enforce-token-budget'] === undefined
-    ? requestedChunkSize === null
-    : toBoolean(options['enforce-token-budget'], true);
+  const tokenBudgetEnforced = toBoolean(options['enforce-token-budget'], true);
   const resolvedOptions = {
     ...options,
     'delta-hops': String(deltaHops)
@@ -1003,19 +1040,21 @@ async function runPipeline(options) {
     });
     requeueResumableChunks({
       statePath,
-      stateScript,
+      stateOwner,
       maxRetries
     });
   } else {
-    runJsonScript(stateScript, [
-      'init',
-      statePath,
+    const baselineIndex = loadIndex(scope.indexPath);
+    stateOwner.sourceHashes = Object.fromEntries(Object.entries(baselineIndex && baselineIndex.files || {})
+      .filter(([, entry]) => entry.hashAlgorithm === 'sha256-bytes')
+      .map(([filePath, entry]) => [filePath, entry.hash]));
+    stateOwner.execute('init',
       mode,
       scope.activeFilesJsonPath,
       String(chunkSize),
       String(maxSourceTokens),
       String(tokenBudgetEnforced)
-    ]);
+    );
     writeJsonAtomic(identityPath, runIdentity);
   }
 
@@ -1043,7 +1082,7 @@ async function runPipeline(options) {
   let index = loadIndex(scope.indexPath);
   await processPendingChunks({
     statePath,
-    stateScript,
+    stateOwner,
     chunksDir,
     journalPath,
     workerCmdTemplate,
@@ -1065,7 +1104,7 @@ async function runPipeline(options) {
   });
 
   if (scope.deltaMode && expandOnLowConfidence) {
-    const state = readJson(statePath);
+    const state = stateOwner.read();
     const lowConfidenceFiles = normalizeFiles(state.bugLedger
       .filter((entry) => {
         return entry.confidenceScore === null || entry.confidenceScore === undefined || Number(entry.confidenceScore) < confidenceThreshold;
@@ -1092,7 +1131,7 @@ async function runPipeline(options) {
       if (cappedExpandedFiles.length > 0) {
         const expansionFilesJsonPath = path.resolve(path.dirname(statePath), 'delta-expansion-files.json');
         writeJson(expansionFilesJsonPath, cappedExpandedFiles);
-        const appendResult = runJsonScript(stateScript, ['append-files', statePath, expansionFilesJsonPath]);
+        const appendResult = stateOwner.execute('append-files', expansionFilesJsonPath);
         appendJournal(journalPath, {
           event: 'delta-expansion',
           lowConfidenceFiles: lowConfidenceFiles.length,
@@ -1107,7 +1146,7 @@ async function runPipeline(options) {
           writeJson(selectedFilesJsonPath, mergedSelected);
           await processPendingChunks({
             statePath,
-            stateScript,
+            stateOwner,
             chunksDir,
             journalPath,
             workerCmdTemplate,
@@ -1132,15 +1171,15 @@ async function runPipeline(options) {
     }
   }
 
-  const finalState = readJson(statePath);
+  const finalState = stateOwner.read();
   validateStateShape({ statePath, state: finalState });
-  const status = runJsonScript(stateScript, ['status', statePath]);
+  const status = stateOwner.execute('status');
   const consistency = buildConsistencyReport({
     bugLedger: toArray(finalState.bugLedger),
     confidenceThreshold
   });
   writeJson(consistencyReportPath, consistency);
-  runJsonScript(stateScript, ['set-consistency', statePath, consistencyReportPath]);
+  stateOwner.execute('set-consistency', consistencyReportPath);
 
   const hasOpenOrFailedChunks = (status.summary.chunkStatus.pending || 0) > 0
     || (status.summary.chunkStatus.inProgress || 0) > 0
@@ -1148,7 +1187,7 @@ async function runPipeline(options) {
 
   let verificationReport = null;
   if (!hasOpenOrFailedChunks && verificationPlan) {
-    verificationReport = runVerificationPlan({
+    verificationReport = await runVerificationPlan({
       repoRoot: repositoryIdentity.repositoryRoot,
       plan: verificationPlan,
       totalBudgetMs: verificationTotalBudgetMs,
@@ -1162,7 +1201,8 @@ async function runPipeline(options) {
       summary: verificationReport.summary
     });
   }
-  const verificationFailed = Boolean(verificationReport && verificationRequired && !verificationReport.ok);
+  // --verification-required requires a usable plan; executed required checks always gate fixes.
+  const verificationFailed = Boolean(verificationReport && !verificationReport.ok);
 
   if (hasOpenOrFailedChunks || verificationFailed) {
     appendJournal(journalPath, {
@@ -1183,7 +1223,7 @@ async function runPipeline(options) {
       deltaMode: scope.deltaMode,
       deltaSummary: scope.deltaResult ? {
         selectedCount: (scope.deltaResult.selected || []).length,
-        expansionCandidatesCount: (scope.deltaResult.expansionCandidates || []).length
+        expansionCandidatesCount: (scope.deltaResult.expansionCandidatesCount ?? (scope.deltaResult.expansionCandidates || []).length)
       } : null,
       consistencyReportPath,
       strategyPath: null,
@@ -1240,7 +1280,7 @@ async function runPipeline(options) {
       deltaMode: scope.deltaMode,
       deltaSummary: scope.deltaResult ? {
         selectedCount: (scope.deltaResult.selected || []).length,
-        expansionCandidatesCount: (scope.deltaResult.expansionCandidates || []).length
+        expansionCandidatesCount: (scope.deltaResult.expansionCandidatesCount ?? (scope.deltaResult.expansionCandidates || []).length)
       } : null,
       consistencyReportPath,
       strategyPath: null,
@@ -1288,7 +1328,7 @@ async function runPipeline(options) {
     throw new Error(`Generated invalid fix plan artifact: ${fixPlanValidation.errors.join('; ')}`);
   }
   writeJson(fixPlanPath, fixPlan);
-  runJsonScript(stateScript, ['set-fix-plan', statePath, fixPlanPath]);
+  stateOwner.execute('set-fix-plan', fixPlanPath);
 
   const fixerScope = buildFixerScope({
     runIdentity,
@@ -1367,7 +1407,7 @@ async function runPipeline(options) {
     deltaMode: scope.deltaMode,
     deltaSummary: scope.deltaResult ? {
       selectedCount: (scope.deltaResult.selected || []).length,
-      expansionCandidatesCount: (scope.deltaResult.expansionCandidates || []).length
+      expansionCandidatesCount: (scope.deltaResult.expansionCandidatesCount ?? (scope.deltaResult.expansionCandidates || []).length)
     } : null,
     consistencyReportPath,
     strategyPath,
@@ -1446,7 +1486,7 @@ async function main() {
       throw new Error('--files-json must contain an array');
     }
     const maxFilesPerChunk = requestedChunkSize || DEFAULT_CHUNK_SIZE;
-    const tokenBudgetEnforced = requestedChunkSize === null;
+    const tokenBudgetEnforced = toBoolean(options['enforce-token-budget'], true);
     const totalFiles = files.length;
     const plannedChunks = buildSourceChunks(files, {
       maxFiles: maxFilesPerChunk,

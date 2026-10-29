@@ -47,9 +47,9 @@
           "signal": { "type": ["string", "null"] },
           "errorCode": { "type": ["string", "null"] },
           "durationMs": { "type": "integer", "minimum": 0 },
-          "stdout": { "type": "string" },
-          "stderr": { "type": "string" },
-          "outputTruncated": { "type": "boolean" },
+          "stdout": { "type": "string", "description": "Redacted output, retaining a bounded head and tail when truncated." },
+          "stderr": { "type": "string", "description": "Redacted output, retaining a bounded head and tail when truncated." },
+          "outputTruncated": { "type": "boolean", "description": "True when either stream exceeded its capture limit. Output volume does not fail or terminate a check." },
           "findingIds": { "type": "array", "items": { "type": "string" } },
           "confidenceDelta": { "type": "number" }
         },

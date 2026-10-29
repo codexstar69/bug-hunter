@@ -122,3 +122,7 @@ independent claim of universal superiority. See `docs/world-class-protocol.md`.
 - `docs/world-class-protocol.md`: benchmark/adaptive/retrieval/verification design
 - `docs/troubleshooting.md`: failure recovery
 - `SKILL.md`: canonical orchestration contract
+
+Delegated tasks use deterministic payload-guard.cjs render output and dispatch
+with Read <abs task path> and follow it. All backends share modes/loop.md;
+loop caps scale with the queue, and unchanged-source iterations reuse Recon.

@@ -61,6 +61,8 @@ test('benchmark gate fails a noisy run and matching is one-to-one', () => {
   const runs = readJson(path.join(benchmarkRoot, 'golden-runs.json'));
   runs.runs[0].findings.push({
     bugId: 'NOISE-1',
+    stride: 'Tampering',
+    cwe: 'CWE-20',
     file: 'src/routes.js',
     lines: '1',
     severity: 'Critical',
@@ -143,7 +145,7 @@ test('adaptive policy selects fast profile for a small low-risk high-precision t
   assert.equal(plan.reviewerPolicy.independentlyVerifyCritical, true);
 });
 
-test('hybrid verifier uses argv execution, fails closed on required checks, and maps evidence', () => {
+test('hybrid verifier uses argv execution, fails closed on required checks, and maps evidence', async () => {
   const repo = makeTemp('bug-hunter-verifier-');
   fs.writeFileSync(path.join(repo, 'pass.cjs'), "console.log('ok');\n", 'utf8');
   fs.writeFileSync(path.join(repo, 'fail.cjs'), "console.error('bad'); process.exit(2);\n", 'utf8');
@@ -172,7 +174,7 @@ test('hybrid verifier uses argv execution, fails closed on required checks, and 
       }
     ]
   };
-  const report = runPlan({ repoRoot: repo, plan, totalBudgetMs: 10000 });
+  const report = await runPlan({ repoRoot: repo, plan, totalBudgetMs: 10000 });
   assert.equal(report.ok, false);
   assert.equal(report.summary.requiredFailures, 1);
   assert.equal(report.checks[0].status, 'PASS');
@@ -207,12 +209,12 @@ test('hybrid verifier detects package scripts without inventing unavailable chec
   }), 'utf8');
   const plan = detectPlan(repo);
   assert.deepEqual(plan.checks.map((entry) => entry.id), ['test', 'build']);
-  assert.deepEqual(plan.checks[0].command, ['pnpm', 'run', 'test', '--if-present']);
+  assert.deepEqual(plan.checks[0].command, ['pnpm', 'run', 'test']);
 });
 
 
 
-test('hybrid verifier strips ambient secrets, rejects sensitive env injection, and redacts output', () => {
+test('hybrid verifier strips ambient secrets, rejects sensitive env injection, and redacts output', async () => {
   const repo = makeTemp('bug-hunter-verifier-secrets-');
   const prior = process.env.BUG_HUNTER_TEST_SECRET;
   process.env.BUG_HUNTER_TEST_SECRET = 'super-sensitive-value';
@@ -227,7 +229,7 @@ test('hybrid verifier strips ambient secrets, rejects sensitive env injection, a
         required: true
       }]
     };
-    const report = runPlan({ repoRoot: repo, plan, totalBudgetMs: 5000 });
+    const report = await runPlan({ repoRoot: repo, plan, totalBudgetMs: 5000 });
     assert.equal(report.ok, true);
     assert.match(report.checks[0].stdout, /absent/);
     assert.doesNotMatch(report.checks[0].stdout, /super-sensitive-value/);
@@ -381,7 +383,7 @@ function runRunner(repoRoot, args) {
   };
 }
 
-test('schema runtime exposes validators for all world-class artifacts', () => {
+test('schema runtime exposes validators for all world-class artifacts', async () => {
   const { validateArtifactValue } = require('../schema-runtime.cjs');
   const manifestPath = path.join(benchmarkRoot, 'public-manifest.json');
   const benchmark = scoreSuite({
@@ -396,7 +398,7 @@ test('schema runtime exposes validators for all world-class artifacts', () => {
     requestedProfile: 'balanced',
     securityReview: false
   });
-  const verification = runPlan({
+  const verification = await runPlan({
     repoRoot: projectRoot,
     plan: readJson(path.join(benchmarkRoot, 'verification-plan.json')),
     totalBudgetMs: 10000

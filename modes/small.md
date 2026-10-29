@@ -7,14 +7,18 @@ All phases are dispatched using the `AGENT_BACKEND` selected during SKILL prefli
 
 ## Triage Integration
 
-Before any phase, check for `.bug-hunter/triage.json` (written by Step 1). If present:
+Before any phase, check for `.bug-hunter/triage.json` (written by `SKILL.md › Deterministic triage before model work`). If present:
 - Use `triage.riskMap` as the risk map — skip Recon's file classification.
 - Use `triage.scanOrder` as the Hunter's file order.
 - Recon becomes an enrichment pass: identify tech stack and trust boundary patterns only.
 
 ---
 
-## Step 4: Run Recon
+## Run Recon
+
+Under `--loop`, reuse validated `.bug-hunter/recon.json` while triage-listed
+source hashes match the baseline; skip this phase after the first iteration
+as required by `modes/loop.md`.
 
 Dispatch Recon using the standard dispatch pattern (see `dispatch.md`, role=`recon`).
 
@@ -28,7 +32,7 @@ Report architecture summary to user.
 
 ---
 
-## Step 5: Run Hunter
+## Run Hunter
 
 Dispatch Hunter using the standard dispatch pattern (see `dispatch.md`, role=`hunter`).
 
@@ -36,15 +40,12 @@ Pass to the Hunter:
 - File list in risk-map order (CRITICAL → HIGH → MEDIUM → LOW). If triage exists, use `triage.scanOrder`.
 - Risk map from Recon (or triage).
 - Tech stack from Recon.
-- `skills/doc-lookup/SKILL.md` contents as phase-specific context.
 
 After completion, read `.bug-hunter/hunter-findings.json`.
 
-If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to Step 7 (Final Report) in SKILL.md.
-
 ---
 
-## Step 5-verify: Gap-fill check
+## Gap-fill check
 
 Compare the Hunter's FILES SCANNED list against the risk map.
 
@@ -56,20 +57,21 @@ If any queued scannable files appear in FILES SKIPPED:
 
 ---
 
-## Step 6: Run Skeptic
+If TOTAL FINDINGS: 0, skip Skeptic and Referee. Go to `SKILL.md › Join and present the scan result`.
+
+## Run Skeptic
 
 Dispatch Skeptic using the standard dispatch pattern (see `dispatch.md`, role=`skeptic`).
 
 Pass to the Skeptic:
 - Hunter findings from `.bug-hunter/hunter-findings.json`.
 - Tech stack from Recon.
-- `skills/doc-lookup/SKILL.md` contents as phase-specific context.
 
 After completion, read `.bug-hunter/skeptic.json`.
 
 ---
 
-## Step 7: Run Referee
+## Run Referee
 
 Dispatch Referee using the standard dispatch pattern (see `dispatch.md`, role=`referee`).
 
@@ -81,6 +83,6 @@ After completion, read `.bug-hunter/referee.json`.
 
 ---
 
-## After Step 7
+## Return to the scan report
 
-Proceed to **Step 7** (Final Report) in SKILL.md. The Referee output in `.bug-hunter/referee.json` plus the rendered `.bug-hunter/report.md` provide the confirmed bugs table, dismissed findings, and coverage stats needed for the final report.
+Proceed to `SKILL.md › Join and present the scan result`. The Referee output in `.bug-hunter/referee.json` plus the rendered `.bug-hunter/report.md` provide the confirmed bugs table, dismissed findings, and coverage stats needed for the final report.

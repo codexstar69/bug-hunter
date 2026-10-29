@@ -34,9 +34,22 @@ Fixer work.
      "<role>" "<payload-json-path>"
    ```
 
-3. Read `templates/subagent-wrapper.md` and the selected role definition under
-   `skills/`.
-4. Insert assignment values only inside their named delimited blocks.
+3. Set optional payload fields `targetDescription`, `phaseSpecificContext`, and
+   `outputFilePath` (default paths below). Fixer also accepts `worktreeRules`;
+   its required `scopeManifest` and `commitAllowed` remain authoritative.
+   Render a task file directly from the validated payload:
+
+   ```bash
+   node "$SKILL_DIR/scripts/payload-guard.cjs" render \
+     "<role>" "<payload-json-path>" --out ".bug-hunter/payloads/<role>-<id>.task.md"
+   ```
+
+   The renderer validates again, reads the role skill and wrapper itself, and
+   removes orchestrator notes and irrelevant Fixer sections. The orchestrator
+   never reads role skills or the wrapper to prepare normal dispatches.
+4. Use the absolute `outputPath` returned by the renderer. Dispatch exactly:
+   `Read <abs task path> and follow it`. Keep the task file until its attempt
+   and canonical output have been validated; it is the reviewable assignment.
 5. Dispatch through a backend whose required capabilities passed preflight.
    Never replace a missing backend with a command that produces no artifact.
 6. Wait for completion, then validate the canonical artifact:
@@ -58,6 +71,7 @@ Fixer work.
 | Role | Artifact | Default path |
 |---|---|---|
 | Recon | `recon` | `.bug-hunter/recon.json` |
+| Triage Hunter (scout) | `findings` | `.bug-hunter/hunter-findings.json` |
 | Hunter | `findings` | `.bug-hunter/hunter-findings.json` |
 | Skeptic | `skeptic` | `.bug-hunter/skeptic.json` |
 | Referee | `referee` | `.bug-hunter/referee.json` |
@@ -68,6 +82,16 @@ Adaptive planning, retrieval, verification, and benchmarking use their own
 canonical artifacts (`adaptive-plan.json`, `retrieval-plan.json`,
 `verification-report.json`, and `benchmark-report.json`) and are orchestrator
 inputs/outputs rather than role substitutes.
+
+## Inline fallback for backends unable to read task files
+
+Only when a backend cannot read task files, read `templates/subagent-wrapper.md`
+and the selected canonical role skill, validate the payload, and fill named
+variables inline. Preserve role bytes and delimited data blocks. Omit the
+template header, Variable Reference, and read-only roles' Fixer sections just
+as the renderer does. Prefer rendering and passing that file's contents when
+the backend accepts inline text. This fallback is the only dispatch path that
+loads role text into orchestrator context.
 
 ## Failure behavior
 

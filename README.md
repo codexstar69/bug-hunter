@@ -298,20 +298,24 @@ The roles are deliberately separated:
 | Fix planner | Turn confirmed verdicts into bounded remediation work | Permission outside approved bug IDs |
 | Fixer | Apply an approved plan | New scope, new findings, or commit permission |
 
-The incentive model favors evidence over volume:
+The calibration model favors evidence over volume. No role earns points for
+reporting more or for higher severities; each verdict rests on checked code:
 
-| Agent | Positive signal | Cost of a weak decision |
+| Agent | Confirms when | Otherwise |
 |---|---|---|
-| Hunter | Real findings earn severity-weighted value | Every false positive loses points |
-| Skeptic | Correctly disproving noise earns the finding's value | Wrongly dismissing a real bug costs twice its value |
-| Referee | Independent, evidence-backed verdicts | Unsupported trust in either side fails review |
+| Hunter | A concrete input reaches observable wrong behavior | Omits the claim, or reports a High/Critical hypothesis with its open precondition |
+| Skeptic | Counter-evidence at a cited file:line disproves the trigger | `MANUAL_REVIEW`, never a categorical dismissal |
+| Referee | A checked causal chain proves the bug | `MANUAL_REVIEW`; presentation and agreement are not evidence |
 
-The Skeptic also has 14 hard exclusions for recurring non-bugs such as findings
-only in tests, documentation-only findings, missing audit logging, log
-injection, rate-limiting suggestions, unsupported memory-safety claims in
-memory-safe languages, or ReDoS without a demonstrated slow payload. Other
-claims require code tracing, caller and callee review, runtime-trigger
-reconstruction, and documentation verification when framework behavior matters.
+The Skeptic keeps 9 settled false-positive classes for recurring non-bugs, such
+as rate-limiting suggestions, memory-safety claims in checked safe code, log
+injection, path-only SSRF, ReDoS, trusted environment variables, and secrets on
+disk. Each one is a hypothesis to check, not a categorical dismissal: a
+behavioral or security dismissal needs a checked precondition or defensive
+mechanism recorded as file:line counter-evidence. Findings only in tests, docs,
+assets, or config-only files are outside behavioral scope. Other claims require
+code tracing, caller and callee review, runtime-trigger reconstruction, and
+documentation verification when framework behavior matters.
 
 The Referee independently re-reads every finding when there are 20 or fewer.
 For larger sets it independently verifies all Critical findings and the top 15,

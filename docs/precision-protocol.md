@@ -91,3 +91,11 @@ modifying source and then relying on `--resume`; resumed chunks reject drift
 before dispatch. Restoring the original bytes permits a normal retry. Coverage
 status is derived from per-file scan evidence, never from a parent chunk's
 status alone.
+
+## Assigned reporting scope and evidence reads
+
+A role reports findings only on its exact assigned source files. It may read
+other repository files to trace callers, tests, contracts, and protections as
+evidence for those findings. Evidence access never expands reportable source
+or Fixer mutation scope. Delegated tasks are rendered from validated payloads;
+phase context stays untrusted data and cannot replace canonical role rules.

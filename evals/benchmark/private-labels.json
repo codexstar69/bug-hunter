@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "suiteId": "bug-hunter-behavioral-core-v1",
-  "publicManifestSha256": "011858a3beb5bb00df06d99f1b2a5154f2f06bda4e09d32815c754d508d803d2",
+  "publicManifestSha256": "01769147d0a0ee2b241e94b4aa3ae8062514368bf770d31dd41d0a2be9c5e1a3",
   "cases": [
     {
       "id": "auth-boundary-js",
@@ -9,23 +9,21 @@
         {
           "labelId": "AUTH-001",
           "file": "src/routes.js",
-          "lines": "42-48",
+          "lines": "21-27",
           "severity": "High",
           "category": "security",
           "keywordGroups": [
             [
-              "authorization",
-              "permission",
-              "role"
+              "without an authorization check",
+              "missing role authorization",
+              "no permission or role check",
+              "no server-side permission check"
             ],
             [
-              "bypass",
-              "missing",
-              "unchecked"
-            ],
-            [
-              "admin",
-              "privileged"
+              "admin route",
+              "admin operation",
+              "admin endpoint",
+              "privileged endpoint"
             ]
           ]
         }
@@ -37,24 +35,20 @@
         {
           "labelId": "API-001",
           "file": "src/handler.ts",
-          "lines": "75-82",
+          "lines": "19-26",
           "severity": "Medium",
           "category": "api-contract",
           "keywordGroups": [
             [
-              "null",
-              "undefined",
-              "nullable"
+              "nullable client",
+              "null client result",
+              "null for a missing user",
+              "caller contract is nullable"
             ],
             [
-              "client",
-              "caller",
-              "contract"
-            ],
-            [
-              "crash",
-              "exception",
-              "dereference"
+              "dereference",
+              "unguarded access",
+              "accesses the user field"
             ]
           ]
         }
@@ -66,24 +60,22 @@
         {
           "labelId": "CONC-001",
           "file": "internal/store/store.go",
-          "lines": "31-39",
+          "lines": "27-35",
           "severity": "High",
           "category": "concurrency",
           "keywordGroups": [
             [
-              "race",
-              "concurrent",
-              "goroutine"
+              "concurrent handlers",
+              "concurrent goroutines",
+              "parallel requests",
+              "multiple goroutines"
             ],
             [
-              "map",
-              "shared state",
-              "store"
-            ],
-            [
-              "lock",
-              "mutex",
-              "synchronization"
+              "without synchronization",
+              "without locking",
+              "without a mutex",
+              "no mutex",
+              "no synchronization"
             ]
           ]
         }
@@ -92,6 +84,120 @@
     {
       "id": "clean-python-api",
       "findings": []
+    },
+    {
+      "id": "fixture-js-express",
+      "findings": [
+        {
+          "labelId": "fixture-sql-injection",
+          "file": "auth.js",
+          "lines": "8-10",
+          "severity": "Critical",
+          "category": "security",
+          "keywordGroups": [
+            [
+              "sql injection",
+              "query injection"
+            ],
+            [
+              "concatenated query",
+              "interpolated email",
+              "unescaped email"
+            ]
+          ]
+        },
+        {
+          "labelId": "fixture-hardcoded-jwt-secret",
+          "file": "auth.js",
+          "lines": "16-26",
+          "severity": "High",
+          "category": "security",
+          "keywordGroups": [
+            [
+              "jwt secret",
+              "token signing secret"
+            ],
+            [
+              "hardcoded",
+              "hard-coded",
+              "publicly known"
+            ]
+          ]
+        },
+        {
+          "labelId": "fixture-admin-authorization",
+          "file": "auth.js",
+          "lines": "32-37",
+          "severity": "High",
+          "category": "logic",
+          "keywordGroups": [
+            [
+              "admin role",
+              "role check"
+            ],
+            [
+              "loose equality",
+              "truthy authorization",
+              "coercion",
+              "compares to true"
+            ]
+          ]
+        },
+        {
+          "labelId": "fixture-pagination-offset",
+          "file": "users.js",
+          "lines": "8-12",
+          "severity": "Medium",
+          "category": "logic",
+          "keywordGroups": [
+            [
+              "pagination",
+              "page offset"
+            ],
+            [
+              "off-by-one",
+              "skips first page",
+              "skips the first page"
+            ]
+          ]
+        },
+        {
+          "labelId": "fixture-silent-delete-failure",
+          "file": "users.js",
+          "lines": "16-23",
+          "severity": "Medium",
+          "category": "error-handling",
+          "keywordGroups": [
+            [
+              "delete error",
+              "delete failure"
+            ],
+            [
+              "swallowed",
+              "success returned",
+              "returns success"
+            ]
+          ]
+        },
+        {
+          "labelId": "fixture-bcrypt-input-type",
+          "file": "users.js",
+          "lines": "39-44",
+          "severity": "High",
+          "category": "type-safety",
+          "keywordGroups": [
+            [
+              "bcrypt password",
+              "password comparison"
+            ],
+            [
+              "non-string type",
+              "lacks validation",
+              "unvalidated input"
+            ]
+          ]
+        }
+      ]
     }
   ]
 }

@@ -72,6 +72,7 @@ test('run-bug-hunter preflight tolerates missing optional code-index helper', ()
     'adaptive-policy.cjs',
     'hybrid-verifier.cjs',
     'evidence-cache.cjs',
+    'link-lock.cjs',
     'retrieval-planner.cjs',
     'payload-guard.cjs',
     'schema-validate.cjs',

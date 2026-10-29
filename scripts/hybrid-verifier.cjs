@@ -3,6 +3,8 @@
 const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
+const { DEFAULT_KILL_GRACE_MS, runCommandOnce } = require('./process-runner.cjs');
 
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -94,6 +96,7 @@ function validatePlan({ repoRoot, plan }) {
   }
   if (plan.schemaVersion !== 1) errors.push('verification plan schemaVersion must equal 1');
   if (!Array.isArray(plan.checks)) errors.push('verification plan checks must be an array');
+  const canonicalRoot = fs.realpathSync(repoRoot);
   const seenIds = new Set();
   const normalizedChecks = [];
   for (const raw of Array.isArray(plan.checks) ? plan.checks : []) {
@@ -104,7 +107,7 @@ function validatePlan({ repoRoot, plan }) {
       seenIds.add(id);
       const kind = String(raw.kind || 'custom');
       if (!VALID_KINDS.has(kind)) throw new Error(`check ${id} has unsupported kind: ${kind}`);
-      const cwd = resolveInsideRoot(repoRoot, raw.cwd || '.', `check ${id} cwd`);
+      const cwd = resolveInsideRoot(canonicalRoot, raw.cwd || '.', `check ${id} cwd`);
       const command = validateCommand(raw.command, id);
       const timeoutMs = positiveInteger(raw.timeoutMs, DEFAULT_TIMEOUT_MS, `check ${id} timeoutMs`);
       const expectedExitCodes = Array.isArray(raw.expectedExitCodes) && raw.expectedExitCodes.length > 0
@@ -170,34 +173,268 @@ function publicValidation(validation) {
   };
 }
 
-function truncate(value, maxBytes) {
-  const buffer = Buffer.from(redactOutput(value), 'utf8');
-  if (buffer.length <= maxBytes) return { text: buffer.toString('utf8'), truncated: false };
+function decodeBounded(buffer) {
+  let text = buffer.toString('utf8');
+  // A partial UTF-8 character can expand into a three-byte replacement character.
+  while (Buffer.byteLength(text) > buffer.length) text = text.slice(0, -1);
+  return text;
+}
+
+const PRIVATE_KEY_BEGIN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+const PRIVATE_KEY_END = /-----END [A-Z ]*PRIVATE KEY-----/;
+const MAX_PENDING_LINE_CHARS = 64 * 1024;
+// Where any redaction pattern can start. An overlong line is never cut inside
+// one, so a key delimiter or a `password = value` pair reaches redactOutput whole.
+const SECRET_START = /-----|authorization|bearer|api[_-]?key|access[_-]?token|secret|password|gh[opusr]_|github_pat_|\b(?:sk|rk|pk)-/i;
+
+// Redacts the stream line by line before it is bounded. Redacting after the
+// head/tail cut could drop a private key's BEGIN or END line and keep its body.
+function streamingRedactor() {
+  const decoder = new StringDecoder('utf8');
+  let pending = '';
+  let inPrivateKey = false;
+  let inSecretValue = false;
+  const redactSegment = (segment, newline) => {
+    let rest = segment;
+    if (inSecretValue) {
+      const end = rest.search(/[\s,;]/);
+      if (end === -1) {
+        // A line end also ends the value; a cut segment keeps suppressing.
+        if (newline) inSecretValue = false;
+        return newline;
+      }
+      inSecretValue = false;
+      rest = rest.slice(end);
+    }
+    let out = '';
+    while (rest) {
+      if (inPrivateKey) {
+        const end = PRIVATE_KEY_END.exec(rest);
+        if (!end) return out;
+        inPrivateKey = false;
+        out += '[REDACTED_PRIVATE_KEY]';
+        rest = rest.slice(end.index + end[0].length);
+        continue;
+      }
+      const begin = PRIVATE_KEY_BEGIN.exec(rest);
+      if (!begin) {
+        out += redactOutput(rest);
+        break;
+      }
+      out += redactOutput(rest.slice(0, begin.index));
+      inPrivateKey = true;
+      rest = rest.slice(begin.index + begin[0].length);
+    }
+    return inPrivateKey ? out : out + newline;
+  };
+  // Called only while pending exceeds MAX_PENDING_LINE_CHARS, so every cut
+  // lands past 60,000 characters and each forced segment makes progress. A
+  // secret that starts earlier stays inside the segment, where the private-key
+  // and secret-value states carry it across the cut.
+  const cutPoint = () => {
+    const searchEnd = pending.length - 256;
+    const blank = Math.max(pending.lastIndexOf(' ', searchEnd), pending.lastIndexOf('\t', searchEnd));
+    const cut = blank >= searchEnd - 4096 ? blank + 1 : searchEnd;
+    // Look a little past the cut too, so a keyword the cut would split is found.
+    const windowStart = cut - 256;
+    const secret = SECRET_START.exec(pending.slice(windowStart, cut + 32));
+    return secret && windowStart + secret.index < cut ? windowStart + secret.index : cut;
+  };
   return {
-    text: buffer.subarray(0, maxBytes).toString('utf8'),
-    truncated: true
+    push(chunk) {
+      pending += decoder.write(chunk);
+      let out = '';
+      if (pending.includes('\n')) {
+        const lines = pending.split('\n');
+        pending = lines.pop();
+        for (const line of lines) out += redactSegment(line, '\n');
+      }
+      while (pending.length > MAX_PENDING_LINE_CHARS) {
+        const cut = cutPoint();
+        const segment = pending.slice(0, cut);
+        pending = pending.slice(cut);
+        const redacted = redactSegment(segment, '');
+        out += redacted;
+        // The cut fell inside a redacted value: suppress the rest of it in the
+        // next segment, up to its terminator.
+        if (!inPrivateKey && /[^\s,;]$/.test(segment) && redacted.endsWith('[REDACTED]')) inSecretValue = true;
+      }
+      return out;
+    },
+    flush() {
+      pending += decoder.end();
+      let out = pending ? redactSegment(pending, '') : '';
+      pending = '';
+      inSecretValue = false;
+      if (inPrivateKey) {
+        inPrivateKey = false;
+        out += '[REDACTED_PRIVATE_KEY]';
+      }
+      return out;
+    }
   };
 }
 
-function runCheck(check, maxOutputBytes) {
-  const startedAt = Date.now();
-  const [command, ...args] = check.command;
-  const result = childProcess.spawnSync(command, args, {
-    cwd: check.cwd,
-    env: { ...safeBaseEnv(), ...check.env },
-    encoding: 'utf8',
-    shell: false,
-    timeout: check.timeoutMs,
-    maxBuffer: maxOutputBytes * 2,
-    windowsHide: true
+function outputCapture(maxBytes) {
+  const headLimit = Math.ceil(maxBytes / 2);
+  const tailLimit = Math.floor(maxBytes / 2);
+  const redactor = streamingRedactor();
+  let head = Buffer.alloc(0);
+  let tail = Buffer.alloc(0);
+  let bytes = 0;
+  const store = (text) => {
+    const chunk = Buffer.from(text, 'utf8');
+    bytes += chunk.length;
+    const headBytes = Math.min(chunk.length, headLimit - head.length);
+    if (headBytes > 0) head = Buffer.concat([head, chunk.subarray(0, headBytes)]);
+    const rest = chunk.subarray(headBytes);
+    if (rest.length > 0 && tailLimit > 0) {
+      tail = rest.length >= tailLimit
+        ? Buffer.from(rest.subarray(-tailLimit))
+        : Buffer.concat([tail, rest]).subarray(-tailLimit);
+    }
+  };
+  return {
+    append(chunk) {
+      store(redactor.push(chunk));
+    },
+    result() {
+      store(redactor.flush());
+      const buffer = Buffer.concat([head, tail]);
+      const truncated = bytes > maxBytes || buffer.length > maxBytes;
+      if (!truncated) return { text: buffer.toString('utf8'), truncated: false };
+      if (buffer.length < maxBytes) return { text: buffer.toString('utf8'), truncated: true };
+      const marker = maxBytes >= 64 ? '\n[...output truncated...]\n' : '';
+      const remaining = maxBytes - Buffer.byteLength(marker);
+      const headBytes = Math.ceil(remaining / 2);
+      const tailBytes = Math.floor(remaining / 2);
+      return {
+        text: decodeBounded(buffer.subarray(0, headBytes)) + marker
+          + (tailBytes ? decodeBounded(buffer.subarray(-tailBytes)) : ''),
+        truncated: true
+      };
+    }
+  };
+}
+
+function executeCheck(check, maxOutputBytes, deadlineMs) {
+  return new Promise((resolve) => {
+    const [command, ...args] = check.command;
+    const stdout = outputCapture(maxOutputBytes);
+    const stderr = outputCapture(maxOutputBytes);
+    const child = childProcess.spawn(command, args, {
+      cwd: check.cwd,
+      env: { ...safeBaseEnv(), ...check.env },
+      shell: false,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+    let timeoutHit = false;
+    let spawnError = null;
+    let exitResult = { status: null, signal: null };
+    let settled = false;
+    let killTimer = null;
+    let groupPollTimer = null;
+    let settleTimer = null;
+    let treeTermination = Promise.resolve();
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+      clearTimeout(groupPollTimer);
+      clearTimeout(settleTimer);
+      treeTermination.then(() => {
+        resolve({ ...exitResult, error: spawnError, timeoutHit, stdout: stdout.result(), stderr: stderr.result() });
+      });
+    };
+    // Match process-runner's detached group signaling and unconditional escalation.
+    // Its runCommandOnce uses ambient cwd/env and kills on output volume, so it
+    // cannot execute verification checks with their isolated environment/capture.
+    const signalTree = (signal) => {
+      if (!child.pid) return;
+      try {
+        if (process.platform === 'win32') {
+          if (signal === 'SIGTERM') {
+            // Windows has no POSIX process groups/signals; taskkill handles descendants.
+            treeTermination = runCommandOnce({
+              command: `taskkill /pid ${child.pid} /T /F`,
+              timeoutMs: Math.max(1, Math.min(DEFAULT_KILL_GRACE_MS, deadlineMs - Date.now())),
+              killGraceMs: 0
+            }).then((result) => {
+              if (!result.ok) {
+                throw Object.assign(new Error(result.stderr), { code: 'TASKKILL_FAILED' });
+              }
+            }).catch((error) => {
+              spawnError = error;
+              try { child.kill('SIGKILL'); } catch (killError) { spawnError = killError; }
+            });
+          } else child.kill(signal);
+        } else process.kill(-child.pid, signal);
+      } catch (error) {
+        if (error.code !== 'ESRCH') spawnError = error;
+      }
+    };
+    const groupAlive = () => {
+      if (!child.pid || process.platform === 'win32') return false;
+      try {
+        process.kill(-child.pid, 0);
+        return true;
+      } catch (error) {
+        if (error.code !== 'ESRCH') spawnError = error;
+        return false;
+      }
+    };
+    const awaitGroupDrain = () => {
+      if (settled || timeoutHit) return;
+      if (!groupAlive()) settle();
+      else groupPollTimer = setTimeout(awaitGroupDrain, 10);
+    };
+    // Reserve pipe-close/reaping time inside the plan wall. Escalation never
+    // receives a fresh grace period after the total plan budget has expired.
+    // The wall contract permits 100 ms of OS timer-dispatch drift (regression-tested).
+    const settleGraceMs = 25;
+    const timer = setTimeout(() => {
+      timeoutHit = true;
+      // A leader may have exited successfully before its descendants timed out.
+      // Only a subsequent leader exit is evidence of the final kill outcome.
+      exitResult = { status: null, signal: null };
+      clearTimeout(groupPollTimer);
+      signalTree('SIGTERM');
+      killTimer = setTimeout(() => {
+        signalTree('SIGKILL');
+        // Do not wait for close: an inherited pipe may be held outside the group.
+        settleTimer = setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.unref();
+          settle();
+        }, Math.max(0, Math.min(settleGraceMs, deadlineMs - Date.now())));
+      }, Math.max(0, Math.min(DEFAULT_KILL_GRACE_MS, check.timeoutMs,
+        deadlineMs - Date.now() - settleGraceMs)));
+    }, Math.max(0, Math.min(check.timeoutMs, deadlineMs - Date.now() - settleGraceMs)));
+    child.stdout.on('data', (chunk) => stdout.append(chunk));
+    child.stderr.on('data', (chunk) => stderr.append(chunk));
+    child.once('error', (error) => {
+      spawnError = error;
+      if (!timeoutHit) settle();
+    });
+    child.once('exit', (status, signal) => { exitResult = { status, signal }; });
+    child.once('close', () => {
+      if (!timeoutHit) awaitGroupDrain();
+    });
   });
+}
+
+async function runCheck(check, maxOutputBytes, deadlineMs) {
+  const startedAt = Date.now();
+  const result = await executeCheck(check, maxOutputBytes, deadlineMs);
   const durationMs = Date.now() - startedAt;
-  const stdout = truncate(result.stdout, maxOutputBytes);
-  const stderr = truncate(result.stderr, maxOutputBytes);
   let status;
   let passed = false;
   let errorCode = null;
-  if (result.error && result.error.code === 'ETIMEDOUT') {
+  if (result.timeoutHit) {
     status = 'TIMEOUT';
     errorCode = 'ETIMEDOUT';
   } else if (result.error && result.error.code === 'ENOENT') {
@@ -222,9 +459,9 @@ function runCheck(check, maxOutputBytes) {
     signal: result.signal || null,
     errorCode,
     durationMs,
-    stdout: stdout.text,
-    stderr: stderr.text,
-    outputTruncated: stdout.truncated || stderr.truncated,
+    stdout: result.stdout.text,
+    stderr: result.stderr.text,
+    outputTruncated: result.stdout.truncated || result.stderr.truncated,
     findingIds: check.findingIds,
     confidenceDelta: passed ? check.confidenceOnPass : check.confidenceOnFail
   };
@@ -251,7 +488,9 @@ function buildFindingEvidence(results) {
   return [...evidence.values()].sort((a, b) => a.findingId.localeCompare(b.findingId));
 }
 
-function runPlan({ repoRoot, plan, totalBudgetMs = DEFAULT_TOTAL_BUDGET_MS, maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES }) {
+async function runPlan({ repoRoot, plan, totalBudgetMs = DEFAULT_TOTAL_BUDGET_MS, maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES }) {
+  totalBudgetMs = positiveInteger(totalBudgetMs, DEFAULT_TOTAL_BUDGET_MS, 'totalBudgetMs');
+  maxOutputBytes = positiveInteger(maxOutputBytes, DEFAULT_MAX_OUTPUT_BYTES, 'maxOutputBytes');
   const canonicalRoot = fs.realpathSync(repoRoot);
   const validation = validatePlan({ repoRoot: canonicalRoot, plan });
   if (!validation.ok) {
@@ -302,7 +541,8 @@ function runPlan({ repoRoot, plan, totalBudgetMs = DEFAULT_TOTAL_BUDGET_MS, maxO
       continue;
     }
     const remainingBudget = Math.max(1, totalBudgetMs - elapsed);
-    results.push(runCheck({ ...check, timeoutMs: Math.min(check.timeoutMs, remainingBudget) }, maxOutputBytes));
+    results.push(await runCheck({ ...check, timeoutMs: Math.min(check.timeoutMs, remainingBudget) },
+      maxOutputBytes, startedAt + totalBudgetMs));
   }
   const requiredFailures = results.filter((result) => result.required && result.status !== 'PASS');
   const summary = {
@@ -337,9 +577,7 @@ function detectPlan(repoRoot) {
     const packageJson = readJson(packagePath);
     const scripts = packageJson.scripts && typeof packageJson.scripts === 'object' ? packageJson.scripts : {};
     const packageManager = String(packageJson.packageManager || '').split('@')[0] || 'npm';
-    const commandForScript = (script) => packageManager === 'npm'
-      ? ['npm', 'run', script, '--if-present']
-      : [packageManager, 'run', script, '--if-present'];
+    const commandForScript = (script) => [packageManager, 'run', script];
     const candidates = [
       ['typecheck', 'typecheck', true],
       ['test', 'test', true],
@@ -347,7 +585,7 @@ function detectPlan(repoRoot) {
       ['build', 'build', false]
     ];
     for (const [id, kind, required] of candidates) {
-      if (Object.prototype.hasOwnProperty.call(scripts, id)) {
+      if (Object.prototype.hasOwnProperty.call(scripts, id) && typeof scripts[id] === 'string' && scripts[id].trim()) {
         checks.push({
           id,
           kind,
@@ -368,7 +606,7 @@ function detectPlan(repoRoot) {
   };
 }
 
-function main() {
+async function main() {
   const [command, ...rest] = process.argv.slice(2);
   const options = parseOptions(rest);
   const repoRoot = fs.realpathSync(path.resolve(options['repo-root'] || process.cwd()));
@@ -387,7 +625,7 @@ function main() {
     return;
   }
   if (command === 'run') {
-    const report = runPlan({
+    const report = await runPlan({
       repoRoot,
       plan,
       totalBudgetMs: positiveInteger(options['total-budget-ms'], DEFAULT_TOTAL_BUDGET_MS, '--total-budget-ms'),
@@ -403,12 +641,10 @@ function main() {
 }
 
 if (require.main === module) {
-  try {
-    main();
-  } catch (error) {
+  main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
-  }
+  });
 }
 
 module.exports = {
@@ -418,5 +654,6 @@ module.exports = {
   publicValidation,
   redactOutput,
   runPlan,
+  streamingRedactor,
   validatePlan
 };

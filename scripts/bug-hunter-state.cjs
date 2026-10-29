@@ -3,7 +3,9 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { validateArtifactValue } = require('./schema-runtime.cjs');
+const { isDeadLocalPid, reclaimDeadLinkLock } = require('./link-lock.cjs');
 const {
   DEFAULT_SOURCE_TOKEN_BUDGET,
   MAX_FILES_PER_CHUNK,
@@ -110,7 +112,8 @@ function buildInitialState({
   chunkSize,
   maxSourceTokens,
   enforceTokenBudget,
-  files
+  files,
+  sourceHashes = {}
 }) {
   const normalizedFiles = [...new Set(files.map((filePath) => String(filePath)))];
   const initializedAt = nowIso();
@@ -143,10 +146,7 @@ function buildInitialState({
     },
     chunks,
     fileStates: Object.fromEntries(normalizedFiles.map((filePath) => {
-      return [filePath, {
-        status: 'pending',
-        updatedAt: initializedAt
-      }];
+      return [filePath, captureBaseline(filePath, initializedAt, sourceHashes[filePath])];
     })),
     bugLedger: [],
     hashCache: {},
@@ -270,6 +270,22 @@ function hashFile(filePath) {
     return hash.digest('hex');
   } finally {
     fs.closeSync(fileDescriptor);
+  }
+}
+
+function captureBaseline(filePath, initializedAt, indexedHash) {
+  try {
+    return {
+      status: 'pending',
+      initialHash: indexedHash || hashFile(filePath),
+      updatedAt: initializedAt
+    };
+  } catch (error) {
+    return {
+      status: error.code === 'ENOENT' ? 'missing' : 'unreadable',
+      baselineUnavailable: true,
+      updatedAt: initializedAt
+    };
   }
 }
 
@@ -532,12 +548,12 @@ function markChunkFailed(state, chunk, errorMessage) {
   updateFileMetrics(state);
 }
 
-function main() {
-  const [command, ...args] = process.argv.slice(2);
+function executeStateCommand(command, args, owner) {
+  const readState = () => owner.read();
+  const saveState = (_statePath, state) => owner.save(state);
 
   if (!command) {
-    usage();
-    process.exit(1);
+    throw new Error(`Missing arguments for state command: ${command || '<none>'}`);
   }
 
   if (command === 'init') {
@@ -550,8 +566,7 @@ function main() {
       enforceTokenBudgetRaw
     ] = args;
     if (!statePath || !mode || !filesJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const files = readJson(filesJsonPath);
     assertArray(files, 'filesJson');
@@ -563,7 +578,7 @@ function main() {
     const maxSourceTokens = Number.isInteger(maxSourceTokensParsed) && maxSourceTokensParsed > 0
       ? maxSourceTokensParsed
       : DEFAULT_SOURCE_TOKEN_BUDGET;
-    const enforceTokenBudget = String(enforceTokenBudgetRaw || 'false').toLowerCase() === 'true';
+    const enforceTokenBudget = String(enforceTokenBudgetRaw || 'true').toLowerCase() === 'true';
     if (fs.existsSync(statePath)) {
       readState(statePath);
     }
@@ -572,26 +587,25 @@ function main() {
       chunkSize,
       maxSourceTokens,
       enforceTokenBudget,
-      files
+      files,
+      sourceHashes: owner.sourceHashes
     });
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       statePath,
       summary: summarize(state)
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'status') {
     const [statePath] = args;
     const state = readState(statePath);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       statePath,
       summary: summarize(state)
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'next-chunk') {
@@ -599,18 +613,15 @@ function main() {
     const state = readState(statePath);
     const nextChunk = state.chunks.find((chunk) => chunk.status === 'pending');
     if (!nextChunk) {
-      console.log(JSON.stringify({ ok: true, done: true }, null, 2));
-      return;
+      return { ok: true, done: true };
     }
-    console.log(JSON.stringify({ ok: true, done: false, chunk: nextChunk }, null, 2));
-    return;
+    return { ok: true, done: false, chunk: nextChunk };
   }
 
   if (command === 'mark-chunk') {
     const [statePath, chunkId, status, errorMessage] = args;
     if (!statePath || !chunkId || !status) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     if (!VALID_CHUNK_STATUS.has(status)) {
       throw new Error(`Invalid chunk status: ${status}`);
@@ -650,15 +661,13 @@ function main() {
     state.metrics.chunksDone = state.chunks.filter((entry) => entry.status === 'done').length;
     updateFileMetrics(state);
     saveState(statePath, state);
-    console.log(JSON.stringify({ ok: true, chunk }, null, 2));
-    return;
+    return { ok: true, chunk };
   }
 
   if (command === 'record-findings') {
     const [statePath, findingsJsonPath, source = 'unknown', confidenceThresholdRaw] = args;
     if (!statePath || !findingsJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const confidenceThreshold = Number.isInteger(Number.parseInt(String(confidenceThresholdRaw || ''), 10))
       ? Number.parseInt(confidenceThresholdRaw, 10)
@@ -679,19 +688,17 @@ function main() {
       confidenceThreshold
     });
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       ...merged,
       metrics: state.metrics
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'hash-filter') {
     const [statePath, filesJsonPath] = args;
     if (!statePath || !filesJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const files = readJson(filesJsonPath);
@@ -714,6 +721,11 @@ function main() {
         const currentHash = hashFile(normalized);
         const fileState = state.fileStates[normalized] || {};
         const initialHash = fileState.initialHash || currentHash;
+        if (fileState.baselineUnavailable) {
+          changed.push(normalized);
+          setFileStatus({ state, filePath: normalized, status: 'failed', observedHash: currentHash });
+          continue;
+        }
         if (fileState.initialHash && fileState.initialHash !== currentHash) {
           changed.push(normalized);
           setFileStatus({
@@ -756,15 +768,13 @@ function main() {
 
     updateFileMetrics(state);
     saveState(statePath, state);
-    console.log(JSON.stringify({ ok: true, scan, skip, changed, missing, unreadable }, null, 2));
-    return;
+    return { ok: true, scan, skip, changed, missing, unreadable };
   }
 
   if (command === 'hash-verify') {
     const [statePath, filesJsonPath] = args;
     if (!statePath || !filesJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const files = readJson(filesJsonPath);
@@ -774,8 +784,7 @@ function main() {
       updateFileMetrics(state);
       saveState(statePath, state);
     }
-    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-    return;
+    return { ...result, ok: result.changed.length === 0 && result.missing.length === 0 && result.unreadable.length === 0 };
   }
 
   if (command === 'commit-chunk') {
@@ -789,8 +798,7 @@ function main() {
       source = 'orchestrator'
     ] = args;
     if (!statePath || !chunkId || !filesJsonPath || !findingsJsonPath || !factCardJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const confidenceThreshold = Number.isInteger(Number.parseInt(String(confidenceThresholdRaw || ''), 10))
       ? Number.parseInt(confidenceThresholdRaw, 10)
@@ -816,8 +824,7 @@ function main() {
       const errorMessage = `Finding is outside the assigned chunk scope: ${outsideFinding.file}`;
       markChunkFailed(state, chunk, errorMessage);
       saveState(statePath, state);
-      console.log(JSON.stringify({ ok: false, error: errorMessage }, null, 2));
-      return;
+      return { ok: false, error: errorMessage };
     }
     const verification = verifyPendingFiles({ state, files });
     if (verification.changed.length > 0
@@ -826,12 +833,11 @@ function main() {
       const errorMessage = 'Assigned source changed, disappeared, or became unreadable during worker execution';
       markChunkFailed(state, chunk, errorMessage);
       saveState(statePath, state);
-      console.log(JSON.stringify({
+      return {
         ok: false,
         error: errorMessage,
         verification
-      }, null, 2));
-      return;
+      };
     }
     const merged = mergeFindingsIntoState({
       state,
@@ -864,20 +870,18 @@ function main() {
     state.metrics.chunksDone = state.chunks.filter((entry) => entry.status === 'done').length;
     updateFileMetrics(state);
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       chunkId,
       ...merged,
       metrics: state.metrics
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'hash-update') {
     const [statePath, filesJsonPath, cacheStatus = 'scanned'] = args;
     if (!statePath || !filesJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const files = readJson(filesJsonPath);
@@ -921,21 +925,19 @@ function main() {
 
     updateFileMetrics(state);
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       updated: updatedFiles.length,
       missing,
       unreadable,
       updatedFiles
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'append-files') {
     const [statePath, filesJsonPath] = args;
     if (!statePath || !filesJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const files = readJson(filesJsonPath);
@@ -944,8 +946,7 @@ function main() {
     const toAppend = [...new Set(files.map((filePath) => String(filePath)))]
       .filter((filePath) => !existing.has(filePath));
     if (toAppend.length === 0) {
-      console.log(JSON.stringify({ ok: true, appended: 0, chunksAdded: 0 }, null, 2));
-      return;
+      return { ok: true, appended: 0, chunksAdded: 0 };
     }
 
     const chunkNumberStart = nextChunkNumber(state.chunks);
@@ -963,28 +964,23 @@ function main() {
     state.chunks.push(...newChunks);
     const appendedAt = nowIso();
     Object.assign(state.fileStates, Object.fromEntries(toAppend.map((filePath) => {
-      return [filePath, {
-        status: 'pending',
-        updatedAt: appendedAt
-      }];
+      return [filePath, captureBaseline(filePath, appendedAt)];
     })));
     state.metrics.filesTotal += toAppend.length;
     state.metrics.chunksTotal = state.chunks.length;
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       appended: toAppend.length,
       chunksAdded: newChunks.length,
       summary: summarize(state)
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'record-fact-card') {
     const [statePath, chunkId, factCardJsonPath] = args;
     if (!statePath || !chunkId || !factCardJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const factCard = readJson(factCardJsonPath);
@@ -999,36 +995,32 @@ function main() {
       invariants: Array.isArray(factCard.invariants) ? factCard.invariants : []
     };
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       chunkId,
       factCards: Object.keys(state.factCards).length
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'set-consistency') {
     const [statePath, consistencyJsonPath] = args;
     if (!statePath || !consistencyJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const consistency = readJson(consistencyJsonPath);
     state.consistency = consistency;
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       consistency
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'set-fix-plan') {
     const [statePath, fixPlanJsonPath] = args;
     if (!statePath || !fixPlanJsonPath) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const fixPlan = readJson(fixPlanJsonPath);
@@ -1041,18 +1033,16 @@ function main() {
     }
     state.fixPlan = fixPlan;
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       fixPlan
-    }, null, 2));
-    return;
+    };
   }
 
   if (command === 'set-parallel-disabled') {
     const [statePath, boolValue] = args;
     if (!statePath || !boolValue) {
-      usage();
-      process.exit(1);
+      throw new Error(`Missing arguments for state command: ${command}`);
     }
     const state = readState(statePath);
     const normalized = String(boolValue).toLowerCase();
@@ -1061,21 +1051,161 @@ function main() {
     }
     state.runtime.parallelDisabled = normalized === 'true';
     saveState(statePath, state);
-    console.log(JSON.stringify({
+    return {
       ok: true,
       runtime: state.runtime
-    }, null, 2));
-    return;
+    };
   }
 
-  usage();
-  process.exit(1);
+  throw new Error(`Unknown state command: ${command}`);
 }
 
-try {
-  main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exit(1);
+function withLockGate(lockPath, operation) {
+  const gatePath = `${lockPath}.gate`;
+  const token = crypto.randomUUID();
+  const candidate = `${gatePath}.${token}.tmp`;
+  const record = { pid: process.pid, host: os.hostname(), token };
+  fs.writeFileSync(candidate, JSON.stringify(record), { flag: 'wx' });
+  try {
+    while (true) {
+      try { fs.linkSync(candidate, gatePath); break; }
+      catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        let owner;
+        try { owner = readJson(gatePath); }
+        catch (readError) {
+          if (readError.code === 'ENOENT') continue;
+          throw new Error(`Malformed state mutation gate: ${gatePath}`);
+        }
+        const dead = owner.host === os.hostname() && Number.isSafeInteger(owner.pid) && owner.pid > 0
+          && isDeadLocalPid(owner.pid);
+        // A dead local owner's generation is reclaimed through its record (link-lock.cjs).
+        if (!dead || reclaimDeadLinkLock(gatePath, owner) === 'busy') {
+          throw new Error(`State lock mutation in progress: ${gatePath}`);
+        }
+      }
+    }
+    try { return operation(); }
+    finally { fs.unlinkSync(gatePath); }
+  } finally { fs.unlinkSync(candidate); }
+}
+
+function openStateOwner(statePath, { sourceHashes = {} } = {}) {
+  statePath = path.resolve(statePath);
+  ensureDir(statePath);
+  const lockPath = `${statePath}.lock`;
+  const token = crypto.randomUUID();
+  withLockGate(lockPath, () => {
+    if (fs.existsSync(lockPath)) {
+      let lock;
+      try {
+        lock = readJson(lockPath);
+      } catch {
+        throw new Error(`Malformed state owner lock: ${lockPath}`);
+      }
+      if (!lock || !Number.isInteger(lock.pid) || lock.pid <= 0 || !lock.token || !lock.host) {
+        throw new Error(`Malformed state owner lock: ${lockPath}`);
+      }
+      let alive = true;
+      if (lock.host === os.hostname()) {
+        try {
+          process.kill(lock.pid, 0);
+        } catch (error) {
+          if (error.code === 'ESRCH') alive = false;
+          else if (error.code !== 'EPERM') throw error;
+        }
+      }
+      if (alive) throw new Error(`State is owned by another runner (PID ${lock.pid}): ${statePath}`);
+    }
+    // Publish complete metadata atomically; a killed worker leaves a reclaimable PID lease.
+    writeJson(lockPath, { pid: process.pid, host: os.hostname(), token });
+  });
+
+  let state;
+  let closed = false;
+  let batching = false;
+  let dirty = false;
+  const assertOpen = () => {
+    if (closed) throw new Error(`State owner is closed: ${statePath}`);
+  };
+  const owner = {
+    sourceHashes,
+    read() {
+      assertOpen();
+      if (!state) state = readState(statePath);
+      return state;
+    },
+    save(nextState) {
+      assertOpen();
+      state = nextState;
+      if (batching) dirty = true;
+      else saveState(statePath, state);
+    },
+    execute(command, ...args) {
+      assertOpen();
+      return executeStateCommand(command, [statePath, ...args], owner);
+    },
+    batch(operation) {
+      assertOpen();
+      if (batching) throw new Error('Nested state transactions are not supported');
+      batching = true;
+      dirty = false;
+      try {
+        const result = operation();
+        if (dirty) saveState(statePath, state);
+        return result;
+      } catch (error) {
+        state = undefined;
+        throw error;
+      } finally {
+        batching = false;
+        dirty = false;
+      }
+    },
+    close() {
+      if (closed) return;
+      // No gate: an opener replaces the lease only when it is absent or its
+      // owner is dead, so this live owner's token check cannot race a new
+      // lease, and a competing opener inside the gate cannot block cleanup.
+      const lock = readJson(lockPath);
+      if (lock.token !== token) throw new Error(`State owner lock changed: ${lockPath}`);
+      fs.unlinkSync(lockPath);
+      closed = true;
+    }
+  };
+  return owner;
+}
+
+function main() {
+  const [command, statePath, ...args] = process.argv.slice(2);
+  if (!command || !statePath) {
+    usage();
+    process.exitCode = 1;
+    return;
+  }
+  if (['status', 'next-chunk'].includes(command)) {
+    // Atomic state promotion lets observers read a complete snapshot during a run.
+    const snapshot = { read: () => readState(statePath) };
+    console.log(JSON.stringify(executeStateCommand(command, [statePath, ...args], snapshot), null, 2));
+    return;
+  }
+  const owner = openStateOwner(statePath);
+  try {
+    const result = owner.execute(command, ...args);
+    console.log(JSON.stringify(result, null, 2));
+    if (result.ok === false) process.exitCode = 1;
+  } finally {
+    owner.close();
+  }
+}
+
+module.exports = { openStateOwner };
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

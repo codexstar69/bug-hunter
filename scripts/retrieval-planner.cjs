@@ -92,11 +92,11 @@ function addCandidate(candidates, filePath, score, reason, mandatory = false, ba
 
 function buildReverseDependencies(files, baseRoot) {
   const reverse = new Map();
-  for (const [filePath, meta] of Object.entries(files)) {
+  for (const [filePath, meta] of files) {
     for (const dependency of Array.isArray(meta.dependencies) ? meta.dependencies : []) {
       const normalized = normalizePath(dependency, baseRoot);
       const dependents = reverse.get(normalized) || [];
-      dependents.push(normalizePath(filePath));
+      dependents.push(normalizePath(filePath, baseRoot));
       reverse.set(normalized, dependents);
     }
   }
@@ -130,8 +130,8 @@ function buildRetrievalPlan({ index, hypotheses, maxTokens = 48000, maxFiles = 3
     throw new Error('index must contain a files object');
   }
   if (!Array.isArray(hypotheses)) throw new Error('hypotheses must be an array');
-  const baseRoot = path.resolve(index.root || process.cwd());
-  const files = Object.fromEntries(Object.entries(index.files).map(([filePath, meta]) => [normalizePath(filePath, baseRoot), meta]));
+  const baseRoot = path.resolve(index.repoRoot || index.root || process.cwd());
+  const files = new Map(Object.entries(index.files).map(([filePath, meta]) => [normalizePath(filePath, baseRoot), meta]));
   const reverse = buildReverseDependencies(files, baseRoot);
   const candidates = new Map();
   const hypothesisTextsByFile = new Map();
@@ -162,7 +162,7 @@ function buildRetrievalPlan({ index, hypotheses, maxTokens = 48000, maxFiles = 3
   for (let hop = 1; hop <= dependencyHops; hop += 1) {
     const next = [];
     for (const filePath of frontier) {
-      const meta = files[filePath];
+      const meta = files.get(filePath);
       for (const dependency of Array.isArray(meta && meta.dependencies) ? meta.dependencies : []) {
         const normalized = normalizePath(dependency, baseRoot);
         addCandidate(candidates, normalized, 60 - (hop * 8), `dependency hop ${hop} from ${filePath}`, false, baseRoot);
@@ -183,9 +183,9 @@ function buildRetrievalPlan({ index, hypotheses, maxTokens = 48000, maxFiles = 3
   }
 
   for (const entry of candidates.values()) {
-    const meta = files[entry.file];
+    const meta = files.get(entry.file);
     if (!meta) continue;
-    entry.score += RISK_WEIGHT[String(meta.riskHint || '').toLowerCase()] || 0;
+    entry.score += (Object.hasOwn(RISK_WEIGHT, String(meta.riskHint || '').toLowerCase()) ? RISK_WEIGHT[String(meta.riskHint).toLowerCase()] : 0);
     if (Array.isArray(meta.trustBoundaries) && meta.trustBoundaries.length > 0) {
       entry.score += 8;
       entry.reasons.add(`trust boundaries: ${meta.trustBoundaries.join(', ')}`);
@@ -201,7 +201,7 @@ function buildRetrievalPlan({ index, hypotheses, maxTokens = 48000, maxFiles = 3
   const omitted = [];
   let usedTokens = 0;
   for (const entry of ranked) {
-    const meta = files[entry.file] || null;
+    const meta = files.get(entry.file) || null;
     const tokens = estimateTokens(entry.file, meta);
     const fitsFiles = selected.length < maxFiles;
     const fitsTokens = usedTokens + tokens <= maxTokens;
