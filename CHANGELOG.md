@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-10-29
+
+### Fixed
+
+- `pnpm verify:package` now reads the `npm pack --json` output of npm 12, which is an object keyed by package name
+  instead of an array. The 3.2.0 publish run stopped at this step, so 3.2.0 never reached npm; 3.2.1 carries the
+  same changes.
+- The hybrid verifier no longer reports a passing check as `ERROR` on macOS when the check leaves a short-lived
+  descendant. macOS answers `EPERM` to a process-group probe while the group's last members are exiting; the verifier
+  now keeps waiting for the group to drain, bounded by the check deadline.
+- A verification check left less than 100 ms of the plan budget is reported as `SKIPPED_BUDGET` instead of starting
+  and ending as a guaranteed `TIMEOUT`. On a loaded host the previous check could settle a few milliseconds before the
+  plan deadline, so the next check started with almost no time.
+
 ## [3.2.0] - 2026-10-29
 
 ### Highlights
@@ -527,7 +541,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage enforcement - partial audits produce explicit warnings
 - Large codebase strategy with domain-first tiered scanning
 
-[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/codexstar69/bug-hunter/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/codexstar69/bug-hunter/compare/v3.2.0...v3.2.1
+[3.2.0]: https://github.com/codexstar69/bug-hunter/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/codexstar69/bug-hunter/compare/v3.0.10...v3.1.0
 [3.0.10]: https://github.com/codexstar69/bug-hunter/compare/v3.0.9...v3.0.10
 [3.0.9]: https://github.com/codexstar69/bug-hunter/compare/v3.0.8...v3.0.9

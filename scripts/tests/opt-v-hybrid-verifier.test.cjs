@@ -241,6 +241,57 @@ test('verifier passes when an exited leader leaves a short-lived closed-pipe des
   assertReport(report);
 });
 
+test('a check left less than the minimum run window is skipped for budget, not timed out', {
+  skip: process.platform === 'win32', timeout: 10000
+}, async (t) => {
+  const repoRoot = sandbox(t);
+  const marker = path.join(repoRoot, 'running');
+  const totalBudgetMs = 1000;
+  // Only Date is mocked: the first check's settle lands 2 ms before the plan
+  // deadline, as when libuv's cached loop time trails the wall clock under load.
+  t.mock.timers.enable({ apis: ['Date'], now: 1000000 });
+  const advance = setInterval(() => {
+    if (!fs.existsSync(marker)) return;
+    clearInterval(advance);
+    t.mock.timers.tick(totalBudgetMs - 2);
+  }, 5);
+  t.after(() => clearInterval(advance));
+  const report = await runPlan({ repoRoot, totalBudgetMs,
+    plan: plan(
+      check({ id: 'first', timeoutMs: 5000, command: [process.execPath, '-e', `
+        require('node:fs').writeFileSync(${JSON.stringify(marker)}, '');
+        setTimeout(() => process.exit(0), 200);
+      `] }),
+      check({ id: 'second' })
+    ) });
+  assert.equal(report.checks[0].status, 'PASS');
+  assert.equal(report.checks[1].status, 'SKIPPED_BUDGET');
+  assert.equal(report.ok, false);
+  assertReport(report);
+});
+
+test('verifier keeps waiting when a draining group answers EPERM (macOS zombie members)', {
+  skip: process.platform === 'win32', timeout: 10000
+}, async (t) => {
+  const repoRoot = sandbox(t);
+  const realKill = process.kill;
+  let epermProbes = 0;
+  process.kill = function kill(pid, signal) {
+    if (pid < 0 && signal === 0 && epermProbes < 3) {
+      epermProbes += 1;
+      throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+    }
+    return realKill.call(process, pid, signal);
+  };
+  t.after(() => { process.kill = realKill; });
+  const report = await runPlan({ repoRoot, totalBudgetMs: 5000,
+    plan: plan(check({ timeoutMs: 3000, command: [process.execPath, '-e', 'process.exit(0)'] })) });
+  assert.equal(epermProbes, 3);
+  assert.equal(report.checks[0].status, 'PASS');
+  assert.equal(report.checks[0].errorCode, null);
+  assertReport(report);
+});
+
 test('verifier timeout does not retain a successful pre-timeout leader exit code', {
   skip: process.platform === 'win32', timeout: 10000
 }, async (t) => {
