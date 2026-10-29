@@ -35,7 +35,7 @@ const DEFAULT_STOP_FILE = '.bug-hunter/experiment.stop';
 const DEFAULT_LOG_FILE = '.bug-hunter/experiment.jsonl';
 const DEFAULT_CHECKS_SCRIPT = '.bug-hunter/experiment.checks.sh';
 const MAX_STDOUT_BYTES = 50000; // Truncate captured output to prevent memory bloat
-const DEFAULT_MAX_ITERATIONS = 10; // Hard cap — prevents runaway loops
+const DEFAULT_MAX_ITERATIONS = 12; // Lower bound of the queue-scaled loop contract
 const MAX_CONSECUTIVE_CRASHES = 3; // Auto-stop after N crashes in a row
 const MIN_TIMEOUT_MS = 1000;       // 1 second minimum for --timeout-ms
 const MAX_TIMEOUT_MS = 3600000;    // 1 hour maximum for --timeout-ms
@@ -581,6 +581,8 @@ function gitAutoCommit({ description, cwd, allowedPaths }) {
 function usage() {
   console.error('Usage:');
   console.error('  experiment-loop.cjs init <logPath> <name> <metricName> <direction> [unit] [--max-iterations <n>]');
+  console.error('    Default cap: max(12, min(200, ceil(scannable-files / max(file-budget, 1)) + 8))');
+  console.error('    Supply --scannable-files <n> --file-budget <n> for queue-scaled defaults; otherwise 12.');
   console.error('  experiment-loop.cjs run <logPath> <command> [--timeout-ms <n>] [--checks-script <path>] [--stop-file <path>]');
   console.error('  experiment-loop.cjs log <logPath> <status> <metricValue> [--description <text>] [--secondary <json>] [--auto-commit <true|false>] [--allowed-paths <json-array>] [--force <true|false>] [--duration-ms <ms>]');
   console.error('  experiment-loop.cjs check-continue <logPath> [--stop-file <path>]');
@@ -632,9 +634,17 @@ function cmdInit(args) {
   }
 
   const maxIterParsed = Number.parseInt(named['max-iterations'] || '', 10);
+  const scannableFiles = named['scannable-files'] === undefined ? 0 : Number(named['scannable-files']);
+  const fileBudget = named['file-budget'] === undefined ? 1 : Number(named['file-budget']);
+  if (!Number.isSafeInteger(scannableFiles) || scannableFiles < 0 ||
+      !Number.isSafeInteger(fileBudget) || fileBudget < 0) {
+    throw new Error('--scannable-files and --file-budget must be non-negative integers');
+  }
+  const scaledMaxIterations = Math.max(DEFAULT_MAX_ITERATIONS,
+    Math.min(200, Math.ceil(scannableFiles / Math.max(fileBudget, 1)) + 8));
   const maxIterations = Number.isInteger(maxIterParsed) && maxIterParsed > 0
     ? maxIterParsed
-    : DEFAULT_MAX_ITERATIONS;
+    : scaledMaxIterations;
 
   const state = reconstructState(logPath);
   const segment = state.currentSegment + 1;

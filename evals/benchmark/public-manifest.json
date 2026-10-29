@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "suiteId": "bug-hunter-behavioral-core-v1",
-  "description": "Public metadata for the deterministic Bug Hunter behavioral benchmark. Ground-truth labels are stored separately and are never provided to the scanner.",
+  "description": "Public corpus metadata for deterministic calibration. Labels in private-labels.json are in-repo calibration data, not a hidden test set.",
   "requiredProfiles": [
     "balanced"
   ],
@@ -15,17 +15,17 @@
     "minCoverage": 1,
     "minRepeatStability": 0.9,
     "maxFalsePositivesPerKloc": 0.2,
-    "maxMedianTokensPerTruePositive": 30000,
     "maxP95DurationMs": 180000,
     "maxExpectedCalibrationError": 0.15,
-    "maxMeanSeverityRankError": 0.25
+    "maxMeanSeverityRankError": 0.25,
+    "maxTokensPerTruePositive": 30000
   },
   "cases": [
     {
       "id": "auth-boundary-js",
       "language": "javascript",
       "framework": "express",
-      "kloc": 2.4,
+      "kloc": 0.056,
       "tags": [
         "security",
         "authorization",
@@ -35,13 +35,19 @@
         "src/routes.js",
         "src/auth.js",
         "src/service.js"
-      ]
+      ],
+      "root": "../corpus/auth-boundary-js",
+      "sha256": {
+        "src/routes.js": "0a3a25ae7e3a9145841ff97a1adc5fb88e0cb87c26629a4a54cb256d19dc7bff",
+        "src/auth.js": "c53de3bd02f726aed28da51fe03879cfc2b5fe5eddd16279bb5655ab482d8fe7",
+        "src/service.js": "0109007f8ff5beef4ddc338cb1d6b455b426b08323da9467cdc19037bc5db19f"
+      }
     },
     {
       "id": "api-contract-ts",
       "language": "typescript",
       "framework": "fastify",
-      "kloc": 4.1,
+      "kloc": 0.04,
       "tags": [
         "api-contract",
         "nullability",
@@ -51,13 +57,19 @@
         "src/handler.ts",
         "src/client.ts",
         "src/types.ts"
-      ]
+      ],
+      "root": "../corpus/api-contract-ts",
+      "sha256": {
+        "src/handler.ts": "ce6c8c92875e9bb254bb72013dec115d300d81f4ce004d984216879ce4473cb6",
+        "src/client.ts": "59abeda3e017416cc850171522bfda5c852ab30a590c5a64ebe7352008c3e4c3",
+        "src/types.ts": "e9ce2714281e72e5e4fd3a808d6bca870f7439a837adc78bbe5ba92b02a7f8c0"
+      }
     },
     {
       "id": "concurrency-go",
       "language": "go",
       "framework": "net-http",
-      "kloc": 3.8,
+      "kloc": 0.058,
       "tags": [
         "concurrency",
         "data-integrity"
@@ -65,13 +77,18 @@
       "sourceFiles": [
         "internal/store/store.go",
         "internal/api/handler.go"
-      ]
+      ],
+      "root": "../corpus/concurrency-go",
+      "sha256": {
+        "internal/store/store.go": "372cc5873369c31de7bc72094695e75d18764e200b88aa18cd91cc13affa9f39",
+        "internal/api/handler.go": "618ab6f962665c17e010e7d052d2561218df3b31a5e72305322cda630ec3bdec"
+      }
     },
     {
       "id": "clean-python-api",
       "language": "python",
       "framework": "fastapi",
-      "kloc": 2,
+      "kloc": 0.043,
       "tags": [
         "negative",
         "clean",
@@ -81,7 +98,38 @@
         "app/routes.py",
         "app/auth.py",
         "app/models.py"
-      ]
+      ],
+      "root": "../corpus/clean-python-api",
+      "sha256": {
+        "app/routes.py": "cf23457ea1d860aa69c41486cb014427cb41a9524913ee09c5392325ea94ec6b",
+        "app/auth.py": "8a149ab816ed3362e0634f5fc91603fff7f7bbf3d2d0a3ff290f7efb10a88991",
+        "app/models.py": "51460fe289280811ee1fa20b61c61a72d1f532896a1f637c9cf9e03eaf92e6ec"
+      }
+    },
+    {
+      "id": "fixture-js-express",
+      "language": "javascript",
+      "framework": "express",
+      "tags": [
+        "fixture",
+        "security",
+        "logic",
+        "error-handling"
+      ],
+      "sourceFiles": [
+        "auth.js",
+        "users.js",
+        "db.js",
+        "server.js"
+      ],
+      "root": "../corpus/fixture-js-express",
+      "sha256": {
+        "auth.js": "b23c71108e3a5d3cc00f0d3d62802005fa41e172ac99066d2c226423ca15cf25",
+        "users.js": "ee1c627ab3fb78657b2b91a7c091dee11b3efeb5e5d499582994042769228f9a",
+        "db.js": "cc1def8a0d593ae87cdbb5a26b5e53cecc0dd5f4028fa7197cf20b0835164f52",
+        "server.js": "e06fc4ecd74182922f5b2b56bd6a43945acfe3f98ea079363c7e40d501fe0637"
+      },
+      "kloc": 0.122
     }
   ]
 }

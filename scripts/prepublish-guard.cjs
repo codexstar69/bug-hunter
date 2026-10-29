@@ -3,7 +3,8 @@
 
 /**
  * Publication is allowed only when the working tree is clean, HEAD exactly
- * matches both its configured upstream and the package version tag.
+ * matches both its configured upstream and the package version tag. Dry runs
+ * still require a clean checkout, but can validate an untagged candidate.
  */
 
 const childProcess = require('node:child_process');
@@ -37,12 +38,23 @@ function readGitProof({ label, args, errors }) {
 
 function main() {
   const errors = [];
+  const args = process.argv.slice(2);
+  if (args.some((arg) => arg !== '--dry-run')) {
+    throw new Error('Usage: prepublish-guard.cjs [--dry-run]');
+  }
+  // npm sets this for the prepublishOnly lifecycle of `npm publish --dry-run`.
+  const dryRun = args.includes('--dry-run') || (
+    process.env.npm_lifecycle_event === 'prepublishOnly' &&
+    process.env.npm_config_dry_run === 'true'
+  );
+  let untrackedOnly = false;
   const packageJson = require(path.join(REPOSITORY_ROOT, 'package.json'));
   const expectedTag = `v${packageJson.version}`;
 
   try {
     const status = runGit(['status', '--porcelain']);
     if (status) {
+      untrackedOnly = status.split('\n').every((line) => line.startsWith('?? '));
       errors.push(
         `Uncommitted changes detected:\n${status.split('\n').map((line) => {
           return `   ${line}`;
@@ -60,7 +72,7 @@ function main() {
     args: ['rev-parse', '--verify', 'HEAD^{commit}'],
     errors
   });
-  const upstreamName = readGitProof({
+  const upstreamName = dryRun ? null : readGitProof({
     label: 'the current branch upstream',
     args: ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
     errors
@@ -70,7 +82,7 @@ function main() {
     args: ['rev-parse', '--verify', '@{upstream}^{commit}'],
     errors
   }) : null;
-  const tagCommit = readGitProof({
+  const tagCommit = dryRun ? null : readGitProof({
     label: `exact tag ${expectedTag}`,
     args: ['rev-parse', '--verify', `refs/tags/${expectedTag}^{commit}`],
     errors
@@ -97,12 +109,21 @@ function main() {
       console.error(`- ${error}\n`);
       return error;
     });
+    if (untrackedOnly && errors.length === 1) {
+      console.error(
+        'Only untracked local files block this checkout. The files listed above (for example, ' +
+        'CLAUDE.md) are outside Git history, so this is not a reproducible release checkout, ' +
+        'even if npm would exclude them from the tarball. Use a clean release checkout or ' +
+        'move local-only files outside this checkout, then rerun prepublish-guard.\n'
+      );
+    }
     process.exitCode = 1;
     return;
   }
 
   console.log(
-    `prepublish-guard: clean tree, HEAD matches ${upstreamName} and ${expectedTag}`
+    dryRun ? 'prepublish-guard: clean tree and HEAD verified for dry-run; tag/upstream binding skipped' :
+      `prepublish-guard: clean tree, HEAD matches ${upstreamName} and ${expectedTag}`
   );
 }
 

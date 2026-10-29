@@ -3,6 +3,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { isDeepStrictEqual } = require('util');
+const { validateArtifactValue } = require('./schema-runtime.cjs');
+
+const BENCHMARK_ROOT = path.resolve(__dirname, '..', 'evals', 'benchmark');
+const EVIDENCE_KINDS = new Set(['synthetic', 'replayed', 'live']);
 
 const SEVERITY_RANK = Object.freeze({ Low: 0, Medium: 1, High: 2, Critical: 3 });
 const SEVERITY_WEIGHT = Object.freeze({ Low: 1, Medium: 2, High: 4, Critical: 8 });
@@ -22,6 +27,8 @@ function usage() {
   console.error('  benchmark-suite.cjs score --manifest <public.json> --labels <private.json> --runs <runs.json> [--output <report.json>]');
   console.error('  benchmark-suite.cjs gate --report <report.json>');
   console.error('  benchmark-suite.cjs validate-public --manifest <public.json>');
+  console.error('  benchmark-suite.cjs record --run-dir <directory> --case <id> --profile <profile> --repeat <n> --output <runs.json> [--manifest <public.json>] [--labels <private.json>] [--telemetry <usage.json>] [--evidence-kind live|replayed|synthetic]');
+  console.error('  benchmark-suite.cjs compare --baseline <report.json> --candidate <report.json> [--output <comparison.json>]');
 }
 
 function parseOptions(argv) {
@@ -88,16 +95,39 @@ function normalizePath(value) {
 function fileMatches(actual, expected) {
   const left = normalizePath(actual);
   const right = normalizePath(expected);
-  return Boolean(left && right && (left === right || left.endsWith(`/${right}`)));
+  return Boolean(left && right && left === right && isRelativeFile(left));
 }
 
 function parseLineRange(value) {
-  const numbers = String(value || '').match(/\d+/g);
-  if (!numbers || numbers.length === 0) return null;
-  const start = Number(numbers[0]);
-  const end = numbers.length > 1 ? Number(numbers[1]) : start;
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  return { start: Math.min(start, end), end: Math.max(start, end) };
+  const match = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(String(value || '').trim());
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2] || match[1]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) return null;
+  return { start, end };
+}
+
+function isRelativeFile(value) {
+  return typeof value === 'string' && value.length > 0 && !path.posix.isAbsolute(value)
+    && !/^[A-Za-z]:/.test(value) && !value.split('/').some((part) => part === '..' || part === '.' || !part);
+}
+
+function findingErrors(finding) {
+  if (!finding || typeof finding !== 'object' || Array.isArray(finding)) return ['finding must be an object'];
+  const { emittedAtMs, ...canonical } = finding;
+  const errors = validateArtifactValue({ artifactName: 'findings', value: [canonical] }).errors;
+  if (!isRelativeFile(normalizePath(finding.file))) errors.push('file must be case-relative without traversal');
+  if (!parseLineRange(finding.lines)) errors.push('lines must be a positive ordered line range');
+  if (emittedAtMs !== undefined && !isMeasurement(emittedAtMs)) errors.push('emittedAtMs must be nonnegative');
+  return errors;
+}
+
+function isMeasurement(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function measurement(value) {
+  return isMeasurement(value) ? value : null;
 }
 
 function lineOverlapScore(actual, expected) {
@@ -114,9 +144,7 @@ function findingText(finding) {
   return [
     finding.claim,
     finding.evidence,
-    finding.runtimeTrigger,
-    finding.category,
-    ...(Array.isArray(finding.crossReferences) ? finding.crossReferences : [])
+    finding.runtimeTrigger
   ].filter((value) => typeof value === 'string').join(' ').toLowerCase();
 }
 
@@ -139,14 +167,19 @@ function severityScore(actual, expected) {
 }
 
 function candidateScore(finding, label) {
+  if (findingErrors(finding).length > 0) return 0;
   if (!fileMatches(finding.file, label.file)) return 0;
+  const actualRange = parseLineRange(finding.lines);
+  const expectedRange = parseLineRange(label.lines);
+  const tolerance = Number.isSafeInteger(label.lineTolerance) && label.lineTolerance >= 0 && label.lineTolerance <= 10
+    ? label.lineTolerance : 5;
+  if (!expectedRange || actualRange.end < expectedRange.start - tolerance
+    || actualRange.start > expectedRange.end + tolerance) return 0;
+  if (Math.abs(SEVERITY_RANK[finding.severity] - SEVERITY_RANK[label.severity]) > 1) return 0;
   const category = !label.category || finding.category === label.category ? 1 : 0;
   const keywords = keywordScore(finding, label);
   const groups = Array.isArray(label.keywordGroups) ? label.keywordGroups : [];
-  const minimumKeywordRatio = Number.isFinite(Number(label.minimumKeywordGroupRatio))
-    ? clamp(Number(label.minimumKeywordGroupRatio), 0, 1)
-    : 0.5;
-  if (groups.length > 0 && keywords < minimumKeywordRatio) return 0;
+  if (groups.length === 0 || keywords < 1) return 0;
   const lines = lineOverlapScore(finding.lines, label.lines);
   const severity = severityScore(finding.severity, label.severity);
   return (0.4) + (0.15 * category) + (0.3 * keywords) + (0.1 * lines) + (0.05 * severity);
@@ -190,8 +223,7 @@ function fingerprintFinding(finding) {
   return [
     normalizePath(finding.file),
     String(finding.lines || '').replace(/\s+/g, ''),
-    String(finding.category || '').toLowerCase(),
-    String(finding.claim || '').toLowerCase().replace(/\s+/g, ' ').trim()
+    String(finding.category || '').toLowerCase()
   ].join('|');
 }
 
@@ -249,7 +281,7 @@ function calibrationMetrics(outcomes) {
   };
 }
 
-function validatePublicManifest(manifest) {
+function validatePublicManifest(manifest, { manifestPath = path.join(BENCHMARK_ROOT, 'public-manifest.json'), labels } = {}) {
   const errors = [];
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     return { ok: false, errors: ['public manifest must be a JSON object'] };
@@ -258,8 +290,18 @@ function validatePublicManifest(manifest) {
   if (!String(manifest.suiteId || '').trim()) errors.push('public manifest suiteId is required');
   if (!Array.isArray(manifest.cases) || manifest.cases.length === 0) {
     errors.push('public manifest cases must be a non-empty array');
+    return { ok: false, errors };
   }
   const ids = new Set();
+  if (!labels) {
+    try {
+      labels = readJson(path.join(path.dirname(manifestPath), 'private-labels.json'));
+    } catch (error) {
+      errors.push(`cannot load calibration labels for leak check: ${error.message}`);
+    }
+  }
+  if (!Array.isArray(labels?.cases)) errors.push('calibration labels require a cases array for leak checks');
+  const privateById = new Map((Array.isArray(labels?.cases) ? labels.cases : []).filter(Boolean).map((entry) => [entry.id, entry]));
   const visit = (value, location) => {
     if (Array.isArray(value)) {
       value.forEach((entry, index) => visit(entry, `${location}[${index}]`));
@@ -285,6 +327,10 @@ function validatePublicManifest(manifest) {
     errors.push('public manifest requiredProfiles must be a non-empty array of profile names');
   }
   for (const entry of manifest.cases || []) {
+    if (!entry || typeof entry !== 'object') {
+      errors.push('every public case must be an object');
+      continue;
+    }
     const id = String(entry.id || '').trim();
     if (!id) errors.push('every public case requires an id');
     if (ids.has(id)) errors.push(`duplicate public case id: ${id}`);
@@ -293,22 +339,67 @@ function validatePublicManifest(manifest) {
     if (kloc < 0) errors.push(`case ${id || '<unknown>'} requires nonnegative kloc`);
     if (!Array.isArray(entry.sourceFiles) || entry.sourceFiles.length === 0) {
       errors.push(`case ${id || '<unknown>'} requires a non-empty sourceFiles array`);
+      continue;
+    }
+    if (typeof entry.root !== 'string' || !entry.root || path.isAbsolute(entry.root)) {
+      errors.push(`case ${id} requires a relative root`);
+      continue;
+    }
+    const root = path.resolve(path.dirname(manifestPath), entry.root);
+    const relativeRoot = path.relative(path.resolve(path.dirname(manifestPath), '..'), root);
+    if (relativeRoot.startsWith('..') || path.isAbsolute(relativeRoot)) {
+      errors.push(`case ${id} root escapes corpus parent`);
+      continue;
+    }
+    for (const sourceFile of entry.sourceFiles) {
+      if (!isRelativeFile(sourceFile)) {
+        errors.push(`case ${id} has an invalid source file path`);
+        continue;
+      }
+      const digest = entry.sha256?.[sourceFile];
+      if (!/^[a-f0-9]{64}$/.test(digest || '')) errors.push(`case ${id} missing sha256 for ${sourceFile}`);
+      try {
+        const filePath = path.resolve(root, sourceFile);
+        const relative = path.relative(fs.realpathSync(root), fs.realpathSync(filePath));
+        if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('source escapes case root');
+        const content = fs.readFileSync(filePath);
+        if (sha256Buffer(content) !== digest) errors.push(`case ${id} digest mismatch: ${sourceFile}`);
+        const source = content.toString('utf8');
+        if (/\bBUG\s*\d+|\bshould be\b|silently swallowed/i.test(source)) {
+          errors.push(`case ${id} answer comment leak: ${sourceFile}`);
+        }
+        const privateFindings = privateById.get(id)?.findings;
+        for (const label of Array.isArray(privateFindings) ? privateFindings : []) {
+          for (const keyword of (Array.isArray(label?.keywordGroups) ? label.keywordGroups : []).flat()) {
+            if (source.toLowerCase().includes(String(keyword).toLowerCase())) {
+              errors.push(`case ${id} keyword leak for ${label.labelId}: ${sourceFile}`);
+            }
+          }
+        }
+      } catch (error) {
+        errors.push(`case ${id} cannot read ${sourceFile}: ${error.message}`);
+      }
     }
   }
   return { ok: errors.length === 0, errors };
 }
 
 function validateInputs({ manifest, labels, runs, manifestPath }) {
-  const publicValidation = validatePublicManifest(manifest);
+  const publicValidation = validatePublicManifest(manifest, { manifestPath, labels });
   const errors = [...publicValidation.errors];
+  if (!publicValidation.ok) return publicValidation;
   if (!labels || labels.schemaVersion !== 1 || !Array.isArray(labels.cases)) {
     errors.push('private labels must use schemaVersion 1 and contain a cases array');
   }
   if (!runs || runs.schemaVersion !== 1 || !Array.isArray(runs.runs)) {
     errors.push('runs must use schemaVersion 1 and contain a runs array');
   }
+  if (!manifest || !Array.isArray(manifest.cases) || !Array.isArray(labels?.cases) || !Array.isArray(runs?.runs)) {
+    return { ok: false, errors };
+  }
   if (labels && labels.suiteId !== manifest.suiteId) errors.push('private labels suiteId does not match public manifest');
   if (runs && runs.suiteId !== manifest.suiteId) errors.push('runs suiteId does not match public manifest');
+  if (!EVIDENCE_KINDS.has(runs?.evidenceKind)) errors.push('runs evidenceKind must be synthetic, replayed, or live');
   if (manifestPath && labels) {
     const actual = sha256File(manifestPath);
     if (!/^[a-f0-9]{64}$/.test(String(labels.publicManifestSha256 || ''))) {
@@ -318,20 +409,34 @@ function validateInputs({ manifest, labels, runs, manifestPath }) {
     }
   }
   const publicIds = new Set((manifest.cases || []).map((entry) => entry.id));
-  const labelIds = new Set((labels && labels.cases || []).map((entry) => entry.id));
+  const labelIds = new Set(labels.cases.filter(Boolean).map((entry) => entry.id));
   const seenPrivateLabelIds = new Set();
   for (const privateCase of labels && labels.cases || []) {
-    if (!Array.isArray(privateCase.findings)) {
-      errors.push(`private case ${privateCase.id || '<unknown>'} findings must be an array`);
+    if (!privateCase || !Array.isArray(privateCase.findings)) {
+      errors.push(`private case ${privateCase?.id || '<unknown>'} findings must be an array`);
       continue;
     }
     for (const label of privateCase.findings) {
+      if (!label || typeof label !== 'object') {
+        errors.push(`private case ${privateCase.id} labels must be objects`);
+        continue;
+      }
       const labelId = String(label.labelId || '').trim();
       if (!labelId) errors.push(`private case ${privateCase.id || '<unknown>'} has a finding without labelId`);
       if (seenPrivateLabelIds.has(labelId)) errors.push(`duplicate private labelId: ${labelId}`);
       seenPrivateLabelIds.add(labelId);
       if (!String(label.file || '').trim()) errors.push(`private label ${labelId || '<unknown>'} requires file`);
       if (!String(label.category || '').trim()) errors.push(`private label ${labelId || '<unknown>'} requires category`);
+      const publicCase = (manifest.cases || []).find((entry) => entry.id === privateCase.id);
+      if (!publicCase?.sourceFiles.includes(label.file)) errors.push(`private label ${labelId} file is not a case source`);
+      if (!parseLineRange(label.lines)) errors.push(`private label ${labelId} requires lines`);
+      if (!Array.isArray(label.keywordGroups) || label.keywordGroups.length === 0
+        || label.keywordGroups.some((group) => !Array.isArray(group) || group.length === 0
+          || group.some((keyword) => typeof keyword !== 'string' || !keyword.trim()))) {
+        errors.push(`private label ${labelId} requires mechanism keywordGroups`);
+      }
+      if (label.lineTolerance !== undefined && (!Number.isSafeInteger(label.lineTolerance)
+        || label.lineTolerance < 0 || label.lineTolerance > 10)) errors.push(`private label ${labelId} invalid lineTolerance`);
       if (!Object.prototype.hasOwnProperty.call(SEVERITY_RANK, label.severity)) {
         errors.push(`private label ${labelId || '<unknown>'} has invalid severity`);
       }
@@ -346,6 +451,10 @@ function validateInputs({ manifest, labels, runs, manifestPath }) {
   const seenRunIds = new Set();
   const repeatCoverage = new Map();
   for (const run of runs && runs.runs || []) {
+    if (!run || typeof run !== 'object') {
+      errors.push('every run must be an object');
+      continue;
+    }
     const runId = String(run.runId || '').trim();
     if (!runId) errors.push('every run requires runId');
     if (seenRunIds.has(runId)) errors.push(`duplicate runId: ${runId}`);
@@ -355,28 +464,29 @@ function validateInputs({ manifest, labels, runs, manifestPath }) {
       errors.push(`run ${runId || '<unknown>'} findings must be an array`);
     } else {
       for (const finding of run.findings) {
-        const confidence = Number(finding.confidenceScore);
-        if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) {
-          errors.push(`run ${runId || '<unknown>'} has a finding with invalid confidenceScore`);
-        }
+        errors.push(...findingErrors(finding).map((error) => `run ${runId}: ${error}`));
       }
     }
     const repeat = Number(run.repeat);
     if (!Number.isSafeInteger(repeat) || repeat < 1) errors.push(`run ${runId || '<unknown>'} repeat must be a positive integer`);
     for (const field of ['inputTokens', 'outputTokens', 'durationMs', 'costUsd']) {
-      const value = Number(run[field] ?? 0);
-      if (!Number.isFinite(value) || value < 0) errors.push(`run ${runId || '<unknown>'} ${field} must be nonnegative`);
+      if (run[field] !== undefined && run[field] !== null && !isMeasurement(run[field])) {
+        errors.push(`run ${runId || '<unknown>'} ${field} must be nonnegative or null (unknown)`);
+      }
     }
     const coverage = run.coverage || {};
     const filesDone = Number(coverage.filesDone);
     const filesTotal = Number(coverage.filesTotal);
-    if (!Number.isFinite(filesDone) || !Number.isFinite(filesTotal)
+    const publicCase = manifest.cases.find((entry) => entry.id === run.caseId);
+    if (!Number.isSafeInteger(filesDone) || !Number.isSafeInteger(filesTotal)
       || filesDone < 0 || filesTotal < 0 || filesDone > filesTotal) {
       errors.push(`run ${runId || '<unknown>'} has invalid coverage counts`);
     }
+    if (publicCase && filesTotal !== publicCase.sourceFiles.length) errors.push(`run ${runId} coverage filesTotal differs from case source count`);
     const profile = String(run.profile || 'default');
     const key = `${run.caseId}|${profile}`;
     const repeats = repeatCoverage.get(key) || new Set();
+    if (repeats.has(repeat)) errors.push(`duplicate repeat ${repeat} for ${key}`);
     repeats.add(repeat);
     repeatCoverage.set(key, repeats);
   }
@@ -421,14 +531,16 @@ function scoreRun({ run, publicCase, privateCase, matchThreshold }) {
     correct: matchedByFinding.has(index)
   }));
   const calibration = calibrationMetrics(calibrationSamples);
-  const tokens = finiteNumber(run.inputTokens) + finiteNumber(run.outputTokens);
-  const durationMs = Math.max(0, finiteNumber(run.durationMs));
-  const costUsd = Math.max(0, finiteNumber(run.costUsd));
+  const inputTokens = measurement(run.inputTokens);
+  const outputTokens = measurement(run.outputTokens);
+  const tokens = inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens;
+  const durationMs = measurement(run.durationMs);
+  const costUsd = measurement(run.costUsd);
   const completedFiles = Math.max(0, finiteNumber(run.coverage && run.coverage.filesDone));
   const totalFiles = Math.max(0, finiteNumber(run.coverage && run.coverage.filesTotal));
   const coverage = ratio(completedFiles, totalFiles, totalFiles === 0 ? 1 : 0);
   const matchedEmissionTimes = matching.matches
-    .map((match) => finiteNumber(match.finding.emittedAtMs, NaN))
+    .map((match) => measurement(match.finding.emittedAtMs))
     .filter(Number.isFinite);
 
   return {
@@ -444,6 +556,8 @@ function scoreRun({ run, publicCase, privateCase, matchThreshold }) {
     recall,
     f1,
     severityWeightedRecall,
+    expectedWeight,
+    matchedWeight,
     severityExactAccuracy: ratio(severityErrors.filter((error) => error === 0).length, severityErrors.length, 1),
     meanSeverityRankError: severityErrors.length === 0
       ? 0
@@ -451,13 +565,13 @@ function scoreRun({ run, publicCase, privateCase, matchThreshold }) {
     calibration,
     calibrationSamples,
     coverage,
-    inputTokens: finiteNumber(run.inputTokens),
-    outputTokens: finiteNumber(run.outputTokens),
+    inputTokens,
+    outputTokens,
     totalTokens: tokens,
     durationMs,
     costUsd,
-    tokensPerTruePositive: truePositives > 0 ? tokens / truePositives : null,
-    costPerTruePositiveUsd: truePositives > 0 ? costUsd / truePositives : null,
+    tokensPerTruePositive: truePositives > 0 && tokens !== null ? tokens / truePositives : null,
+    costPerTruePositiveUsd: truePositives > 0 && costUsd !== null ? costUsd / truePositives : null,
     timeToFirstTruePositiveMs: matchedEmissionTimes.length > 0 ? Math.min(...matchedEmissionTimes) : null,
     matchedLabelIds: matching.matches.map((match) => match.label.labelId).sort(),
     falsePositiveFingerprints: matching.unmatchedFindingIndexes.map((index) => fingerprintFinding(findings[index])).sort(),
@@ -476,7 +590,7 @@ function aggregateClassMetrics(scoredRuns, privateCases) {
   for (const run of scoredRuns) {
     const privateCase = labelsByCase.get(run.caseId);
     const matched = new Set(run.matchedLabelIds);
-    for (const label of privateCase.findings || []) {
+    for (const label of privateCase?.findings || []) {
       const category = String(label.category || 'unknown');
       const bucket = classTotals.get(category) || { expected: 0, matched: 0 };
       bucket.expected += 1;
@@ -531,15 +645,17 @@ function repeatStability(scoredRuns) {
   };
 }
 
-function buildAggregate({ scoredRuns, privateCases }) {
+function buildAggregate({ scoredRuns, privateCases, includeProfiles = true }) {
   const totals = scoredRuns.reduce((state, run) => {
     state.truePositives += run.truePositives;
     state.falsePositives += run.falsePositives;
     state.falseNegatives += run.falseNegatives;
     state.kloc += run.kloc;
-    state.tokens += run.totalTokens;
-    state.durationMs += run.durationMs;
-    state.costUsd += run.costUsd;
+    state.tokens = state.tokens === null || run.totalTokens === null ? null : state.tokens + run.totalTokens;
+    state.durationMs = state.durationMs === null || run.durationMs === null ? null : state.durationMs + run.durationMs;
+    state.costUsd = state.costUsd === null || run.costUsd === null ? null : state.costUsd + run.costUsd;
+    state.expectedWeight += run.expectedWeight;
+    state.matchedWeight += run.matchedWeight;
     return state;
   }, {
     truePositives: 0,
@@ -548,7 +664,9 @@ function buildAggregate({ scoredRuns, privateCases }) {
     kloc: 0,
     tokens: 0,
     durationMs: 0,
-    costUsd: 0
+    costUsd: 0,
+    expectedWeight: 0,
+    matchedWeight: 0
   });
   const precision = ratio(totals.truePositives, totals.truePositives + totals.falsePositives, 1);
   const recall = ratio(totals.truePositives, totals.truePositives + totals.falseNegatives, 1);
@@ -570,9 +688,7 @@ function buildAggregate({ scoredRuns, privateCases }) {
     macroPrecision: scoredRuns.length === 0 ? 1 : scoredRuns.reduce((sum, run) => sum + run.precision, 0) / scoredRuns.length,
     macroRecall: scoredRuns.length === 0 ? 1 : scoredRuns.reduce((sum, run) => sum + run.recall, 0) / scoredRuns.length,
     macroF1: scoredRuns.length === 0 ? 1 : scoredRuns.reduce((sum, run) => sum + run.f1, 0) / scoredRuns.length,
-    severityWeightedRecall: scoredRuns.length === 0
-      ? 1
-      : scoredRuns.reduce((sum, run) => sum + run.severityWeightedRecall, 0) / scoredRuns.length,
+    severityWeightedRecall: ratio(totals.matchedWeight, totals.expectedWeight, 1),
     severityExactAccuracy: scoredRuns.length === 0
       ? 1
       : scoredRuns.reduce((sum, run) => sum + run.severityExactAccuracy, 0) / scoredRuns.length,
@@ -584,15 +700,25 @@ function buildAggregate({ scoredRuns, privateCases }) {
     totalTokens: totals.tokens,
     totalDurationMs: totals.durationMs,
     totalCostUsd: totals.costUsd,
-    medianTokensPerTruePositive: percentile(tokenPerTpValues, 0.5),
-    p95TokensPerTruePositive: percentile(tokenPerTpValues, 0.95),
-    medianCostPerTruePositiveUsd: percentile(costPerTpValues, 0.5),
-    p95DurationMs: percentile(durations, 0.95),
+    tokensPerTruePositive: totals.tokens !== null && totals.truePositives > 0 ? totals.tokens / totals.truePositives : null,
+    costPerTruePositiveUsd: totals.costUsd !== null && totals.truePositives > 0 ? totals.costUsd / totals.truePositives : null,
+    medianTokensPerTruePositive: totals.tokens === null ? null : percentile(tokenPerTpValues, 0.5),
+    p95TokensPerTruePositive: totals.tokens === null ? null : percentile(tokenPerTpValues, 0.95),
+    medianCostPerTruePositiveUsd: totals.costUsd === null ? null : percentile(costPerTpValues, 0.5),
+    p95DurationMs: totals.durationMs === null ? null : percentile(durations, 0.95),
+    telemetry: Object.fromEntries(['totalTokens', 'durationMs', 'costUsd'].map((field) => [field, {
+      status: scoredRuns.every((run) => run[field] !== null) ? 'measured' : 'unknown',
+      measuredRuns: scoredRuns.filter((run) => run[field] !== null).length,
+      totalRuns: scoredRuns.length
+    }])),
     expectedCalibrationError: calibration.expectedCalibrationError,
     brierScore: calibration.brierScore,
     pooledCalibration: calibration,
     repeatStability: stability,
-    byCategory: aggregateClassMetrics(scoredRuns, privateCases)
+    byCategory: aggregateClassMetrics(scoredRuns, privateCases),
+    ...(includeProfiles ? { byProfile: Object.fromEntries([...new Set(scoredRuns.map((run) => run.profile))].sort().map((profile) => [
+      profile, buildAggregate({ scoredRuns: scoredRuns.filter((run) => run.profile === profile), privateCases, includeProfiles: false })
+    ])) } : {})
   };
 }
 
@@ -605,22 +731,31 @@ function evaluateGate(aggregate, thresholds = {}) {
     ['minCoverage', aggregate.coverage, finiteNumber(thresholds.minCoverage, 1), 'min'],
     ['minRepeatStability', aggregate.repeatStability.meanJaccard, finiteNumber(thresholds.minRepeatStability, 0.85), 'min'],
     ['maxFalsePositivesPerKloc', aggregate.falsePositivesPerKloc, finiteNumber(thresholds.maxFalsePositivesPerKloc, 0.25), 'max'],
-    ['maxMedianTokensPerTruePositive', aggregate.medianTokensPerTruePositive ?? Infinity, finiteNumber(thresholds.maxMedianTokensPerTruePositive, 50000), 'max'],
-    ['maxP95DurationMs', aggregate.p95DurationMs ?? Infinity, finiteNumber(thresholds.maxP95DurationMs, 300000), 'max'],
+    ['maxTokensPerTruePositive', aggregate.tokensPerTruePositive, finiteNumber(thresholds.maxTokensPerTruePositive ?? thresholds.maxMedianTokensPerTruePositive, 50000), 'max'],
+    ['maxP95DurationMs', aggregate.p95DurationMs, finiteNumber(thresholds.maxP95DurationMs, 300000), 'max'],
     ['maxExpectedCalibrationError', aggregate.expectedCalibrationError, finiteNumber(thresholds.maxExpectedCalibrationError, 0.2), 'max'],
     ['maxMeanSeverityRankError', aggregate.meanSeverityRankError, finiteNumber(thresholds.maxMeanSeverityRankError, 0.5), 'max']
   ].map(([name, actual, threshold, direction]) => {
-    const passed = direction === 'min' ? actual >= threshold : actual <= threshold;
+    const passed = Number.isFinite(actual) && (direction === 'min' ? actual >= threshold : actual <= threshold);
     return { name, direction, actual, threshold, passed };
   });
   if (thresholds.maxMedianCostPerTruePositiveUsd !== undefined) {
     checks.push({
       name: 'maxMedianCostPerTruePositiveUsd',
       direction: 'max',
-      actual: aggregate.medianCostPerTruePositiveUsd ?? Infinity,
+      actual: aggregate.costPerTruePositiveUsd,
       threshold: finiteNumber(thresholds.maxMedianCostPerTruePositiveUsd),
-      passed: (aggregate.medianCostPerTruePositiveUsd ?? Infinity) <= finiteNumber(thresholds.maxMedianCostPerTruePositiveUsd)
+      passed: Number.isFinite(aggregate.costPerTruePositiveUsd)
+        && aggregate.costPerTruePositiveUsd <= finiteNumber(thresholds.maxMedianCostPerTruePositiveUsd)
     });
+  }
+  for (const field of ['totalTokens', 'totalDurationMs', 'totalCostUsd']) {
+    checks.push({ name: `measured:${field}`, direction: 'min', actual: Number.isFinite(aggregate[field]) ? 1 : 0, threshold: 1,
+      passed: Number.isFinite(aggregate[field]) });
+  }
+  for (const [profile, metrics] of Object.entries(aggregate.byProfile || {})) {
+    const gate = evaluateGate(metrics, thresholds);
+    checks.push(...gate.checks.map((check) => ({ ...check, name: `profile:${profile}:${check.name}` })));
   }
   return {
     ok: checks.every((check) => check.passed),
@@ -635,6 +770,7 @@ function scoreSuite({ manifest, labels, runs, manifestPath }) {
     return {
       schemaVersion: 1,
       artifact: 'benchmark-report',
+      evidenceKind: EVIDENCE_KINDS.has(runs?.evidenceKind) ? runs.evidenceKind : 'synthetic',
       ok: false,
       suiteId: manifest && manifest.suiteId || null,
       generatedAt: new Date().toISOString(),
@@ -658,16 +794,221 @@ function scoreSuite({ manifest, labels, runs, manifestPath }) {
   return {
     schemaVersion: 1,
     artifact: 'benchmark-report',
+    evidenceKind: runs.evidenceKind,
+    provenance: runs.provenance || {},
     ok: gate.ok,
     suiteId: manifest.suiteId,
     generatedAt: new Date().toISOString(),
     manifestSha256: manifestPath ? sha256File(manifestPath) : null,
     validation,
     thresholds: manifest.thresholds || {},
+    labelCatalog: labels.cases.flatMap((entry) => entry.findings.map((label) => ({
+      labelId: label.labelId, caseId: entry.id, severity: label.severity
+    }))),
     runs: scoredRuns,
     aggregate,
     gate
   };
+}
+
+function gateReport(report) {
+  const validation = validateArtifactValue({ artifactName: 'benchmark-report', value: report });
+  if (!validation.ok || report.validation?.ok !== true || !report.aggregate || report.runs.length === 0) {
+    return { ok: false, checks: [], failed: ['input-validation'], errors: validation.errors };
+  }
+  const aggregate = buildAggregate({ scoredRuns: report.runs, privateCases: [] });
+  return evaluateGate(aggregate, report.thresholds || {});
+}
+
+function requireArtifact(artifactName, value) {
+  const result = validateArtifactValue({ artifactName, value });
+  if (!result.ok) throw new Error(`${artifactName}: ${result.errors.join('; ')}`);
+}
+
+function recordRun({ runDir, caseId, profile = 'balanced', repeat = 1, telemetryPath,
+  evidenceKind = 'replayed', manifestPath = path.join(BENCHMARK_ROOT, 'public-manifest.json'),
+  labelsPath = path.join(BENCHMARK_ROOT, 'private-labels.json') }) {
+  if (!EVIDENCE_KINDS.has(evidenceKind)) throw new Error('invalid evidenceKind');
+  if (!Number.isSafeInteger(repeat) || repeat < 1) throw new Error('repeat must be a positive integer');
+  if (!profile.trim()) throw new Error('profile is required');
+  const manifest = readJson(manifestPath);
+  const labels = readJson(labelsPath);
+  const validation = validatePublicManifest(manifest, { manifestPath, labels });
+  if (!validation.ok) throw new Error(validation.errors.join('; '));
+  if (sha256File(manifestPath) !== labels.publicManifestSha256) throw new Error('private labels manifest digest mismatch');
+  const publicCase = manifest.cases.find((entry) => entry.id === caseId);
+  const privateCase = labels.cases.find((entry) => entry.id === caseId);
+  if (!publicCase || !privateCase) throw new Error(`unknown case: ${caseId}`);
+  const artifactDir = fs.existsSync(path.join(runDir, '.bug-hunter')) ? path.join(runDir, '.bug-hunter') : runDir;
+  const findings = readJson(path.join(artifactDir, 'findings.json'));
+  const referee = readJson(path.join(artifactDir, 'referee.json'));
+  const scan = readJson(path.join(artifactDir, 'scan-report.json'));
+  requireArtifact('findings', findings);
+  requireArtifact('referee', referee);
+  requireArtifact('scan-report', scan);
+  const byId = new Map(findings.map((finding) => [finding.bugId, finding]));
+  const verdicts = new Map(referee.map((verdict) => [verdict.bugId, verdict]));
+  if (byId.size !== findings.length || verdicts.size !== referee.length) throw new Error('duplicate artifact bugId');
+  const seen = new Set();
+  for (const bucket of ['confirmed', 'dismissed', 'manualReview', 'unreviewed']) {
+    if (scan.counts[bucket] !== scan[bucket].length) throw new Error(`scan-report ${bucket} count mismatch`);
+    for (const row of scan[bucket]) {
+      const finding = byId.get(row.id);
+      const verdict = verdicts.get(row.id);
+      if (!finding || seen.has(row.id) || !isDeepStrictEqual(row.finding, finding)) {
+        throw new Error(`scan-report finding mismatch: ${row.id}`);
+      }
+      seen.add(row.id);
+      const expectedVerdict = { confirmed: 'REAL_BUG', dismissed: 'NOT_A_BUG', manualReview: 'MANUAL_REVIEW' }[bucket];
+      if (expectedVerdict && (!verdict || verdict.verdict !== expectedVerdict
+        || !isDeepStrictEqual(row.verdict, verdict))) throw new Error(`scan-report verdict mismatch: ${row.id}`);
+      if (!expectedVerdict && verdict) throw new Error(`reviewed finding in unreviewed bucket: ${row.id}`);
+    }
+  }
+  if (seen.size !== findings.length || scan.counts.findings !== findings.length
+    || referee.some((verdict) => !byId.has(verdict.bugId))) throw new Error('artifact finding coverage mismatch');
+  const optionalTelemetry = telemetryPath || path.join(artifactDir, 'telemetry.json');
+  const telemetry = (telemetryPath || fs.existsSync(optionalTelemetry)) ? readJson(optionalTelemetry) : {};
+  if (!telemetry || typeof telemetry !== 'object' || Array.isArray(telemetry)) throw new Error('telemetry must be an object');
+  const usage = telemetry.usage || telemetry;
+  const telemetryValue = (value, field) => {
+    if (value !== undefined && value !== null && !isMeasurement(value)) throw new Error(`invalid telemetry ${field}`);
+    return measurement(value);
+  };
+  const input = telemetryValue(telemetry.inputTokens ?? usage.input_tokens, 'inputTokens');
+  const output = telemetryValue(telemetry.outputTokens ?? usage.output_tokens, 'outputTokens');
+  const extraInput = ['cache_creation_input_tokens', 'cache_read_input_tokens'].reduce((sum, key) => {
+    if (usage[key] === undefined) return sum;
+    if (!isMeasurement(usage[key])) throw new Error(`invalid telemetry ${key}`);
+    return sum + usage[key];
+  }, 0);
+  const run = {
+    runId: `${caseId}:${profile}:${repeat}`,
+    caseId, profile, repeat,
+    inputTokens: input === null ? null : input + extraInput,
+    outputTokens: output,
+    durationMs: telemetryValue(telemetry.durationMs ?? telemetry.duration_ms, 'durationMs'),
+    costUsd: telemetryValue(telemetry.costUsd ?? telemetry.total_cost_usd, 'costUsd'),
+    coverage: { filesDone: scan.filesScanned, filesTotal: publicCase.sourceFiles.length },
+    findings: scan.confirmed.map((row) => ({ ...row.finding,
+      severity: row.verdict.trueSeverity, confidenceScore: row.verdict.confidenceScore })),
+    artifactSha256: { ...Object.fromEntries(['findings.json', 'referee.json', 'scan-report.json'].map((name) => [
+      name, sha256File(path.join(artifactDir, name))
+    ])), ...(fs.existsSync(optionalTelemetry) ? { telemetry: sha256File(optionalTelemetry) } : {}) },
+    provenance: { agent: telemetry.agent || null, model: telemetry.model || null, skillGitSha: telemetry.skillGitSha || null }
+  };
+  for (const finding of run.findings) {
+    const errors = findingErrors(finding);
+    if (errors.length > 0) throw new Error(errors.join('; '));
+    if (!publicCase.sourceFiles.includes(normalizePath(finding.file))) throw new Error(`finding outside case: ${finding.file}`);
+  }
+  if (run.coverage.filesDone > run.coverage.filesTotal) throw new Error('filesScanned exceeds case source file count');
+  return {
+    schemaVersion: 1, suiteId: manifest.suiteId, evidenceKind,
+    provenance: { agent: telemetry.agent || null, model: telemetry.model || null,
+      skillGitSha: telemetry.skillGitSha || null, caseHashes: { [caseId]: publicCase.sha256 } },
+    runs: [run],
+    scores: [scoreRun({ run, publicCase, privateCase, matchThreshold: manifest.matchThreshold })]
+  };
+}
+
+// Seeded, paired bootstrap over case clusters: repeats from one case stay together.
+function bootstrapComparison(baseline, candidate, samples = 1000) {
+  let seed = 0x6b756768;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  const cases = [...new Set(baseline.runs.map((run) => run.caseId))].sort();
+  const metric = (runs, name) => {
+    const tp = runs.reduce((sum, run) => sum + run.truePositives, 0);
+    const other = runs.reduce((sum, run) => sum + (name === 'precision' ? run.falsePositives : run.falseNegatives), 0);
+    return ratio(tp, tp + other, 1);
+  };
+  const output = {};
+  for (const name of ['precision', 'recall']) {
+    const values = { baseline: [], candidate: [], delta: [] };
+    for (let index = 0; index < samples; index += 1) {
+      const selection = cases.map(() => cases[Math.floor(random() * cases.length)]);
+      const left = metric(selection.flatMap((id) => baseline.runs.filter((run) => run.caseId === id)), name);
+      const right = metric(selection.flatMap((id) => candidate.runs.filter((run) => run.caseId === id)), name);
+      values.baseline.push(left);
+      values.candidate.push(right);
+      values.delta.push(right - left);
+    }
+    output[name] = Object.fromEntries(Object.entries(values).map(([key, entries]) => [key, {
+      estimate: key === 'delta' ? metric(candidate.runs, name) - metric(baseline.runs, name)
+        : metric(key === 'baseline' ? baseline.runs : candidate.runs, name),
+      lower: percentile(entries, 0.025), upper: percentile(entries, 0.975)
+    }]));
+  }
+  return { method: 'paired-case-bootstrap', confidenceLevel: 0.95, samples, caseCount: cases.length, ...output };
+}
+
+function compareReports(baseline, candidate, { qualityTolerance = 0.05, efficiencyTolerance = 0.2 } = {}) {
+  for (const report of [baseline, candidate]) {
+    requireArtifact('benchmark-report', report);
+    if (!report.validation.ok || !report.aggregate || report.runs.length === 0) throw new Error('cannot compare invalid or empty reports');
+  }
+  if (baseline.suiteId !== candidate.suiteId || baseline.manifestSha256 !== candidate.manifestSha256) {
+    throw new Error('comparison requires the same suite and corpus digest');
+  }
+  const runKey = (run) => `${run.caseId}|${run.profile}|${run.repeat}`;
+  const baselineKeys = baseline.runs.map(runKey).sort();
+  const candidateKeys = candidate.runs.map(runKey).sort();
+  if (new Set(baselineKeys).size !== baselineKeys.length || JSON.stringify(baselineKeys) !== JSON.stringify(candidateKeys)) {
+    throw new Error('comparison requires paired cases, profiles, and repeats');
+  }
+  if (JSON.stringify(baseline.labelCatalog) !== JSON.stringify(candidate.labelCatalog)) throw new Error('comparison requires the same label catalog');
+  if (!Array.isArray(baseline.labelCatalog)) throw new Error('comparison requires labelCatalog; re-score older reports');
+  const candidateByRun = new Map(candidate.runs.map((run) => [runKey(run), run]));
+  const labels = baseline.labelCatalog.map((label) => {
+    const left = baseline.runs.filter((run) => run.caseId === label.caseId);
+    const right = candidate.runs.filter((run) => run.caseId === label.caseId);
+    const baselineHits = left.filter((run) => run.matchedLabelIds.includes(label.labelId)).length;
+    const candidateHits = right.filter((run) => run.matchedLabelIds.includes(label.labelId)).length;
+    return { ...label, instances: left.length, baselineHits, candidateHits,
+      baselineHitRate: ratio(baselineHits, left.length), candidateHitRate: ratio(candidateHits, right.length),
+      newlyFound: left.filter((run) => !run.matchedLabelIds.includes(label.labelId)
+        && candidateByRun.get(runKey(run)).matchedLabelIds.includes(label.labelId)).map(runKey),
+      lost: left.filter((run) => run.matchedLabelIds.includes(label.labelId)
+        && !candidateByRun.get(runKey(run)).matchedLabelIds.includes(label.labelId)).map(runKey) };
+  });
+  const fpDelta = (left, right) => left.runs.flatMap((run) => {
+    const peer = right.runs.find((entry) => runKey(entry) === runKey(run));
+    const remaining = [...peer.falsePositiveFingerprints];
+    return run.falsePositiveFingerprints.filter((fingerprint) => {
+      const index = remaining.indexOf(fingerprint);
+      if (index < 0) return true;
+      remaining.splice(index, 1);
+      return false;
+    }).map((fingerprint) => ({ run: runKey(run), fingerprint }));
+  });
+  const confidenceIntervals = bootstrapComparison(baseline, candidate);
+  const failed = [];
+  for (const label of labels) {
+    if (SEVERITY_RANK[label.severity] >= SEVERITY_RANK.High
+      && label.baselineHits === label.instances && label.candidateHits < label.instances) failed.push(`lost:${label.labelId}`);
+  }
+  for (const name of ['precision', 'recall']) {
+    if (confidenceIntervals[name].delta.estimate < -qualityTolerance) failed.push(`regressed:${name}`);
+  }
+  const efficiency = {};
+  for (const name of ['tokensPerTruePositive', 'p95DurationMs']) {
+    const left = baseline.aggregate[name];
+    const right = candidate.aggregate[name];
+    efficiency[name] = { baseline: left, candidate: right,
+      relativeChange: Number.isFinite(left) && Number.isFinite(right) && left > 0 ? (right - left) / left : null };
+    if (!Number.isFinite(left) || !Number.isFinite(right)) failed.push(`unknown:${name}`);
+    else if (right > left * (1 + efficiencyTolerance)) failed.push(`regressed:${name}`);
+  }
+  return { ok: failed.length === 0, suiteId: baseline.suiteId,
+    evidenceKind: { baseline: baseline.evidenceKind, candidate: candidate.evidenceKind },
+    qualityTolerance, efficiencyTolerance, labels,
+    newlyFound: labels.filter((label) => label.newlyFound.length).map((label) => label.labelId),
+    lost: labels.filter((label) => label.lost.length).map((label) => label.labelId),
+    newFalsePositives: fpDelta(candidate, baseline), removedFalsePositives: fpDelta(baseline, candidate),
+    confidenceIntervals, efficiency, failed };
 }
 
 function main() {
@@ -676,7 +1017,11 @@ function main() {
   if (command === 'validate-public') {
     if (!options.manifest) throw new Error('--manifest is required');
     const manifest = readJson(path.resolve(options.manifest));
-    const result = validatePublicManifest(manifest);
+    const manifestPath = path.resolve(options.manifest);
+    const labels = readJson(path.resolve(options.labels || path.join(path.dirname(manifestPath), 'private-labels.json')));
+    const result = validatePublicManifest(manifest, { manifestPath, labels });
+    if (labels.publicManifestSha256 !== sha256File(manifestPath)) result.errors.push('private labels manifest digest mismatch');
+    result.ok = result.errors.length === 0;
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) process.exitCode = 1;
     return;
@@ -684,8 +1029,36 @@ function main() {
   if (command === 'gate') {
     if (!options.report) throw new Error('--report is required');
     const report = readJson(path.resolve(options.report));
-    console.log(JSON.stringify({ ok: report.ok === true, gate: report.gate || null }, null, 2));
-    if (report.ok !== true) process.exitCode = 1;
+    const gate = gateReport(report);
+    console.log(JSON.stringify({ ok: gate.ok, gate }, null, 2));
+    if (!gate.ok) process.exitCode = 1;
+    return;
+  }
+  if (command === 'record') {
+    if (!options['run-dir'] || !options.case || !options.output) throw new Error('--run-dir, --case, and --output are required');
+    const recording = recordRun({ runDir: path.resolve(options['run-dir']), caseId: options.case,
+      profile: options.profile || 'balanced', repeat: Number(options.repeat || 1),
+      telemetryPath: options.telemetry && path.resolve(options.telemetry), evidenceKind: options['evidence-kind'] || 'replayed',
+      manifestPath: options.manifest && path.resolve(options.manifest), labelsPath: options.labels && path.resolve(options.labels) });
+    const outputPath = path.resolve(options.output);
+    if (fs.existsSync(outputPath)) {
+      const previous = readJson(outputPath);
+      if (previous.suiteId !== recording.suiteId || previous.evidenceKind !== recording.evidenceKind) throw new Error('incompatible recording bundle');
+      if (previous.runs.some((run) => run.runId === recording.runs[0].runId)) throw new Error('duplicate recorded run');
+      recording.runs = [...previous.runs, ...recording.runs];
+      recording.scores = [...previous.scores || [], ...recording.scores];
+      recording.provenance.caseHashes = { ...previous.provenance?.caseHashes, ...recording.provenance.caseHashes };
+    }
+    writeJson(outputPath, recording);
+    console.log(JSON.stringify({ output: outputPath, evidenceKind: recording.evidenceKind, runs: recording.runs.length }));
+    return;
+  }
+  if (command === 'compare') {
+    if (!options.baseline || !options.candidate) throw new Error('--baseline and --candidate are required');
+    const result = compareReports(readJson(path.resolve(options.baseline)), readJson(path.resolve(options.candidate)));
+    if (options.output) writeJson(path.resolve(options.output), result);
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) process.exitCode = 1;
     return;
   }
   if (command === 'score') {
@@ -720,8 +1093,12 @@ if (require.main === module) {
 module.exports = {
   buildAggregate,
   candidateScore,
+  compareReports,
   evaluateGate,
+  findingErrors,
+  gateReport,
   matchFindings,
+  recordRun,
   scoreRun,
   scoreSuite,
   validateInputs,

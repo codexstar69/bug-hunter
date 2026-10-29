@@ -8,7 +8,9 @@ const {
   SOURCE_EXTENSION_LIST,
   inferSourceExtension,
   isSupportedSourceFile,
-  isTestSourcePath
+  isTestSourcePath,
+  classifySourcePath,
+  extractImports
 } = require('./source-config.cjs');
 
 const JS_CALL_KEYWORDS = new Set([
@@ -47,7 +49,7 @@ function readJson(filePath) {
 
 function writeJson(filePath, value) {
   ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(filePath, `${JSON.stringify(value)}\n`, 'utf8');
 }
 
 function sha256(input) {
@@ -62,74 +64,6 @@ function isTestFile(filePath) {
   return isTestSourcePath(filePath);
 }
 
-function inferRiskHint(relativePath) {
-  const normalized = relativePath.toLowerCase();
-  if (isTestFile(relativePath)) {
-    return 'context-only';
-  }
-  if (/(auth|middleware|route|router|api|controller|handler|server|webhook|payment|billing)/.test(normalized)) {
-    return 'critical';
-  }
-  if (/(service|state|store|db|repository|queue|worker|cron|job|model)/.test(normalized)) {
-    return 'high';
-  }
-  return 'medium';
-}
-
-function inferTrustBoundaries(relativePath, content) {
-  const boundaries = new Set();
-  const normalizedPath = relativePath.toLowerCase();
-  const normalizedContent = content.toLowerCase();
-
-  if (/(route|router|api|controller|handler|webhook)/.test(normalizedPath)) {
-    boundaries.add('external-input');
-  }
-  if (/(auth|middleware|session|token|jwt|permission|acl)/.test(normalizedPath + normalizedContent)) {
-    boundaries.add('auth');
-  }
-  if (/(db|model|repository|query|prisma|sql|mongo|redis)/.test(normalizedPath + normalizedContent)) {
-    boundaries.add('data-store');
-  }
-  if (/(queue|worker|cron|job|kafka|rabbitmq|sqs|pubsub)/.test(normalizedPath + normalizedContent)) {
-    boundaries.add('async-boundary');
-  }
-
-  return [...boundaries].sort();
-}
-
-function extractImports(content, extension) {
-  const imports = new Set();
-  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(extension)) {
-    const regexes = [
-      /import\s+[^'"]*?from\s+['"]([^'"]+)['"]/g,
-      /import\s*['"]([^'"]+)['"]/g,
-      /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-      /require\(\s*['"]([^'"]+)['"]\s*\)/g,
-      /export\s+[^'"]*?from\s+['"]([^'"]+)['"]/g
-    ];
-    for (const regex of regexes) {
-      let match = regex.exec(content);
-      while (match) {
-        imports.add(match[1]);
-        match = regex.exec(content);
-      }
-    }
-  } else if (extension === '.py') {
-    const importRegex = /^\s*import\s+([a-zA-Z0-9_\.]+)/gm;
-    const fromRegex = /^\s*from\s+([a-zA-Z0-9_\.]+)\s+import\s+/gm;
-    let match = importRegex.exec(content);
-    while (match) {
-      imports.add(match[1]);
-      match = importRegex.exec(content);
-    }
-    match = fromRegex.exec(content);
-    while (match) {
-      imports.add(match[1]);
-      match = fromRegex.exec(content);
-    }
-  }
-  return [...imports];
-}
 
 function extractSymbols(content, extension) {
   const symbols = new Set();
@@ -228,32 +162,8 @@ function normalizeFilePath(filePath) {
   return path.resolve(filePath);
 }
 
-function buildCallGraph(filesIndex, symbolDefinitions) {
-  const graph = {};
-  for (const [filePath, entry] of Object.entries(filesIndex)) {
-    const callees = new Set();
-    const unresolved = new Set();
-    for (const callName of entry.calls) {
-      const targets = symbolDefinitions[callName] || [];
-      if (targets.length === 1) {
-        callees.add(targets[0]);
-        continue;
-      }
-      if (targets.length > 1) {
-        const externalTargets = targets.filter((targetFile) => targetFile !== filePath);
-        for (const target of externalTargets) {
-          callees.add(target);
-        }
-        continue;
-      }
-      unresolved.add(callName);
-    }
-    graph[filePath] = {
-      callees: [...callees].sort(),
-      unresolvedCalls: [...unresolved].sort()
-    };
-  }
-  return graph;
+function own(dictionary, key) {
+  return dictionary && Object.hasOwn(dictionary, key) ? dictionary[key] : undefined;
 }
 
 function expandByHops({ seeds, index, hops }) {
@@ -262,8 +172,8 @@ function expandByHops({ seeds, index, hops }) {
   for (let hop = 0; hop < hops; hop += 1) {
     const next = new Set();
     for (const filePath of frontier) {
-      const deps = (index.files[filePath] && index.files[filePath].dependencies) || [];
-      const reverse = index.reverseDependencies[filePath] || [];
+      const deps = (own(index.files, filePath) && own(index.files, filePath).dependencies) || [];
+      const reverse = own(index.reverseDependencies, filePath) || [];
       for (const neighbor of [...deps, ...reverse]) {
         if (selected.has(neighbor)) {
           continue;
@@ -286,16 +196,31 @@ function buildIndex(indexPath, filesJsonPath, repoRootInput) {
     throw new Error('filesJsonPath must contain an array');
   }
   const repoRoot = path.resolve(repoRootInput || process.cwd());
-  const files = [...new Set(filesRaw.map((filePath) => normalizeFilePath(filePath)))]
-    .filter((filePath) => fs.existsSync(filePath))
-    .filter((filePath) => isSupportedSource(filePath));
+  const skippedFiles = [];
+  const files = [...new Set(filesRaw.map((filePath) => normalizeFilePath(filePath)))].filter((filePath) => {
+    try {
+      if (!isSupportedSource(filePath)) return false;
+      return true;
+    } catch (error) {
+      skippedFiles.push({ path: filePath, reason: 'file-read-failed', code: error.code || 'UNKNOWN' });
+      return false;
+    }
+  });
   const fileSet = new Set(files);
-  const filesIndex = {};
+  const filesIndex = Object.create(null);
   const reverseDepsMap = new Map();
-  const symbolDefinitions = {};
+  const symbolDefinitions = new Map();
+  const callsByFile = new Map();
 
   for (const filePath of files) {
-    const content = fs.readFileSync(filePath, 'utf8');
+    let bytes;
+    try { bytes = fs.readFileSync(filePath); }
+    catch (error) {
+      skippedFiles.push({ path: filePath, reason: 'file-read-failed', code: error.code || 'UNKNOWN' });
+      fileSet.delete(filePath);
+      continue;
+    }
+    const content = bytes.toString('utf8');
     const extension = inferSourceExtension(filePath, content);
     const importsRaw = extractImports(content, extension);
     const symbols = extractSymbols(content, extension);
@@ -317,41 +242,48 @@ function buildIndex(indexPath, filesJsonPath, repoRootInput) {
     }
 
     const relativePath = path.relative(repoRoot, filePath) || path.basename(filePath);
-    const trustBoundaries = inferTrustBoundaries(relativePath, content);
+    const { riskHint, trustBoundaries } = classifySourcePath(relativePath, importsRaw);
+    callsByFile.set(filePath, calls);
     filesIndex[filePath] = {
       relativePath,
       extension,
-      hash: sha256(content),
+      hash: sha256(bytes),
+      hashAlgorithm: 'sha256-bytes',
       lineCount: content.split('\n').length,
-      importsRaw,
+      bytes: bytes.length,
       symbols,
-      calls,
       dependencies: [...new Set(resolvedDeps)].sort(),
       unresolvedDependencies: [...new Set(unresolvedDeps)].sort(),
-      riskHint: inferRiskHint(relativePath),
+      riskHint,
       trustBoundaries,
       isTest: isTestFile(relativePath)
     };
 
     for (const symbol of symbols) {
-      if (!symbolDefinitions[symbol]) {
-        symbolDefinitions[symbol] = [];
-      }
-      symbolDefinitions[symbol].push(filePath);
+      if (!symbolDefinitions.has(symbol)) symbolDefinitions.set(symbol, []);
+      symbolDefinitions.get(symbol).push(filePath);
     }
   }
 
-  const reverseDependencies = {};
+  const reverseDependencies = Object.create(null);
   for (const [dependencyPath, dependents] of reverseDepsMap.entries()) {
     reverseDependencies[dependencyPath] = [...dependents].sort();
   }
 
-  const callGraph = buildCallGraph(filesIndex, symbolDefinitions);
+  // Only the edge metric is consumed; avoid persisting duplicate symbol/call graphs.
+  let callEdges = 0;
+  for (const [filePath, calls] of callsByFile) {
+    const callees = new Set();
+    for (const callName of calls) {
+      const targets = symbolDefinitions.get(callName) || [];
+      for (const target of targets) {
+        if (targets.length === 1 || target !== filePath) callees.add(target);
+      }
+    }
+    callEdges += callees.size;
+  }
   const symbolCount = Object.values(filesIndex).reduce((sum, entry) => {
     return sum + entry.symbols.length;
-  }, 0);
-  const callEdges = Object.values(callGraph).reduce((sum, entry) => {
-    return sum + entry.callees.length;
   }, 0);
   const trustBoundaryFiles = Object.values(filesIndex).filter((entry) => {
     return Array.isArray(entry.trustBoundaries) && entry.trustBoundaries.length > 0;
@@ -370,16 +302,16 @@ function buildIndex(indexPath, filesJsonPath, repoRootInput) {
       callEdges,
       trustBoundaryFiles
     },
+    skippedFiles,
     files: filesIndex,
-    symbolDefinitions,
-    reverseDependencies,
-    callGraph
+    reverseDependencies
   };
 
   writeJson(indexPath, index);
   return {
     ok: true,
     indexPath,
+    skippedFiles,
     metrics: index.metrics
   };
 }
@@ -403,13 +335,13 @@ function getDeps(indexPath, filePath, reverse) {
     return {
       ok: true,
       file: normalizedTarget,
-      reverseDependencies: index.reverseDependencies[normalizedTarget] || []
+      reverseDependencies: own(index.reverseDependencies, normalizedTarget) || []
     };
   }
   return {
     ok: true,
     file: normalizedTarget,
-    dependencies: (index.files[normalizedTarget] && index.files[normalizedTarget].dependencies) || []
+    dependencies: (own(index.files, normalizedTarget) && own(index.files, normalizedTarget).dependencies) || []
   };
 }
 
@@ -427,7 +359,7 @@ function query(indexPath, seedFilesJsonPath, hopsRaw) {
     .filter((filePath) => filesInIndex.has(filePath));
   const selected = expandByHops({ seeds, index, hops: hops > 0 ? hops : 1 });
   const trustBoundaryFiles = selected.filter((filePath) => {
-    const fileMeta = index.files[filePath];
+    const fileMeta = own(index.files, filePath);
     return fileMeta && Array.isArray(fileMeta.trustBoundaries) && fileMeta.trustBoundaries.length > 0;
   });
   return {
@@ -539,10 +471,14 @@ function main() {
   process.exit(1);
 }
 
-try {
-  main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exit(1);
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  }
 }
+
+module.exports = { buildIndex, extractImports, query };

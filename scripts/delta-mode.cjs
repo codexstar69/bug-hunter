@@ -7,6 +7,7 @@ function usage() {
   console.error('Usage:');
   console.error('  delta-mode.cjs select <indexPath> <changedFilesJsonPath> [hops]');
   console.error('  delta-mode.cjs expand <indexPath> <seedFilesJsonPath> <alreadySelectedFilesJsonPath> [hops]');
+  console.error('  select returns a bounded expansionCandidates sample and the full expansionCandidatesCount.');
 }
 
 function readJson(filePath) {
@@ -38,8 +39,8 @@ function normalizeFile(filePath) {
 }
 
 function buildGraph(index) {
-  const graph = {};
-  const reverse = {};
+  const graph = Object.create(null);
+  const reverse = Object.create(null);
   const files = Object.keys(index.files || {});
 
   for (const filePath of files) {
@@ -96,7 +97,7 @@ function criticalOverlay(index, selected) {
       }
       const risk = String((meta && meta.riskHint) || '').toLowerCase();
       const boundaries = (meta && Array.isArray(meta.trustBoundaries)) ? meta.trustBoundaries : [];
-      return risk === 'critical' || boundaries.length > 0;
+      return risk !== 'context-only' && !(meta && meta.isTest) && (risk === 'critical' || boundaries.some((boundary) => boundary === 'auth' || boundary === 'external-input'));
     })
     .map(([filePath]) => filePath);
 }
@@ -133,7 +134,9 @@ function select(indexPath, changedFilesJsonPath, hopsRaw) {
     changedInIndex: seedsInIndex.length,
     unindexedChanged,
     selected,
-    expansionCandidates: overlays,
+    // Keep a bounded compatibility sample; the count represents the full overlay.
+    expansionCandidates: overlays.slice(0, 16),
+    expansionCandidatesCount: overlays.length,
     metrics: {
       selectedCount: selected.length,
       expansionCandidatesCount: overlays.length
@@ -162,7 +165,13 @@ function expand(indexPath, seedFilesJsonPath, alreadySelectedFilesJsonPath, hops
   const expanded = [...expandedSet]
     .filter((filePath) => !alreadySelected.has(filePath));
   const overlayOnly = overlays.filter((filePath) => !expandedSet.has(filePath));
-  const prioritized = [...overlayOnly, ...expanded];
+  // Keep the first overlay first, while reserving half of each capped prefix
+  // for graph expansion until the graph neighbors have been exhausted.
+  const prioritized = [];
+  for (let offset = 0; offset < Math.max(overlayOnly.length, expanded.length); offset += 1) {
+    if (offset < overlayOnly.length) prioritized.push(overlayOnly[offset]);
+    if (offset < expanded.length) prioritized.push(expanded[offset]);
+  }
 
   return {
     ok: true,
@@ -197,7 +206,7 @@ function main() {
       path.resolve(changedFilesJsonPath),
       hopsRaw
     );
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
     return;
   }
 
@@ -213,7 +222,7 @@ function main() {
       path.resolve(alreadySelectedFilesJsonPath),
       hopsRaw
     );
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
     return;
   }
 
@@ -222,9 +231,11 @@ function main() {
 }
 
 try {
-  main();
+  if (require.main === module) main();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);
   process.exit(1);
 }
+
+module.exports = { criticalOverlay, expand, select };

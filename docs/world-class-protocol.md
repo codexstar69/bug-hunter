@@ -50,6 +50,12 @@ node scripts/adaptive-policy.cjs plan \
   --output .bug-hunter/adaptive-plan.json
 ```
 
+Benchmark, adaptive-plan, retrieval-plan, and verification artifacts are
+integration-specific inputs rather than mandatory context for installed scans.
+Validated policies can narrow reading order and reviewer depth, never enlarge
+caller scope or mutation authority. Cached facts require current source checks;
+explicit caller source/chunk/token/confidence values take precedence.
+
 ## Hypothesis-directed retrieval
 
 `retrieval-planner.cjs` starts from named hypotheses, mandatory files, referenced symbols, trust boundaries, dependencies, and dependents. Direct evidence is selected first. Graph context is admitted only while hard file and source-token budgets remain available. Every selected item records why it was chosen and which symbol slices are relevant.
@@ -69,7 +75,7 @@ Evidence cache keys include protocol version, role, hypothesis identity, effecti
 
 ## Hybrid verification
 
-`hybrid-verifier.cjs` runs compiler, type-checker, test, static-analysis, build, reproduction, or fuzz commands as inert argument arrays with `shell: false`. Every command has repository containment, timeout, output, and total-budget limits. Missing or failing required checks make the verification report fail closed.
+`hybrid-verifier.cjs` runs compiler, type-checker, test, static-analysis, build, reproduction, or fuzz commands as inert argument arrays with `shell: false`. Every command has repository containment, timeout, output, and total-budget limits. Missing or failing required checks make the verification report fail closed. The total budget includes process termination and pipe cleanup; the deadline reserves cleanup time instead of adding a fresh kill grace. Timing regressions allow 100 ms of operating-system scheduling tolerance.
 
 ```bash
 node scripts/hybrid-verifier.cjs run \

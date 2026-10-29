@@ -1,141 +1,110 @@
 ---
 title: Hunter Analysis Examples
-description: Calibration cases for evidence-backed Hunter findings.
-prompt: |
-  launch parallel agnents and finish it all
-
-  Preserve the legacy Hunter calibration content and make
-  @skills/hunter/SKILL.md the canonical runtime source.
+description: Behavioral findings and checked negative controls.
 ---
 
-# Hunter Analysis Examples
+# Hunter calibration examples
 
-Role-skill calibration examples showing the expected analysis process and BUG-N output format with STRIDE/CWE classification. Study these before scanning.
+These are illustrative repositories. Trace the cited producer, caller, and guards; code shape alone does not prove a defect. JSON is canonical. Apply the shared severity rubric and confidence calibration.
 
----
+## Example 1: SQL injection with a traced external input
 
-## Example 1: SQL Injection — CONFIRMED (Critical)
+`src/api/users.py:45-49` reads a public request's `q`, interpolates it into SQL, and executes the result. The route at `src/routes.py:8` has no input guard. The quote below matches the operation; a parameter tuple would instead make this a negative control.
 
-**Input code** (`src/api/users.py:45-52`):
-```python
-def search_users(request):
-    query = request.GET.get('q', '')
-    sql = f"SELECT * FROM users WHERE name LIKE '%{query}%'"
-    cursor.execute(sql)
-    return cursor.fetchall()
-```
-
-**Analysis:** `query` from HTTP param → f-string interpolation → `cursor.execute()`. No sanitization, no ORM, no parameterization.
-
-**Output:**
-```
-**BUG-1** | Severity: Critical | Points: 10
-- **File:** src/api/users.py
-- **Line(s):** 45-52
-- **Category:** security
-- **STRIDE:** Tampering
-- **CWE:** CWE-89
-- **Claim:** SQL injection via unsanitized user input in f-string query
-- **Evidence:** `sql = f"SELECT * FROM users WHERE name LIKE '%{query}%'"` (line 47)
-- **Runtime trigger:** GET /api/users?q=test' OR '1'='1 — returns all users instead of search results
-- **Cross-references:** Single file
-```
-
----
-
-## Example 2: IDOR — CONFIRMED (Critical)
-
-**Input code** (`src/routes/documents.js:23-30`):
-```javascript
-router.get('/api/documents/:id', async (req, res) => {
-  const document = await Document.findById(req.params.id);
-  if (!document) return res.status(404).json({ error: 'Not found' });
-  res.json(document);
-});
-```
-
-**Analysis:** `req.params.id` → `findById()` → response. No ownership check. Any user can access any document by ID.
-
-**Output:**
-```
-**BUG-2** | Severity: Critical | Points: 10
-- **File:** src/routes/documents.js
-- **Line(s):** 23-30
-- **Category:** security
-- **STRIDE:** InfoDisclosure
-- **CWE:** CWE-639
-- **Claim:** IDOR — document access without ownership verification
-- **Evidence:** `const document = await Document.findById(req.params.id);` (line 24) — no user/ownership filter
-- **Runtime trigger:** GET /api/documents/other-users-doc-id — returns another user's private document
-- **Cross-references:** Single file
-```
-
----
-
-## Example 3: Command Injection — CONFIRMED (Critical)
-
-**Input code** (`src/utils/image_processor.py:15-20`):
-```python
-def resize_image(filename, width, height):
-    command = f"convert {filename} -resize {width}x{height} resized_{filename}"
-    os.system(command)
-```
-
-**Analysis:** `filename` → f-string → `os.system()`. Shell metacharacters in filename = RCE.
-
-**Output:**
-```
-**BUG-3** | Severity: Critical | Points: 10
-- **File:** src/utils/image_processor.py
-- **Line(s):** 15-20
-- **Category:** security
-- **STRIDE:** Tampering
-- **CWE:** CWE-78
-- **Claim:** Command injection via unsanitized filename in os.system()
-- **Evidence:** `os.system(f"convert {filename} -resize {width}x{height} resized_{filename}")` (line 17)
-- **Runtime trigger:** Upload file named `img.jpg; rm -rf / #` — executes arbitrary shell commands
-- **Cross-references:** Single file
-```
-
----
-
-## Example 4: FALSE POSITIVE — Parameterized Query
-
-**Input code** (`src/api/products.py:30-35`):
-```python
-def get_products(category_id):
-    cursor.execute("SELECT * FROM products WHERE category_id = %s", (category_id,))
-    return cursor.fetchall()
-```
-
-**Analysis:** Uses `%s` placeholder with parameter tuple — this is parameterized, NOT string formatting. The database driver handles escaping. This is the SAFE pattern.
-
-**Result: NO FINDING.** Do not report this.
-
----
-
-## Example 5: FALSE POSITIVE — Authorization in Middleware
-
-**Input code** (`src/routes/documents.ts:15-22`):
-```typescript
-router.get('/api/documents/:id',
-  requireAuth,
-  requireOwnership('document'),
-  async (req, res) => {
-    const document = await Document.findById(req.params.id);
-    res.json(document);
+```json
+[
+  {
+    "bugId": "BUG-1",
+    "severity": "Critical",
+    "category": "security",
+    "file": "src/api/users.py",
+    "lines": "45-49",
+    "claim": "Public search permits SQL injection.",
+    "evidence": "src/api/users.py:47 sql = f\"SELECT * FROM users WHERE name = '{query}'\"; line 48 cursor.execute(sql)",
+    "runtimeTrigger": "GET /users?q=' OR '1'='1 returns other users' rows.",
+    "crossReferences": [
+      "src/routes.py:8"
+    ],
+    "confidenceScore": 94,
+    "confidenceLabel": "high",
+    "stride": "Tampering",
+    "cwe": "CWE-89"
   }
-);
+]
 ```
 
-**Analysis:** The handler doesn't check ownership, BUT `requireOwnership('document')` middleware runs first. Authorization is enforced in a different layer — this is a valid and common pattern.
+## Example 2: Nullable client contract and narrowed caller
 
-**Result: NO FINDING.** Do not report this.
+The producer returns null for a valid account without a profile. The caller at `src/profile.ts:8` dereferences it:
 
----
+```typescript
+// src/client.ts:4
+export async function getProfile(): Promise<Profile | null> { return api.profile(); }
+// src/profile.ts:8
+return (await getProfile()).name;
+```
 
-## Key Calibration Points
+```json
+[
+  {
+    "bugId": "BUG-2",
+    "severity": "High",
+    "category": "api-contract",
+    "file": "src/profile.ts",
+    "lines": "8",
+    "claim": "A valid account without a profile crashes the profile view.",
+    "evidence": "src/client.ts:4 permits null; src/profile.ts:8 immediately reads .name.",
+    "runtimeTrigger": "Open the profile view for an account whose profile endpoint returns null.",
+    "crossReferences": [
+      "src/client.ts:4"
+    ],
+    "confidenceScore": 94,
+    "confidenceLabel": "high",
+    "stride": "N/A",
+    "cwe": "N/A"
+  }
+]
+```
 
-**Report when:** Direct user input → dangerous sink with no validation/sanitization in the path.
+Negative control: at `src/profile.ts:8-10`, `if (profile === null) return "No profile"` executes before `.name`. Reading the producer and this caller proves the nullable path is handled; emit `[]`.
 
-**Do NOT report when:** Input is parameterized, validated by middleware/schema, or comes from a trusted source (JWT, server-signed token). Always trace the FULL data flow before reporting.
+## Example 3: Concurrent Go map and synchronized control
+
+```go
+// cache.go:7
+var cache = map[string]string{}
+// cache.go:12; registered as a net/http handler at server.go:9
+func put(w http.ResponseWriter, r *http.Request) { cache[r.URL.Path] = "seen" }
+```
+
+`net/http` invokes handlers in goroutines. Read registration and every cache access: concurrent writes have no synchronization. Go's safe memory model does not prevent a fatal concurrent-map error.
+
+```json
+[
+  {
+    "bugId": "BUG-3",
+    "severity": "High",
+    "category": "concurrency",
+    "file": "cache.go",
+    "lines": "12",
+    "claim": "Concurrent requests can crash the server on a shared map write.",
+    "evidence": "cache.go:7 shares cache; cache.go:12 writes it from the handler.",
+    "runtimeTrigger": "Two ordinary requests execute put concurrently, causing a fatal concurrent map write.",
+    "crossReferences": [
+      "server.go:9"
+    ],
+    "confidenceScore": 94,
+    "confidenceLabel": "high",
+    "stride": "N/A",
+    "cwe": "N/A"
+  }
+]
+```
+
+Negative control: `cache.go:8-16` uses `sync.Mutex` and every read/write holds that same mutex, including other handlers. The claimed unguarded map access is disproved; emit `[]`. A mutex declaration alone is insufficient.
+
+## Example 4: Checked guards and unresolved provenance
+
+A query with bound parameters, or an ownership guard verified to run before the exact route's database lookup, blocks the claimed path; emit `[]`. Read guard implementations and route mounting, not just their names.
+
+For a worker receiving shell arguments from an external queue, an unknown publisher leaves input control unresolved. Do not call the injection confirmed or assume internal messages are trusted. Report a High/Critical hypothesis only within the shared confidence policy, naming the missing publisher trace; downstream reviewers must preserve that uncertainty.

@@ -16,6 +16,20 @@
       "analysisSummary": { "type": "string", "minLength": 1 },
       "counterEvidence": { "type": "string", "minLength": 1 }
     },
-    "additionalProperties": false
+    "additionalProperties": false,
+    "allOf": [
+      {
+        "if": { "properties": { "response": { "const": "DISPROVE" } }, "required": ["response"] },
+        "then": {
+          "required": ["counterEvidence"],
+          "properties": {
+            "counterEvidence": {
+              "type": "string",
+              "pattern": "(?:^|[\\s(\"'`])(?:\\.{1,2}/|/)?(?:[A-Za-z0-9_.@+$~()\\[\\]-]+/)*[A-Za-z0-9_.@+$~(\\[-][A-Za-z0-9_.@+$~()\\[\\]-]*\\.[A-Za-z][A-Za-z0-9]*:[1-9][0-9]*\\b"
+            }
+          }
+        }
+      }
+    ]
   }
 }

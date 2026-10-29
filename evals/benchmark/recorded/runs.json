@@ -1,0 +1,428 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "bug-hunter-behavioral-core-v1",
+  "runs": [
+    {
+      "runId": "balanced-auth-1",
+      "caseId": "auth-boundary-js",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 9000,
+      "outputTokens": 1400,
+      "durationMs": 42000,
+      "costUsd": 0.12,
+      "coverage": {
+        "filesTotal": 3,
+        "filesDone": 3
+      },
+      "findings": [
+        {
+          "bugId": "BUG-AUTH-1",
+          "file": "src/routes.js",
+          "lines": "21-27",
+          "severity": "High",
+          "category": "security",
+          "claim": "The admin route reaches a privileged service without an authorization check.",
+          "evidence": "src/routes.js:21-27 forwards an authenticated user without checking role or permission.",
+          "runtimeTrigger": "A normal user calls the admin endpoint and bypasses the missing permission check.",
+          "crossReferences": [
+            "src/auth.js:1-10",
+            "src/service.js:2-5"
+          ],
+          "confidenceScore": 96,
+          "emittedAtMs": 28000,
+          "stride": "ElevationOfPrivilege",
+          "cwe": "CWE-862"
+        }
+      ]
+    },
+    {
+      "runId": "balanced-auth-2",
+      "caseId": "auth-boundary-js",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 8800,
+      "outputTokens": 1350,
+      "durationMs": 41000,
+      "costUsd": 0.118,
+      "coverage": {
+        "filesTotal": 3,
+        "filesDone": 3
+      },
+      "findings": [
+        {
+          "bugId": "BUG-AUTH-2",
+          "file": "src/routes.js",
+          "lines": "22-26",
+          "severity": "High",
+          "category": "security",
+          "claim": "Missing role authorization lets a regular account invoke the admin operation.",
+          "evidence": "The privileged admin handler performs no permission or role check before calling the service.",
+          "runtimeTrigger": "An authenticated non-admin sends the admin request and bypasses authorization.",
+          "crossReferences": [
+            "src/auth.js:1-10",
+            "src/service.js:2-5"
+          ],
+          "confidenceScore": 95,
+          "emittedAtMs": 27000,
+          "stride": "ElevationOfPrivilege",
+          "cwe": "CWE-862"
+        }
+      ]
+    },
+    {
+      "runId": "balanced-contract-1",
+      "caseId": "api-contract-ts",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 11000,
+      "outputTokens": 1200,
+      "durationMs": 51000,
+      "costUsd": 0.14,
+      "coverage": {
+        "filesTotal": 3,
+        "filesDone": 3
+      },
+      "findings": [
+        {
+          "bugId": "BUG-API-1",
+          "file": "src/handler.ts",
+          "lines": "19-26",
+          "severity": "Medium",
+          "category": "api-contract",
+          "claim": "The handler dereferences a nullable client response that the caller contract permits.",
+          "evidence": "src/handler.ts:19-26 reads result.user.id even though src/client.ts can return null.",
+          "runtimeTrigger": "The client returns null for a missing user and the handler throws while dereferencing it.",
+          "crossReferences": [
+            "src/client.ts:4-7",
+            "src/types.ts:1-2"
+          ],
+          "confidenceScore": 94,
+          "emittedAtMs": 35000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-contract-2",
+      "caseId": "api-contract-ts",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 10800,
+      "outputTokens": 1180,
+      "durationMs": 50000,
+      "costUsd": 0.138,
+      "coverage": {
+        "filesTotal": 3,
+        "filesDone": 3
+      },
+      "findings": [
+        {
+          "bugId": "BUG-API-2",
+          "file": "src/handler.ts",
+          "lines": "20-25",
+          "severity": "Medium",
+          "category": "api-contract",
+          "claim": "A null client result violates the handler's dereference assumption and causes an exception.",
+          "evidence": "The caller contract is nullable, but the handler accesses the user field without a null guard.",
+          "runtimeTrigger": "Requesting an unknown user returns null and crashes at the unguarded dereference.",
+          "crossReferences": [
+            "src/client.ts:4-7",
+            "src/types.ts:1-2"
+          ],
+          "confidenceScore": 93,
+          "emittedAtMs": 34000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-concurrency-1",
+      "caseId": "concurrency-go",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 12500,
+      "outputTokens": 1450,
+      "durationMs": 62000,
+      "costUsd": 0.16,
+      "coverage": {
+        "filesTotal": 2,
+        "filesDone": 2
+      },
+      "findings": [
+        {
+          "bugId": "BUG-CONC-1",
+          "file": "internal/store/store.go",
+          "lines": "27-35",
+          "severity": "High",
+          "category": "concurrency",
+          "claim": "Concurrent handlers read and write the shared map without synchronization.",
+          "evidence": "internal/store/store.go:27-35 mutates the shared map from multiple goroutines without a mutex.",
+          "runtimeTrigger": "Two requests update the same store concurrently, causing a data race or concurrent map panic.",
+          "crossReferences": [
+            "internal/api/handler.go:8-17"
+          ],
+          "confidenceScore": 97,
+          "emittedAtMs": 44000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-concurrency-2",
+      "caseId": "concurrency-go",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 12300,
+      "outputTokens": 1400,
+      "durationMs": 60000,
+      "costUsd": 0.158,
+      "coverage": {
+        "filesTotal": 2,
+        "filesDone": 2
+      },
+      "findings": [
+        {
+          "bugId": "BUG-CONC-2",
+          "file": "internal/store/store.go",
+          "lines": "28-34",
+          "severity": "High",
+          "category": "concurrency",
+          "claim": "The shared store map is accessed by concurrent goroutines without locking.",
+          "evidence": "No mutex or synchronization protects the map writes used by concurrent request handlers.",
+          "runtimeTrigger": "Parallel requests race on the map and may trigger a concurrent map write failure.",
+          "crossReferences": [
+            "internal/api/handler.go:8-17"
+          ],
+          "confidenceScore": 96,
+          "emittedAtMs": 43000
+        }
+      ]
+    },
+    {
+      "runId": "balanced-clean-1",
+      "caseId": "clean-python-api",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 6500,
+      "outputTokens": 450,
+      "durationMs": 30000,
+      "costUsd": 0.08,
+      "coverage": {
+        "filesTotal": 3,
+        "filesDone": 3
+      },
+      "findings": []
+    },
+    {
+      "runId": "balanced-clean-2",
+      "caseId": "clean-python-api",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 6400,
+      "outputTokens": 430,
+      "durationMs": 29500,
+      "costUsd": 0.079,
+      "coverage": {
+        "filesTotal": 3,
+        "filesDone": 3
+      },
+      "findings": []
+    },
+    {
+      "runId": "balanced-fixture-1",
+      "caseId": "fixture-js-express",
+      "profile": "balanced",
+      "repeat": 1,
+      "inputTokens": 10000,
+      "outputTokens": 2000,
+      "durationMs": 50000,
+      "costUsd": 0.15,
+      "coverage": {
+        "filesDone": 4,
+        "filesTotal": 4
+      },
+      "findings": [
+        {
+          "bugId": "FIXTURE-1-1",
+          "file": "auth.js",
+          "lines": "8-10",
+          "category": "security",
+          "severity": "Critical",
+          "claim": "SQL injection through concatenated query with interpolated email",
+          "evidence": "SQL injection through concatenated query with interpolated email",
+          "runtimeTrigger": "SQL injection through concatenated query with interpolated email",
+          "crossReferences": [
+            "auth.js:8-10"
+          ],
+          "confidenceScore": 96,
+          "stride": "Tampering",
+          "cwe": "CWE-89"
+        },
+        {
+          "bugId": "FIXTURE-1-2",
+          "file": "auth.js",
+          "lines": "16",
+          "category": "security",
+          "severity": "High",
+          "claim": "Hardcoded JWT secret permits token forgery",
+          "evidence": "Hardcoded JWT secret permits token forgery",
+          "runtimeTrigger": "Hardcoded JWT secret permits token forgery",
+          "crossReferences": [
+            "auth.js:16"
+          ],
+          "confidenceScore": 96,
+          "stride": "Spoofing",
+          "cwe": "CWE-321"
+        },
+        {
+          "bugId": "FIXTURE-1-3",
+          "file": "auth.js",
+          "lines": "32-37",
+          "category": "logic",
+          "severity": "High",
+          "claim": "Admin role truthy authorization check uses loose equality",
+          "evidence": "Admin role truthy authorization check uses loose equality",
+          "runtimeTrigger": "Admin role truthy authorization check uses loose equality",
+          "crossReferences": [
+            "auth.js:32-37"
+          ],
+          "confidenceScore": 96
+        },
+        {
+          "bugId": "FIXTURE-1-4",
+          "file": "users.js",
+          "lines": "8-12",
+          "category": "logic",
+          "severity": "Medium",
+          "claim": "Pagination off-by-one offset skips first page",
+          "evidence": "Pagination off-by-one offset skips first page",
+          "runtimeTrigger": "Pagination off-by-one offset skips first page",
+          "crossReferences": [
+            "users.js:8-12"
+          ],
+          "confidenceScore": 96
+        },
+        {
+          "bugId": "FIXTURE-1-5",
+          "file": "users.js",
+          "lines": "16-23",
+          "category": "error-handling",
+          "severity": "Medium",
+          "claim": "Delete error is swallowed and success returned",
+          "evidence": "Delete error is swallowed and success returned",
+          "runtimeTrigger": "Delete error is swallowed and success returned",
+          "crossReferences": [
+            "users.js:16-23"
+          ],
+          "confidenceScore": 96
+        },
+        {
+          "bugId": "FIXTURE-1-6",
+          "file": "users.js",
+          "lines": "39-44",
+          "category": "type-safety",
+          "severity": "High",
+          "claim": "bcrypt password lacks non-string type validation",
+          "evidence": "bcrypt password lacks non-string type validation",
+          "runtimeTrigger": "bcrypt password lacks non-string type validation",
+          "crossReferences": [
+            "users.js:39-44"
+          ],
+          "confidenceScore": 96
+        }
+      ]
+    },
+    {
+      "runId": "balanced-fixture-2",
+      "caseId": "fixture-js-express",
+      "profile": "balanced",
+      "repeat": 2,
+      "inputTokens": 10000,
+      "outputTokens": 2000,
+      "durationMs": 50000,
+      "costUsd": 0.15,
+      "coverage": {
+        "filesDone": 4,
+        "filesTotal": 4
+      },
+      "findings": [
+        {
+          "bugId": "FIXTURE-2-1",
+          "file": "auth.js",
+          "lines": "8-10",
+          "category": "security",
+          "severity": "Critical",
+          "claim": "SQL injection through concatenated query with interpolated email",
+          "evidence": "SQL injection through concatenated query with interpolated email",
+          "runtimeTrigger": "SQL injection through concatenated query with interpolated email",
+          "crossReferences": [
+            "auth.js:8-10"
+          ],
+          "confidenceScore": 96,
+          "stride": "Tampering",
+          "cwe": "CWE-89"
+        },
+        {
+          "bugId": "FIXTURE-2-2",
+          "file": "auth.js",
+          "lines": "16",
+          "category": "security",
+          "severity": "High",
+          "claim": "Hardcoded JWT secret permits token forgery",
+          "evidence": "Hardcoded JWT secret permits token forgery",
+          "runtimeTrigger": "Hardcoded JWT secret permits token forgery",
+          "crossReferences": [
+            "auth.js:16"
+          ],
+          "confidenceScore": 96,
+          "stride": "Spoofing",
+          "cwe": "CWE-321"
+        },
+        {
+          "bugId": "FIXTURE-2-3",
+          "file": "auth.js",
+          "lines": "32-37",
+          "category": "logic",
+          "severity": "High",
+          "claim": "Admin role truthy authorization check uses loose equality",
+          "evidence": "Admin role truthy authorization check uses loose equality",
+          "runtimeTrigger": "Admin role truthy authorization check uses loose equality",
+          "crossReferences": [
+            "auth.js:32-37"
+          ],
+          "confidenceScore": 96
+        },
+        {
+          "bugId": "FIXTURE-2-4",
+          "file": "users.js",
+          "lines": "8-12",
+          "category": "logic",
+          "severity": "Medium",
+          "claim": "Pagination off-by-one offset skips first page",
+          "evidence": "Pagination off-by-one offset skips first page",
+          "runtimeTrigger": "Pagination off-by-one offset skips first page",
+          "crossReferences": [
+            "users.js:8-12"
+          ],
+          "confidenceScore": 96
+        },
+        {
+          "bugId": "FIXTURE-2-6",
+          "file": "users.js",
+          "lines": "39-44",
+          "category": "type-safety",
+          "severity": "High",
+          "claim": "bcrypt password lacks non-string type validation",
+          "evidence": "bcrypt password lacks non-string type validation",
+          "runtimeTrigger": "bcrypt password lacks non-string type validation",
+          "crossReferences": [
+            "users.js:39-44"
+          ],
+          "confidenceScore": 96
+        }
+      ]
+    }
+  ],
+  "evidenceKind": "synthetic",
+  "provenance": {
+    "description": "Synthetic artifact capture for deterministic replay plumbing. Not a live model baseline. One deliberately missed label keeps recall below saturation."
+  }
+}

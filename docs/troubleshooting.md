@@ -229,3 +229,22 @@ Do not include secrets, tokens, private source, or production data.
 Open a normal issue at
 [github.com/codexstar69/bug-hunter/issues](https://github.com/codexstar69/bug-hunter/issues).
 For vulnerabilities in Bug Hunter itself, follow [`SECURITY.md`](../SECURITY.md).
+
+## A delegated task contains unresolved template variables
+
+Render the validated assignment with
+`node "$SKILL_DIR/scripts/payload-guard.cjs" render <role> <payload.json> --out <task.md>`.
+Use the returned absolute path in `Read <abs task path> and follow it`. The
+renderer loads role text, checks the role's output schema, and removes template
+authoring notes. Check `outputFilePath` for the canonical phase output; task
+Markdown is the assignment, not the phase artifact. Preserve failed attempts.
+
+## A loop stops with queued files remaining
+
+Read check-continue's reason and coverage rather than assuming completion. The
+shared loop contract scales its default cap with the queue (12–200 iterations),
+respects explicit caps, stop files, crash limits, and cooldowns. Existing session
+caps remain recorded in their JSONL configuration; upgrading does not rewrite
+old logs. Start a new session deliberately after diagnosing a cap stop. Do not
+reinitialize an interrupted run to evade a guardrail. See the usage guide's loop
+tracking section for diagnostics and resume behavior.

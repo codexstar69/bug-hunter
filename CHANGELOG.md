@@ -7,13 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The current source package version is `3.2.0`. The public `v3.2.0` GitHub
-release/tag has not yet been published, so npm/GitHub release availability may
-lag the source tree. Do not infer publication from `package.json` alone.
+## [3.2.0] - 2026-10-29
+
+### Highlights
+
+- Instruction context an agent loads before reading any source drops by 59–63%
+  in the delegated modes (small scan: 70,170 → 26,103 bytes; single-file:
+  59,059 → 24,130; large-codebase: 77,859 → 29,499) and by 29% in
+  local-sequential (65,559 → 46,833). Role skills shrink from 51,815 to
+  42,811 bytes.
+- Chunked runs keep state in-process instead of spawning helper processes per
+  chunk: a 39-file, 10-chunk worker-stub run went from 11.67 s to 1.44 s.
+- Evidence-cache inserts at 3,000 entries: 310 ms → 1.1 ms. Code index for this
+  repository: 317 KB → 45 KB. Generated sources are excluded from triage, so
+  this repository plans 3 chunks instead of 6.
+- The benchmark now scores a hash-bound corpus with exact-location and
+  mechanism matching, so a keyword-only claim at the wrong line no longer
+  counts as a true positive.
 
 ### Added
 
-- Measurable hidden-label benchmark scoring for precision, recall, F1,
+- `payload-guard.cjs render` builds each subagent task file deterministically,
+  pinned to the installed package, so role text never passes through the
+  orchestrator and payload values cannot inject shell or instructions.
+- Benchmark `record` (scan run → scored run) and `compare` (per-label deltas
+  with bootstrap confidence intervals); reports carry `evidenceKind`
+  (synthetic, replayed or live).
+- Hash-bound benchmark corpus with clean controls, false-positive traps and
+  answer-leak checks.
+- Per-mode instruction byte budgets in CI, replacing the SKILL.md line limit.
+- Shared confidence calibration (`skills/hunter/confidence.md`) and
+  conditional role sections that load only when they apply.
+- `doctor` verifies SHA-256 content manifests across every agent target,
+  reports legacy copies, and supports `--json`; a packed-tarball install
+  smoke test runs in CI.
+- Manual `workflow_dispatch` dry run for the npm publish workflow, and a
+  post-publish provenance check.
+- macOS in the CI matrix.
+- `--verification-report` alias, and clear errors for unknown runner flags.
+- Measurable labelled benchmark scoring for precision, recall, F1,
   severity-weighted recall, false positives per KLOC, calibration, repeat
   stability, token/cost efficiency, latency, and time to first true positive.
 - Permanent benchmark quality gate and `pnpm quality:world-class` repository
@@ -41,6 +73,22 @@ lag the source tree. Do not infer publication from `package.json` alone.
 
 ### Changed
 
+- One four-tier severity rubric (Critical/High/Medium/Low) shared by Hunter and
+  Referee; no role earns points for volume or severity.
+- Skeptic dismissals need checked file:line counter-evidence; former
+  categorical exclusions are hypotheses to check, and uncertainty becomes
+  `MANUAL_REVIEW` rather than confirmation.
+- Recon defaults to triage enrichment; file discovery is a fallback file.
+- One loop contract with a queue-scaled iteration cap and Recon reuse.
+- Large-codebase mode runs one Recon, skips review for empty domains, keeps
+  per-chunk and per-boundary findings, and deduplicates before verification.
+- Triage always emits an ordered file manifest, plans from scannable tokens,
+  and reports coverage limitations.
+- Hybrid verification is asynchronous with bounded head/tail output capture
+  and a process-tree deadline inside the plan budget.
+- Install destinations follow current agent docs: Codex `~/.agents/skills`,
+  OpenCode `$XDG_CONFIG_HOME/opencode/skills`, Windsurf
+  `~/.codeium/windsurf/skills`.
 - `SKILL.md` is now a compact control-plane entrypoint: scan-only and
   single-pass remain explicit defaults, loop coverage is opt-in, calibration
   examples load progressively, and detailed protocol/mode guidance is loaded on
@@ -63,6 +111,24 @@ lag the source tree. Do not infer publication from `package.json` alone.
 
 ### Fixed
 
+- `--chunk-size` no longer disables the source-token budget, and
+  `bug-hunter-state.cjs init` enforces it by default.
+- Source baselines are captured at init and expansion with raw-byte hashes.
+- A required verification failure now fails the pipeline.
+- A passing check with large output no longer becomes ERROR; a check whose
+  descendants exit shortly after it no longer times out.
+- Package-manager verification commands no longer forward `--if-present`
+  into the test script.
+- `code-index` no longer crashes on symbols such as `toString`; retrieval
+  reads the index `repoRoot`.
+- Adaptive policy reads triage `avgTokensPerFile` and aggregates domain risk
+  above 200 files; `assurance` never lowers Referee coverage.
+- `--evidence-cache <directory>` is honored.
+- Containment checks resolve the repository root, fixing macOS temp paths.
+- `doctor` no longer reports Ready for corrupted installs, and `install`
+  repairs a damaged manifest.
+- Stray operator prompts removed from calibration examples; 62 stale numeric
+  step references replaced with stable section names.
 - Risk order no longer collapses back to alphabetical ordering in indexed/delta
   execution.
 - Mixed-size chunks no longer exceed the configured source-token budget because
@@ -94,6 +160,12 @@ lag the source tree. Do not infer publication from `package.json` alone.
 - Hybrid commands execute as inert argv with repository containment,
   `shell:false`, secret stripping, sensitive-environment rejection, output
   redaction, and bounded time/output budgets.
+- Verification output is redacted line by line before the head/tail cut, so a
+  private key whose BEGIN or END line falls in the dropped middle is no longer
+  shown.
+- Stale state and evidence-cache locks are reclaimed by claiming the dead
+  owner's record (`scripts/link-lock.cjs`), so two recovering runners can no
+  longer delete each other's lock; a lock owned by another host is waited out.
 - Exact evidence-cache reuse rejects changed source/protocol/options and
   symlink-escaped cache shards.
 - Source hashes are verified before dispatch and before findings/completion are

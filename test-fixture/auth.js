@@ -5,13 +5,11 @@ const db = require('./db');
 
 const router = express.Router();
 
-// BUG 1 (Critical/Security): SQL injection — user input concatenated into query
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   const user = await db.query(`SELECT * FROM users WHERE email = '${email}'`);
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-  // BUG 2 (Critical/Security): JWT signed with hardcoded secret
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -32,7 +30,6 @@ function requireAuth(req, res, next) {
   }
 }
 
-// BUG 3 (Medium/Logic): Admin check uses == instead of === and doesn't check role value properly
 router.get('/admin/users', requireAuth, async (req, res) => {
   if (req.user.role == true) {
     const users = await db.query('SELECT id, email, role FROM users');

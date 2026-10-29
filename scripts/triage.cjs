@@ -13,7 +13,7 @@
  * 5. Output a machine-readable plan the orchestrator can act on directly
  *
  * This replaces the expensive "Recon agent reads 2,000 files" step with
- * a deterministic script that costs 0 tokens and runs in <2 seconds.
+ * a deterministic script that uses no LLM tokens.
  *
  * Usage:
  *   triage.cjs scan <targetPath> [--output <path>] [--max-depth <n>]
@@ -21,10 +21,16 @@
  *
  * Output: JSON plan to stdout (or --output file) with:
  *   - strategy: "single-file" | "small" | "parallel" | "extended" | "scaled" | "large-codebase"
+ *   - totalFiles: supported source count (includes directory context-only files);
+ *     excluded single-file targets report zero files and an empty scanOrder
+ *   - scannableFiles: scanOrder.length, excluding tests/context-only files
  *   - fileBudget: computed from actual file sizes
  *   - domains: directory-level risk classification
  *   - riskMap: file-level classification (only for ≤200 files)
- *   - plan: which mode file to read, whether --loop is needed
+ *   - scanOrder: complete risk-ordered file manifest at every repository size
+ *   - domainSummaries: separate human-readable domain descriptions
+ *   - coverageLimitations: unreadable paths and max-depth truncation
+ *   - modeFile and needsLoop: selected pipeline and looping recommendation
  */
 
 const fs = require('fs');
@@ -38,6 +44,9 @@ const {
   MAX_FILES_PER_CHUNK,
   buildSourceChunks,
   isSupportedSourceFile,
+  classifySourcePath,
+  extractImports,
+  inferSourceExtension,
   isTestSourcePath
 } = require('./source-config.cjs');
 
@@ -52,89 +61,45 @@ const SKIP_DIRS = new Set([
   'artifacts', 'logs', '.terraform'
 ]);
 
-// ─── Non-source directories (low value for bug hunting) ─────────────
-const LOW_VALUE_DIRS = new Set([
-  'docs', 'doc', 'documentation', 'assets', 'public', 'static',
-  'images', 'img', 'icons', 'fonts', 'styles', 'css', 'scss',
-  'less', 'locales', 'i18n', 'l10n', 'translations',
-  'migrations', 'seeds', 'fixtures', 'snapshots', '__snapshots__',
-  'scripts', 'tools', 'devtools', 'examples', 'samples', 'demo',
-  'storybook', '.storybook', 'stories'
-]);
-
-// ─── Risk classification by directory name ──────────────────────────
-const CRITICAL_PATTERNS = /\b(auth|security|session|token|jwt|oauth|saml|permission|acl|rbac|crypto|secret|credential|password|login|signup|register|verify|middleware|gateway|proxy|payment|billing|checkout|charge|subscription|stripe|paypal|webhook|callback)\b/i;
-const HIGH_PATTERNS = /\b(api|route|router|controller|handler|endpoint|resolver|service|model|schema|database|db|repository|store|state|queue|worker|job|cron|consumer|producer|cache|redis|mongo|prisma|sequelize|typeorm|knex|sql|graphql|trpc|grpc|socket|websocket|sse|stream|upload|download|file|storage|s3|email|notification|sms)\b/i;
-const MEDIUM_PATTERNS = /\b(util|utils|helper|helpers|lib|common|shared|core|config|env|logger|error|exception|validator|sanitize|transform|format|parse|convert|serialize)\b/i;
-const TEST_PATTERNS = /\b(test|tests|spec|specs|__tests__|__test__|testing|e2e|integration|unit|cypress|playwright|jest)\b/i;
-const TEST_FILE_PATTERNS = /\.(test|spec|e2e)\.(ts|tsx|js|jsx|py|go|rs|java|rb)$|_test\.(go|py|rb)$|Test\.(java|kt)$/;
-
-// ─── Walk filesystem (no external tools needed) ─────────────────────
-function walkDir(dirPath, maxDepth, currentDepth) {
-  if (currentDepth > maxDepth) {
-    return [];
-  }
-
-  let entries;
-  try {
-    entries = fs.readdirSync(dirPath, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
+// ─── Walk filesystem with explicit coverage limitations ─────────────
+function walkDir(dirPath, maxDepth, currentDepth = 0, limitations = []) {
   const results = [];
-
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) {
-        continue;
+  const stack = [{ directory: dirPath, depth: currentDepth }];
+  while (stack.length > 0) {
+    const { directory, depth } = stack.pop();
+    if (depth > maxDepth) {
+      limitations.push({ path: directory, reason: 'max-depth', maxDepth });
+      continue;
+    }
+    let entries;
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch (error) {
+      limitations.push({ path: directory, reason: 'directory-read-failed', code: error.code || 'UNKNOWN' });
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) stack.push({ directory: fullPath, depth: depth + 1 });
+      } else if (entry.isFile()) {
+        try {
+          if (isSupportedSourceFile(fullPath)) results.push(fullPath);
+        } catch (error) {
+          limitations.push({ path: fullPath, reason: 'file-read-failed', code: error.code || 'UNKNOWN' });
+        }
       }
-      results.push(...walkDir(fullPath, maxDepth, currentDepth + 1));
-    } else if (entry.isFile() && isSupportedSourceFile(fullPath)) {
-      results.push(fullPath);
     }
   }
-
   return results;
 }
 
-// ─── Classify a single file by its path ─────────────────────────────
-function classifyFile(filePath, repoRoot) {
-  const relative = path.relative(repoRoot, filePath);
-  const parts = relative.split(path.sep);
-  const dirPath = parts.slice(0, -1).join('/');
-  const fileName = parts[parts.length - 1];
-
-  // Test files
-  if (isTestSourcePath(relative)) {
-    return 'context-only';
-  }
-
-  // Low-value directories
-  if (parts.some((p) => LOW_VALUE_DIRS.has(p.toLowerCase()))) {
-    return 'low';
-  }
-
-  // Check file path + name against risk patterns
-  const fullPathStr = dirPath + '/' + fileName;
-  if (CRITICAL_PATTERNS.test(fullPathStr)) {
-    return 'critical';
-  }
-  if (HIGH_PATTERNS.test(fullPathStr)) {
-    return 'high';
-  }
-  if (MEDIUM_PATTERNS.test(fullPathStr)) {
-    return 'medium';
-  }
-
-  // Default: medium (unknown files are worth scanning)
-  return 'medium';
+function classifyFile(filePath, repoRoot, classifications) {
+  return classifications.get(filePath);
 }
 
 // ─── Discover domain boundaries ─────────────────────────────────────
-function discoverDomains(files, repoRoot) {
+function discoverDomains(files, repoRoot, classifications) {
   // Group files by their top-level meaningful directory
   const domainFiles = new Map();
 
@@ -163,7 +128,7 @@ function discoverDomains(files, repoRoot) {
   for (const [domainPath, domainFileList] of domainFiles.entries()) {
     const riskCounts = { critical: 0, high: 0, medium: 0, low: 0, 'context-only': 0 };
     for (const f of domainFileList) {
-      const risk = classifyFile(f, repoRoot);
+      const risk = classifyFile(f, repoRoot, classifications);
       riskCounts[risk] += 1;
     }
 
@@ -209,90 +174,65 @@ function discoverDomains(files, repoRoot) {
 }
 
 // ─── Compute FILE_BUDGET from actual file sizes ─────────────────────
-function computeFileBudget(files) {
-  if (files.length === 0) {
-    return { fileBudget: MAX_FILES_PER_CHUNK, avgLines: 0, totalLines: 0, avgTokens: 0, sampledFiles: 0 };
-  }
-
-  // Sample up to 30 files to estimate average size (fast, even for huge repos)
-  const sampleSize = Math.min(30, files.length);
-  const step = Math.max(1, Math.floor(files.length / sampleSize));
+function computeFileBudget(files, limitations = []) {
+  const tokensByFile = new Map();
+  let estimatedSourceTokens = 0;
   let totalLines = 0;
-  let totalBytes = 0;
   let sampled = 0;
-  const maxSampleBytes = 5 * 1024 * 1024;
-
-  for (let i = 0; i < files.length && sampled < sampleSize; i += step) {
+  const sampleStep = Math.max(1, Math.floor(files.length / 30));
+  for (let i = 0; i < files.length; i += 1) {
     try {
       const stat = fs.statSync(files[i]);
-      if (stat.size > maxSampleBytes) {
-        continue;
+      const tokens = Math.max(1, Math.ceil(stat.size / 4));
+      tokensByFile.set(files[i], tokens);
+      if (sampled < 30 && i % sampleStep === 0 && stat.size <= 5 * 1024 * 1024) {
+        totalLines += fs.readFileSync(files[i], 'utf8').split('\n').length;
+        sampled += 1;
       }
-      const content = fs.readFileSync(files[i], 'utf8');
-      totalLines += content.split('\n').length;
-      totalBytes += Buffer.byteLength(content);
-      sampled += 1;
-    } catch {
-      // Skip unreadable files
+    } catch (error) {
+      limitations.push({ path: files[i], reason: 'file-read-failed', code: error.code || 'UNKNOWN' });
+      // Unknown sizes must not silently become one-token files.
+      tokensByFile.set(files[i], DEFAULT_SOURCE_TOKEN_BUDGET + 1);
     }
+    estimatedSourceTokens += tokensByFile.get(files[i]);
   }
-
-  if (sampled === 0) {
-    return { fileBudget: MAX_FILES_PER_CHUNK, avgLines: 0, totalLines: 0, avgTokens: 0, sampledFiles: 0 };
-  }
-
-  const avgLines = Math.round(totalLines / sampled);
-  const avgBytes = Math.round(totalBytes / sampled);
-  const avgTokens = Math.max(1, Math.ceil(avgBytes / 4));
-  const estimatedTotalLines = avgLines * files.length;
-
-  // Use the first risk-ordered concrete chunk as the safe FILE_BUDGET.
-  // The runtime keeps the full variable-size plan and enforces every chunk.
+  // Size every planned chunk once, using the final risk-ordered source manifest.
   const plannedChunks = buildSourceChunks(files, {
     maxFiles: MAX_FILES_PER_CHUNK,
     maxSourceTokens: DEFAULT_SOURCE_TOKEN_BUDGET,
-    enforceTokenBudget: true
+    enforceTokenBudget: true,
+    tokensByFile
   });
-  const fileBudget = plannedChunks.length > 0
-    ? Math.max(1, plannedChunks[0].files.length)
-    : MAX_FILES_PER_CHUNK;
-
+  const avgLines = sampled ? Math.round(totalLines / sampled) : 0;
   return {
-    fileBudget,
+    fileBudget: plannedChunks.length ? Math.max(1, plannedChunks[0].files.length) : MAX_FILES_PER_CHUNK,
     avgLines,
-    totalLines: estimatedTotalLines,
-    avgTokens,
+    totalLines: avgLines * files.length,
+    avgTokens: files.length ? Math.ceil(estimatedSourceTokens / files.length) : 0,
     sampledFiles: sampled,
-    plannedChunkCount: plannedChunks.length
+    plannedChunkCount: plannedChunks.length,
+    estimatedSourceTokens,
+    perHunterChunk: plannedChunks.reduce((max, chunk) => Math.max(max, chunk.estimatedSourceTokens), 0)
   };
 }
 
-// ─── Determine strategy ─────────────────────────────────────────────
-function determineStrategy(fileCount, fileBudget) {
-  if (fileCount <= 1) {
-    return { strategy: 'single-file', modeFile: 'modes/single-file.md', needsLoop: false };
-  }
-  if (fileCount <= 10) {
-    return { strategy: 'small', modeFile: 'modes/small.md', needsLoop: false };
-  }
-  if (fileCount <= fileBudget) {
-    return { strategy: 'parallel', modeFile: 'modes/parallel.md', needsLoop: false };
-  }
-  if (fileCount <= fileBudget * 2) {
-    return { strategy: 'extended', modeFile: 'modes/extended.md', needsLoop: false };
-  }
-  if (fileCount <= fileBudget * 3) {
-    return { strategy: 'scaled', modeFile: 'modes/scaled.md', needsLoop: false };
-  }
-  return { strategy: 'large-codebase', modeFile: 'modes/large-codebase.md', needsLoop: true };
+function determineStrategy(fileCount, plannedChunkCount) {
+  let strategy;
+  if (fileCount <= 1) strategy = 'single-file';
+  else if (fileCount > 200 || plannedChunkCount > 4) strategy = 'large-codebase';
+  else if (fileCount <= 10 && plannedChunkCount <= 1) strategy = 'small';
+  else if (plannedChunkCount <= 1) strategy = 'parallel';
+  else if (plannedChunkCount === 2) strategy = 'extended';
+  else strategy = 'scaled';
+  return { strategy, modeFile: `modes/${strategy}.md`, needsLoop: strategy === 'large-codebase' };
 }
 
 // ─── Build the risk map (file-level, only for small/medium codebases)
-function buildRiskMap(files, repoRoot) {
+function buildRiskMap(files, repoRoot, classifications) {
   const riskMap = { critical: [], high: [], medium: [], low: [], 'context-only': [] };
 
   for (const filePath of files) {
-    const risk = classifyFile(filePath, repoRoot);
+    const risk = classifyFile(filePath, repoRoot, classifications);
     const relative = path.relative(repoRoot, filePath);
     riskMap[risk].push(relative);
   }
@@ -306,98 +246,59 @@ function buildRiskMap(files, repoRoot) {
 }
 
 // ─── Main: triage scan ──────────────────────────────────────────────
-function scan(targetPath, options) {
+function scan(targetPath, options = {}) {
   const resolvedTarget = path.resolve(targetPath);
   const maxDepth = options.maxDepth ?? 20;
-
   if (!Number.isInteger(maxDepth) || maxDepth < 0 || maxDepth > MAX_SCAN_DEPTH) {
     throw new Error(`max depth must be an integer between 0 and ${MAX_SCAN_DEPTH}`);
   }
-
-  if (!fs.existsSync(resolvedTarget)) {
-    throw new Error(`Target not found: ${resolvedTarget}`);
-  }
-
-  // Single file?
   const stat = fs.statSync(resolvedTarget);
+  const repoRoot = stat.isFile() ? path.dirname(resolvedTarget) : resolvedTarget;
+  const coverageLimitations = [];
+  let candidates;
   if (stat.isFile()) {
-    const relative = path.basename(resolvedTarget);
-    return {
-      generatedAt: new Date().toISOString(),
-      target: resolvedTarget,
-      totalFiles: 1,
-      strategy: 'single-file',
-      modeFile: 'modes/single-file.md',
-      needsLoop: false,
-      fileBudget: 40,
-      avgLines: 0,
-      riskMap: { critical: [relative], high: [], medium: [], low: [], 'context-only': [] },
-      domains: [],
-      scanOrder: [relative],
-      tokenEstimate: { recon: 0, perHunterChunk: 0, total: 0 },
-      recommendations: ['Single file — run full pipeline directly, skip Recon.']
-    };
-  }
-
-  // Directory scan
-  const allFiles = walkDir(resolvedTarget, maxDepth, 0);
-  const totalFiles = allFiles.length;
-
-  // Compute FILE_BUDGET
-  const budget = computeFileBudget(allFiles);
-
-  // Determine strategy
-  const { strategy, modeFile, needsLoop } = determineStrategy(totalFiles, budget.fileBudget);
-
-  // Discover domains
-  const domains = discoverDomains(allFiles, resolvedTarget);
-
-  // Build risk map only for ≤ 200 files (otherwise too expensive for the output)
-  const includeFileRiskMap = totalFiles <= 200;
-  const riskMap = includeFileRiskMap ? buildRiskMap(allFiles, resolvedTarget) : null;
-
-  // Build scan order: CRITICAL → HIGH → MEDIUM → LOW (skip context-only)
-  let scanOrder;
-  if (riskMap) {
-    scanOrder = [...riskMap.critical, ...riskMap.high, ...riskMap.medium, ...riskMap.low];
+    try { candidates = isSupportedSourceFile(resolvedTarget) ? [resolvedTarget] : []; }
+    catch (error) {
+      coverageLimitations.push({ path: resolvedTarget, reason: 'file-read-failed', code: error.code || 'UNKNOWN' });
+      candidates = [];
+    }
   } else {
-    // For large codebases, just list domains in priority order
-    scanOrder = domains
-      .filter((d) => d.tier !== 'CONTEXT-ONLY')
-      .map((d) => `${d.path}/ (${d.fileCount} files, ${d.tier})`);
+    candidates = walkDir(resolvedTarget, maxDepth, 0, coverageLimitations);
   }
-
-  // Token estimates
-  const scannable = riskMap
-    ? scanOrder.length
-    : domains.filter((d) => d.tier !== 'CONTEXT-ONLY').reduce((s, d) => s + d.fileCount, 0);
-  const tokensPerFile = budget.avgTokens || 400;
+  const classifications = new Map();
+  const allFiles = candidates.filter((filePath) => {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const imports = extractImports(content, inferSourceExtension(filePath, content));
+      const risk = classifySourcePath(path.relative(repoRoot, filePath), imports).riskHint;
+      // A single excluded target has zero source/scannable files. Directory scans
+      // retain context-only files in totalFiles and riskMap for Recon context.
+      if (stat.isFile() && (risk === 'context-only' || isTestSourcePath(resolvedTarget))) return false;
+      classifications.set(filePath, risk);
+      return true;
+    } catch (error) {
+      coverageLimitations.push({ path: filePath, reason: 'file-read-failed', code: error.code || 'UNKNOWN' });
+      return false;
+    }
+  });
+  const totalFiles = allFiles.length;
+  const fullRiskMap = buildRiskMap(allFiles, repoRoot, classifications);
+  const scanOrder = [...fullRiskMap.critical, ...fullRiskMap.high, ...fullRiskMap.medium, ...fullRiskMap.low];
+  const scannable = scanOrder.length;
+  const budget = computeFileBudget(scanOrder.map((file) => path.join(repoRoot, file)), coverageLimitations);
+  const { strategy, modeFile, needsLoop } = determineStrategy(scannable, budget.plannedChunkCount);
+  const domains = discoverDomains(allFiles, repoRoot, classifications);
+  const includeFileRiskMap = totalFiles <= 200;
   const reconTokens = includeFileRiskMap ? Math.min(totalFiles * 20, 5000) : Math.min(domains.length * 100, 3000);
-  const perHunterChunk = Math.min(budget.fileBudget, scannable) * tokensPerFile;
-  const totalTokenEstimate = reconTokens + (scannable * tokensPerFile) + (scannable * 200); // 200 tokens per finding estimate
-
-  // Recommendations
   const recommendations = [];
-  if (strategy === 'single-file' || strategy === 'small') {
-    recommendations.push('Small codebase — Recon is optional, proceed directly to Hunter.');
-  }
+  if (strategy === 'single-file' || strategy === 'small') recommendations.push('Small codebase — Recon is optional, proceed directly to Hunter.');
   if (strategy === 'large-codebase') {
     recommendations.push('Large codebase — use domain-scoped auditing. Process one domain at a time.');
-    recommendations.push(`${domains.filter((d) => d.tier === 'CRITICAL').length} CRITICAL domains to audit first.`);
-    if (!needsLoop) {
-      recommendations.push('Consider --loop for full coverage.');
-    }
+    recommendations.push(`${domains.filter((domain) => domain.tier === 'CRITICAL').length} CRITICAL domains to audit first.`);
   }
-  if (budget.avgLines > 300) {
-    recommendations.push(`Large files (avg ${budget.avgLines} lines) — FILE_BUDGET is low (${budget.fileBudget}). Chunking is important.`);
-  }
-  if (totalFiles > 500 && !includeFileRiskMap) {
-    recommendations.push('File-level risk map omitted for performance. Recon should classify files within each domain.');
-  }
-  if (riskMap && riskMap.critical.length + riskMap.high.length + riskMap.medium.length === 0 && riskMap.low.length > 0) {
-    recommendations.push('Only LOW-tier source files detected — promote them into scan order to avoid an empty audit.');
-  }
-
+  if (budget.avgLines > 300) recommendations.push(`Large files (avg ${budget.avgLines} lines) — FILE_BUDGET is ${budget.fileBudget}. Chunking is important.`);
+  if (!includeFileRiskMap) recommendations.push('File-level risk map omitted; scanOrder retains the complete ordered source manifest.');
+  if (coverageLimitations.length) recommendations.push('Coverage is incomplete; inspect coverageLimitations before claiming a complete audit.');
   const result = {
     generatedAt: new Date().toISOString(),
     target: resolvedTarget,
@@ -408,40 +309,32 @@ function scan(targetPath, options) {
     needsLoop,
     fileBudget: budget.fileBudget,
     avgLines: budget.avgLines,
-    avgTokensPerFile: budget.avgTokens || 400,
+    avgTokensPerFile: budget.avgTokens,
     estimatedTotalLines: budget.totalLines,
+    estimatedSourceTokens: budget.estimatedSourceTokens,
     sampledFiles: budget.sampledFiles,
-    plannedChunkCount: budget.plannedChunkCount || 0,
-    domains: domains.map((d) => ({
-      path: d.path,
-      tier: d.tier,
-      fileCount: d.fileCount,
-      riskBreakdown: d.riskBreakdown
-    })),
+    plannedChunkCount: budget.plannedChunkCount,
+    domains: domains.map(({ path: domainPath, tier, fileCount, riskBreakdown }) => ({ path: domainPath, tier, fileCount, riskBreakdown })),
+    domainSummaries: domains.filter((domain) => domain.tier !== 'CONTEXT-ONLY').map((domain) => `${domain.path}/ (${domain.fileCount} files, ${domain.tier})`),
     scanOrder,
+    coverageComplete: coverageLimitations.length === 0,
+    coverageLimitations,
     tokenEstimate: {
       recon: reconTokens,
-      perHunterChunk,
-      totalPipeline: totalTokenEstimate
+      perHunterChunk: budget.perHunterChunk,
+      totalPipeline: reconTokens + budget.estimatedSourceTokens + scannable * 200
     },
     recommendations
   };
-
-  // Include file-level risk map only for small-to-medium codebases
-  if (riskMap) {
-    result.riskMap = riskMap;
-  }
-
-  // Include domain file lists only for large-codebase strategy
+  if (includeFileRiskMap) result.riskMap = fullRiskMap;
   if (strategy === 'large-codebase') {
-    result.domainFileLists = {};
+    result.domainFileLists = Object.create(null);
+    const scannablePaths = new Set(scanOrder);
     for (const domain of domains) {
-      if (domain.tier !== 'CONTEXT-ONLY') {
-        result.domainFileLists[domain.path] = domain.files;
-      }
+      const files = domain.files.filter((file) => scannablePaths.has(file));
+      if (files.length) result.domainFileLists[domain.path] = files;
     }
   }
-
   return result;
 }
 
@@ -459,6 +352,7 @@ function formatHuman(result) {
   lines.push(`Mode file:             ${result.modeFile}`);
   lines.push(`Needs --loop:          ${result.needsLoop ? 'YES' : 'no'}`);
   lines.push('');
+  for (const limit of result.coverageLimitations) lines.push(`Coverage limitation: ${limit.reason}: ${limit.path}`);
   lines.push('Domains:');
   // Sort by tier for display: CRITICAL → HIGH → MEDIUM → LOW → CONTEXT-ONLY
   const tierOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, 'CONTEXT-ONLY': 4 };
@@ -544,8 +438,10 @@ function main() {
 }
 
 try {
-  main();
+  if (require.main === module) main();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
+
+module.exports = { computeFileBudget, determineStrategy, scan, walkDir };

@@ -14,7 +14,8 @@
     "validation",
     "runs",
     "aggregate",
-    "gate"
+    "gate",
+    "evidenceKind"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
@@ -23,6 +24,38 @@
     "suiteId": { "type": ["string", "null"] },
     "generatedAt": { "type": "string", "minLength": 1 },
     "manifestSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+    "evidenceKind": { "enum": ["synthetic", "replayed", "live"] },
+    "provenance": { "type": "object" },
+    "labelCatalog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "labelId",
+          "caseId",
+          "severity"
+        ],
+        "properties": {
+          "labelId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "caseId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "enum": [
+              "Critical",
+              "High",
+              "Medium",
+              "Low"
+            ]
+          }
+        }
+      }
+    },
     "validation": {
       "type": "object",
       "additionalProperties": false,
@@ -56,14 +89,16 @@
           "recall": { "$ref": "#/definitions/ratio" },
           "f1": { "$ref": "#/definitions/ratio" },
           "severityWeightedRecall": { "$ref": "#/definitions/ratio" },
+          "expectedWeight": { "type": "number", "minimum": 0 },
+          "matchedWeight": { "type": "number", "minimum": 0 },
           "severityExactAccuracy": { "$ref": "#/definitions/ratio" },
           "meanSeverityRankError": { "type": "number", "minimum": 0 },
           "coverage": { "$ref": "#/definitions/ratio" },
-          "inputTokens": { "type": "number", "minimum": 0 },
-          "outputTokens": { "type": "number", "minimum": 0 },
-          "totalTokens": { "type": "number", "minimum": 0 },
-          "durationMs": { "type": "number", "minimum": 0 },
-          "costUsd": { "type": "number", "minimum": 0 },
+          "inputTokens": { "type": ["number", "null"], "minimum": 0 },
+          "outputTokens": { "type": ["number", "null"], "minimum": 0 },
+          "totalTokens": { "type": ["number", "null"], "minimum": 0 },
+          "durationMs": { "type": ["number", "null"], "minimum": 0 },
+          "costUsd": { "type": ["number", "null"], "minimum": 0 },
           "tokensPerTruePositive": { "type": ["number", "null"], "minimum": 0 },
           "costPerTruePositiveUsd": { "type": ["number", "null"], "minimum": 0 },
           "timeToFirstTruePositiveMs": { "type": ["number", "null"], "minimum": 0 },
@@ -119,9 +154,9 @@
         "meanSeverityRankError": { "type": "number", "minimum": 0 },
         "coverage": { "$ref": "#/definitions/ratio" },
         "falsePositivesPerKloc": { "type": "number", "minimum": 0 },
-        "totalTokens": { "type": "number", "minimum": 0 },
-        "totalDurationMs": { "type": "number", "minimum": 0 },
-        "totalCostUsd": { "type": "number", "minimum": 0 },
+        "totalTokens": { "type": ["number", "null"], "minimum": 0 },
+        "totalDurationMs": { "type": ["number", "null"], "minimum": 0 },
+        "totalCostUsd": { "type": ["number", "null"], "minimum": 0 },
         "medianTokensPerTruePositive": { "type": ["number", "null"], "minimum": 0 },
         "p95TokensPerTruePositive": { "type": ["number", "null"], "minimum": 0 },
         "medianCostPerTruePositiveUsd": { "type": ["number", "null"], "minimum": 0 },
@@ -140,6 +175,42 @@
             "groups": { "type": "array", "items": { "type": "object" } }
           },
           "additionalProperties": false
+        },
+        "tokensPerTruePositive": { "type": ["number", "null"], "minimum": 0 },
+        "costPerTruePositiveUsd": { "type": ["number", "null"], "minimum": 0 },
+        "telemetry": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "measuredRuns",
+              "totalRuns"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unknown"
+                ]
+              },
+              "measuredRuns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "totalRuns": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "byProfile": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/properties/aggregate"
+          }
         },
         "byCategory": { "type": "object", "additionalProperties": { "type": "object" } }
       },
@@ -160,7 +231,7 @@
             "properties": {
               "name": { "type": "string", "minLength": 1 },
               "direction": { "type": "string", "enum": ["min", "max"] },
-              "actual": { "type": "number" },
+              "actual": { "type": ["number", "null"] },
               "threshold": { "type": "number" },
               "passed": { "type": "boolean" }
             }

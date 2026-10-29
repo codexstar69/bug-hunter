@@ -3,13 +3,19 @@ name: Publish
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate the candidate and run npm publish --dry-run
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: publish-${{ github.event.release.tag_name }}
+  group: publish-${{ github.event.release.tag_name || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -32,8 +38,9 @@ jobs:
           package-manager-cache: false
 
       - name: Bind checkout to the release tag and main
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           if [ "$RELEASE_TAG" != "v$PACKAGE_VERSION" ]; then
@@ -48,6 +55,12 @@ jobs:
           test "$(git rev-parse HEAD^{commit})" = \
             "$(git rev-parse refs/remotes/origin/main^{commit})"
           git switch --force-create release-source --track origin/main
+
+      - name: Require a tag for a real manual publication
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo 'Real publication requires the package version tag at main. Use dry_run=true for a branch.'
+          exit 1
 
       - name: Use an OIDC-capable npm CLI
         run: |
@@ -72,8 +85,51 @@ jobs:
       - name: Inspect package inventory
         run: pnpm verify:package
 
+      - name: Smoke-test packed consumer installation
+        env:
+          BUG_HUNTER_PACKED_SMOKE: '1'
+        run: node --test scripts/tests/opt-e-packed-smoke.test.cjs
+
       - name: Verify source provenance
-        run: node scripts/prepublish-guard.cjs
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = 'true' ]; then
+            node scripts/prepublish-guard.cjs --dry-run
+          else
+            node scripts/prepublish-guard.cjs
+          fi
+
+      - name: Dry-run publication to npm
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm publish --dry-run --access public --provenance
 
       - name: Publish to npm
-        run: npm publish --access public
+        if: github.event_name == 'release' || !inputs.dry_run
+        run: npm publish --access public --provenance
+
+      - name: Verify published version and provenance
+        if: github.event_name == 'release' || !inputs.dry_run
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          export PACKAGE_VERSION
+          # Allow the registry to propagate the immutable version and its attestation.
+          for attempt in 1 2 3 4 5 6; do
+            if npm view "@codexstar/bug-hunter@$PACKAGE_VERSION" version dist.attestations --json > "$RUNNER_TEMP/published.json" &&
+              node -e '
+                const fs = require("node:fs");
+                const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                const attestation = data["dist.attestations"];
+                if (data.version !== process.env.PACKAGE_VERSION || !attestation?.url ||
+                    attestation.provenance?.predicateType !== "https://slsa.dev/provenance/v1") {
+                  console.error("Published version or SLSA provenance is missing", data);
+                  process.exit(1);
+                }
+                console.log(`Verified ${data.version}: ${attestation.url}`);
+              ' "$RUNNER_TEMP/published.json"; then
+              exit 0
+            fi
+            if [ "$attempt" != 6 ]; then sleep 10; fi
+          done
+          echo 'Published version/provenance verification failed after registry propagation checks.'
+          exit 1

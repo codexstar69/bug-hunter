@@ -2,10 +2,8 @@ const childProcess = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const {
-  DEFAULT_MAX_OUTPUT_BYTES,
-  runJsonScript
-} = require('./process-runner.cjs');
+const { DEFAULT_MAX_OUTPUT_BYTES } = require('./process-runner.cjs');
+const { openStateOwner } = require('./bug-hunter-state.cjs');
 
 const DEFAULT_TIMEOUT_MS = 120000;
 
@@ -186,19 +184,22 @@ function validateStateShape({ statePath, state }) {
   }
 }
 
-function requeueResumableChunks({ statePath, stateScript, maxRetries }) {
-  const state = readJson(statePath);
-  validateStateShape({ statePath, state });
-  const resumable = state.chunks.filter((chunk) => {
-    if (chunk.status === 'in_progress') {
-      return true;
-    }
-    return chunk.status === 'failed' && Number(chunk.retries || 0) <= maxRetries;
-  });
-  resumable.map((chunk) => {
-    return runJsonScript(stateScript, ['mark-chunk', statePath, chunk.id, 'pending']);
-  });
-  return resumable.map((chunk) => chunk.id);
+function requeueResumableChunks({ statePath, stateOwner, maxRetries }) {
+  const owner = stateOwner || openStateOwner(statePath);
+  try {
+    const state = owner.read();
+    validateStateShape({ statePath, state });
+    const resumable = state.chunks.filter((chunk) => {
+      if (chunk.status === 'in_progress') return true;
+      return chunk.status === 'failed' && Number(chunk.retries || 0) <= maxRetries;
+    });
+    owner.batch(() => {
+      for (const chunk of resumable) owner.execute('mark-chunk', chunk.id, 'pending');
+    });
+    return resumable.map((chunk) => chunk.id);
+  } finally {
+    if (!stateOwner) owner.close();
+  }
 }
 
 module.exports = {

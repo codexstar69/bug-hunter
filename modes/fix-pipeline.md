@@ -1,16 +1,23 @@
 # Phase 2: Fix Pipeline (explicit `--fix`/`--autonomous` only)
 
 This phase takes the Referee's confirmed bug report and implements fixes. It runs when `FIX_MODE=true` and the Referee confirmed at least one real bug.
-All Fixer launches in this file must use `AGENT_BACKEND` selected during SKILL preflight.
+All Fixer launches use `dispatch.md` and the selected `AGENT_BACKEND`.
 
-**If `DRY_RUN_MODE=true`:** execute Steps 8a–8d only (no git branch, no edits,
+**If `PLAN_ONLY_MODE=true`:** build the strategy and fix-plan preview described
+in F1d without running Git mutation, lock acquisition, or Fixer. Stop after the
+validated planning artifacts. Only Referee-confirmed, confidence-eligible
+`safe-autofix` canary/rollout entries may enter immutable Fixer scope;
+manual-review, larger-refactor, architectural-remediation, conflicting, and
+report-only entries remain non-writable.
+
+**If `DRY_RUN_MODE=true`:** execute Steps F1a–F1d only (no git branch, no edits,
 no lock). The Fixer reads code and outputs planned changes as unified diff
-previews without editing files. Skip to Step 12 after producing the dry-run
+previews without editing files. Skip to F5 after producing the dry-run
 report.
 
-### Step 8: Prepare for fixing (single-writer model)
+### F1: Prepare for fixing (single-writer model)
 
-**8a. Git safety + baseline refs**
+**F1a. Git safety + baseline refs**
 
 Before touching code:
 1. Run `git rev-parse --is-inside-work-tree`:
@@ -32,7 +39,7 @@ Report:
 - Base commit hash (`FIX_BASE_COMMIT`)
 - Whether stash was created
 
-**8a-wt. Worktree isolation setup (subagent/teams backends with explicit
+**F1a-wt. Worktree isolation setup (subagent/teams backends with explicit
 `--auto-commit` only)**
 
 If `AUTO_COMMIT=true`, `AGENT_BACKEND` is `subagent` or `teams`, and
@@ -70,12 +77,12 @@ If lock cannot be acquired, stop Phase 2 to avoid concurrent mutation.
 
 **Owner token:** `acquire` returns `lock.ownerToken`; renew/release now require that token. Persist it for the entire Phase 2 run as `LOCK_OWNER_TOKEN`.
 
-**Lock renewal:** During Step 9 execution, renew the lock after each bug fix to prevent TTL expiry on long runs:
+**Lock renewal:** During F2 execution, renew the lock after each bug fix to prevent TTL expiry on long runs:
 ```
 node "$SKILL_DIR/scripts/fix-lock.cjs" renew ".bug-hunter/fix.lock" "$LOCK_OWNER_TOKEN"
 ```
 
-**8b. Detect verification commands**
+**F1b. Detect verification commands**
 
 Detect and store:
 - `TEST_COMMAND`
@@ -84,7 +91,7 @@ Detect and store:
 
 Use the same detection order as before. Missing commands should be stored as `null`.
 
-**8c. Capture pre-fix baseline (flaky test detection)**
+**F1c. Capture pre-fix baseline (flaky test detection)**
 
 If `TEST_COMMAND` is not null:
 1. Run it once (timeout 5 minutes). Record pass/fail counts and failure identifiers.
@@ -95,11 +102,11 @@ If `TEST_COMMAND` is not null:
    - Tests that **passed in both** runs → reliable tests
 4. Store both `BASELINE_FAILURES` and `FLAKY_TESTS` as separate sets.
 
-**Flaky test rule (applies in Steps 10a, 10b, 10c):** When checking for new failures after a fix, a test failure that matches `FLAKY_TESTS` does NOT count as a new failure. Only failures on tests NOT in `FLAKY_TESTS` and NOT in `BASELINE_FAILURES` trigger revert decisions.
+**Flaky test rule (applies in F3a, F3b, F3c):** When checking for new failures after a fix, a test failure that matches `FLAKY_TESTS` does NOT count as a new failure. Only failures on tests NOT in `FLAKY_TESTS` and NOT in `BASELINE_FAILURES` trigger revert decisions.
 
 If baseline cannot run, set `BASELINE=null` and `FLAKY_TESTS={}` and continue with manual-verification warning.
 
-**8d. Build fix strategy + sequential fix plan**
+**F1d. Build fix strategy + sequential fix plan**
 
 Before deciding what to patch, write `.bug-hunter/fix-strategy.json` and `.bug-hunter/fix-strategy.md`.
 Validate `.bug-hunter/referee.json` first. Join verdicts to Hunter findings by
@@ -161,11 +168,11 @@ Prepare bug queue:
 
 Report: `Fix plan: [N] eligible bugs, canary=[K], rollout=[R], manual-review=[M], fixer-batches=[B].`
 
-### Step 9: Execute fixes (sequential fixer)
+### F2: Execute fixes (sequential fixer)
 
 Single writer rule: run one Fixer at a time. No parallel worktrees by default.
 
-**Global Phase 2 timeout:** Set `PHASE2_DEADLINE` to 30 minutes from the start of Step 9. If the deadline is reached, halt remaining fixes, mark all unprocessed bugs as `SKIPPED` with reason "phase-2-timeout", and proceed to Step 10.
+**Global Phase 2 timeout:** Set `PHASE2_DEADLINE` to 30 minutes from the start of F2. If the deadline is reached, halt remaining fixes, mark all unprocessed bugs as `SKIPPED` with reason "phase-2-timeout", and proceed to F3.
 
 **Circuit breaker:** After each fix attempt (success or failure), check:
 ```
@@ -175,7 +182,7 @@ If `FAILURE_RATE > 0.5` AND `total_attempted >= 3`:
 - Halt remaining fixes immediately.
 - Mark all remaining bugs as `SKIPPED` with reason "circuit-breaker-tripped".
 - Report: `⚠️ Circuit breaker tripped — [X]/[Y] fixes failed. Codebase may be too unstable for auto-fix.`
-- Proceed to Step 10.
+- Proceed to F3.
 
 Execution order:
 1. Canary batches first.
@@ -211,7 +218,7 @@ For each batch in order:
      - `"Do NOT use EnterWorktree/ExitWorktree — you are already in an isolated worktree"`
      - `"Do NOT switch branches or run git checkout"`
    - Do NOT set `isolation: "worktree"` on the Agent tool — we manage worktrees ourselves.
-   - Launch one Fixer with: `skills/fixer/SKILL.md`, batch bug subset, recon tech stack context.
+   - Render and dispatch one Fixer via `dispatch.md` with the batch subset, immutable scope, and Recon tech stack context.
 
 6a. After Fixer completes (or crashes), harvest commits:
    ```
@@ -235,8 +242,8 @@ For each batch in order:
 
 **Path B — Direct mode (`WORKTREE_MODE=false`):**
 
-4b. Launch one Fixer with:
-   - `skills/fixer/SKILL.md`
+4b. Render and dispatch one Fixer via `dispatch.md` with:
+   - The validated immutable scope manifest
    - Batch bug subset (max `MAX_BUGS_PER_FIXER` bugs)
    - Recon tech stack context
 5b. Apply returned changes (skip if dry-run).
@@ -252,9 +259,9 @@ the validated uncommitted diff.
 
 If a bug cannot be fixed, mark `SKIPPED` and continue.
 
-### Step 10: Verify and auto-revert
+### F3: Verify and auto-revert
 
-**10-pre. Rejoin fix branch (worktree mode only)**
+**F3-pre. Rejoin fix branch (worktree mode only)**
 
 If `WORKTREE_MODE=true`:
 1. Ensure all worktrees are cleaned up:
@@ -267,13 +274,13 @@ If `WORKTREE_MODE=true`:
    ```
 3. The main working tree now has all Fixer commits. Proceed with verification.
 
-**10a. Fast checks after each checkpoint**
+**F3a. Fast checks after each checkpoint**
 
 After each bug commit:
 - Run nearest/impacted checks first (targeted tests or module typecheck).
 - If targeted checks fail with **new failures** (excluding `FLAKY_TESTS` and `BASELINE_FAILURES`), revert that bug commit immediately.
 
-**10b. End-of-run full verification**
+**F3b. End-of-run full verification**
 
 After all batches:
 1. Run full `TEST_COMMAND` (if available).
@@ -283,7 +290,7 @@ After all batches:
    - Resolved failures
 3. Run `TYPECHECK_COMMAND` and `BUILD_COMMAND` when available.
 
-**10c. Auto-revert failing bug commits**
+**F3c. Auto-revert failing bug commits**
 
 For each BUG-ID linked to new failures (excluding flaky tests):
 1. Revert its checkpoint commit with a **60-second timeout**:
@@ -299,7 +306,7 @@ For each BUG-ID linked to new failures (excluding flaky tests):
    - Mark `FIX_FAILED`.
    - Continue to the next BUG-ID.
 
-**10d. Post-fix targeted re-scan (severity-gated)**
+**F3d. Post-fix targeted re-scan (severity-gated)**
 
 Use exact fixed scope from the real base commit:
 1. Run `git diff --unified=0 "$FIX_BASE_COMMIT"..HEAD`.
@@ -312,7 +319,7 @@ Use exact fixed scope from the real base commit:
 
 This removes ambiguity from `<base-branch>` and works for path scans, staged scans, and branch scans.
 
-### Step 11: Determine final bug status
+### F4: Determine final bug status
 
 | Status | Criteria |
 |--------|----------|
@@ -323,7 +330,7 @@ This removes ambiguity from `<base-branch>` and works for path scans, staged sca
 | SKIPPED | Fix not implemented (or circuit-breaker/timeout halted) |
 | FIXER_BUG | Post-fix re-scan found a MEDIUM+ bug introduced by the fix |
 
-### Step 12: Restore user state and report
+### F5: Restore user state and report
 
 **12-pre. Worktree cleanup (safety net)**
 

@@ -86,7 +86,19 @@ agent features, and requested scope:
 - large-codebase for domain-scoped execution;
 - local-sequential when delegation backends are unavailable.
 
-Delegated modes use [`modes/dispatch.md`](../modes/dispatch.md). State records
+Delegated modes use [`modes/dispatch.md`](../modes/dispatch.md). A deterministic
+`payload-guard.cjs render <role> <payload.json> --out <task.md>` command validates
+the payload and fills the wrapper directly from the canonical role skill. The
+orchestrator dispatches `Read <absolute task path> and follow it` without loading
+role text. Read-only tasks omit Fixer/worktree sections and template authoring
+notes. File-incapable backends retain a documented inline fallback.
+
+Large-codebase mode runs one Recon, skips review for empty domain findings, and
+prepares boundary pairs from indexed reverse dependencies. Boundary observations
+matching a unique reviewed file/category/overlapping range reuse that verdict
+before verification; new or ambiguous observations receive normal review.
+
+State records
 queue/chunk progress and run identity so resume cannot silently attach to a
 different target or changed baseline.
 

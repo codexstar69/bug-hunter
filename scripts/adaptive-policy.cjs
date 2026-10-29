@@ -93,8 +93,12 @@ function summarizeTriage(triage) {
     throw new Error('triage must be a JSON object');
   }
   const totalFiles = Math.max(0, number(triage.scannableFiles, number(triage.totalFiles)));
-  const riskMap = triage.riskMap && typeof triage.riskMap === 'object' ? triage.riskMap : {};
-  const count = (key) => Array.isArray(riskMap[key]) ? riskMap[key].length : 0;
+  const riskMap = triage.riskMap && typeof triage.riskMap === 'object' ? triage.riskMap : null;
+  const count = (key) => riskMap
+    ? (Object.hasOwn(riskMap, key) && Array.isArray(riskMap[key]) ? riskMap[key].length : 0)
+    : (Array.isArray(triage.domains) ? triage.domains : []).reduce((sum, domain) => {
+      return sum + Math.max(0, number(domain && domain.riskBreakdown && domain.riskBreakdown[key]));
+    }, 0);
   const critical = count('critical');
   const high = count('high');
   const medium = count('medium');
@@ -102,7 +106,7 @@ function summarizeTriage(triage) {
   const contextOnly = count('context-only');
   const known = critical + high + medium + low + contextOnly;
   const denominator = Math.max(1, known || totalFiles);
-  const averageTokens = Math.max(0, number(triage.avgTokens));
+  const averageTokens = Math.max(0, number(triage.avgTokensPerFile ?? triage.avgTokens));
   const domains = Array.isArray(triage.domains) ? triage.domains.length : 0;
   return {
     totalFiles,
@@ -152,7 +156,7 @@ function calculateRiskScore({ triage, benchmark, securityReview }) {
 
 function chooseProfile({ requestedProfile, riskScore, benchmark, securityReview }) {
   if (requestedProfile && requestedProfile !== 'auto') {
-    if (!PROFILE_DEFAULTS[requestedProfile]) throw new Error(`Unsupported profile: ${requestedProfile}`);
+    if (!Object.hasOwn(PROFILE_DEFAULTS, requestedProfile)) throw new Error(`Unsupported profile: ${requestedProfile}`);
     return requestedProfile;
   }
   if (securityReview || riskScore >= 60 || (benchmark.available && benchmark.recall < 0.8)) return 'assurance';
@@ -190,14 +194,14 @@ function buildAdaptivePolicy({ triage, benchmarkReport = null, requestedProfile 
     reasons.push('reduced per-chunk context because measured tokens per confirmed bug are high');
   }
   if (triageSummary.averageTokens > 12000) {
-    maxSourceTokens = Math.max(24000, Math.min(maxSourceTokens, triageSummary.averageTokens * 2));
+    maxSourceTokens = Math.max(24000, Math.floor(Math.min(maxSourceTokens, triageSummary.averageTokens * 2)));
     reasons.push('bounded context for unusually large source files');
   }
 
   const criticalWork = triageSummary.critical > 0 || securityReview;
   const reviewerPolicy = {
     skepticPasses,
-    refereeMode: criticalWork ? 'all-critical-and-disputed' : defaults.refereeMode,
+    refereeMode: criticalWork && defaults.refereeMode !== 'all' ? 'all-critical-and-disputed' : defaults.refereeMode,
     independentlyVerifyAllWhenFindingsAtMost: profile === 'fast' ? 10 : profile === 'balanced' ? 20 : 40,
     independentlyVerifyCritical: true,
     disputedFindingsAlwaysEscalate: true

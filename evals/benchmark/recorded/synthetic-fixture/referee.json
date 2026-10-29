@@ -1,0 +1,47 @@
+[
+  {
+    "bugId": "FIXTURE-2-1",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "Critical",
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "verificationMode": "EVIDENCE_BASED",
+    "analysisSummary": "Synthetic recorder contract example."
+  },
+  {
+    "bugId": "FIXTURE-2-2",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "verificationMode": "EVIDENCE_BASED",
+    "analysisSummary": "Synthetic recorder contract example."
+  },
+  {
+    "bugId": "FIXTURE-2-3",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "verificationMode": "EVIDENCE_BASED",
+    "analysisSummary": "Synthetic recorder contract example."
+  },
+  {
+    "bugId": "FIXTURE-2-4",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "Medium",
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "verificationMode": "EVIDENCE_BASED",
+    "analysisSummary": "Synthetic recorder contract example."
+  },
+  {
+    "bugId": "FIXTURE-2-6",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "verificationMode": "EVIDENCE_BASED",
+    "analysisSummary": "Synthetic recorder contract example."
+  }
+]

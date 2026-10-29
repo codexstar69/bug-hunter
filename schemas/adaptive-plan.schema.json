@@ -36,7 +36,15 @@
         "preferSymbolSlices": { "type": "boolean" }
       }
     },
-    "reviewerPolicy": { "type": "object" },
+    "reviewerPolicy": {
+      "type": "object",
+      "properties": {
+        "refereeMode": {
+          "type": "string",
+          "enum": ["critical-plus-disputed", "all-small-critical-plus-disputed-large", "all-critical-and-disputed", "all"]
+        }
+      }
+    },
     "earlyStop": { "type": "object" },
     "verificationPolicy": { "type": "object" },
     "modelPolicy": { "type": "object" },

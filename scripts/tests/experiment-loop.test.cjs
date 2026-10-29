@@ -500,13 +500,13 @@ test('init accepts --max-iterations and stores it in config', () => {
   assert.equal(status.remaining, 5);
 });
 
-test('init uses default max iterations (10) when not specified', () => {
+test('init uses default max iterations (12) when not specified', () => {
   const sandbox = makeSandbox('exp-max-iter-default-');
   const logPath = path.join(sandbox, 'experiment.jsonl');
 
   runJson('node', [SCRIPT, 'init', logPath, 'test', 'metric', 'higher']);
   const status = runJson('node', [SCRIPT, 'status', logPath]);
-  assert.equal(status.maxIterations, 10);
+  assert.equal(status.maxIterations, 12);
 });
 
 // ---------------------------------------------------------------------------
@@ -525,8 +525,8 @@ test('check-continue returns true when conditions are met', () => {
   assert.equal(result.ok, true);
   assert.equal(result.continue, true);
   assert.equal(result.iteration, 1);
-  assert.equal(result.maxIterations, 10);
-  assert.equal(result.remaining, 10);
+  assert.equal(result.maxIterations, 12);
+  assert.equal(result.remaining, 12);
 });
 
 test('check-continue stops at max iterations', () => {
@@ -707,7 +707,7 @@ test('log handles negative metric values correctly', () => {
 // zero and negative max-iterations edge cases
 // ---------------------------------------------------------------------------
 
-test('init with zero max-iterations defaults to 10', () => {
+test('init with zero max-iterations defaults to 12', () => {
   const sandbox = makeSandbox('exp-zero-max-');
   const logPath = path.join(sandbox, 'experiment.jsonl');
 
@@ -721,7 +721,7 @@ test('init with zero max-iterations defaults to 10', () => {
   assert.ok(status.maxIterations >= 1, `maxIterations should be >= 1, got ${status.maxIterations}`);
 });
 
-test('init with negative max-iterations defaults to 10', () => {
+test('init with negative max-iterations defaults to 12', () => {
   const sandbox = makeSandbox('exp-neg-max-');
   const logPath = path.join(sandbox, 'experiment.jsonl');
 

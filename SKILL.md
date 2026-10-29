@@ -170,9 +170,9 @@ Before creating run state:
    optimization, not a correctness requirement; `local-sequential` is a valid
    complete backend.
 
-When a delegated backend is used, follow `modes/dispatch.md` and
-`templates/subagent-wrapper.md`. Validate role payloads before launch with
-`scripts/payload-guard.cjs` and validate canonical artifacts after completion.
+When delegating, read only `modes/dispatch.md`. The deterministic renderer
+reads the wrapper and role skill; the orchestrator does not load either.
+Validate canonical artifacts after completion.
 
 ## 3. Deterministic triage before model work
 
@@ -192,8 +192,8 @@ and expansion.
 
 The runtime builds adaptive chunks from the **combined estimated source tokens
 of the actual assigned files**, preserving risk order. Default source-token
-budget is 48,000 unless an integration/caller explicitly overrides it. A single
-oversized file is isolated and marked instead of being hidden inside an
+budget is 48,000 (`SOURCE_TOKEN_BUDGET=48000`) unless an integration/caller
+explicitly overrides it. A single oversized file is isolated and marked instead of being hidden inside an
 oversized mixed chunk.
 
 See `docs/precision-protocol.md` for exact fail-closed evidence invariants.
@@ -218,26 +218,10 @@ driver.
 
 ## 4. Optional measurable context
 
-Integrations driving `scripts/run-bug-hunter.cjs` may provide schema-valid:
-
-- `.bug-hunter/benchmark-report.json`;
-- `.bug-hunter/adaptive-plan.json` (`auto`, `fast`, `balanced`, `assurance`);
-- `.bug-hunter/retrieval-plan.json`;
-- exact-hash evidence-cache facts;
-- `.bug-hunter/verification-plan.json` / `verification-report.json`.
-
-These are bounded **evidence/context policies**, not new permissions. Explicit
-caller source/chunk/token/confidence settings take precedence. An adaptive plan
-cannot broaden repository scope or grant mutation authority.
-
-Hypothesis-directed retrieval should load mandatory/direct evidence first and
-admit optional symbols, dependencies, dependents, cross-references, and trust
-boundaries only while hard budgets remain.
-
-Evidence-cache hits are hints bound to exact source/protocol/role/options/
-hypothesis identity. Re-check current assigned source before relying on them.
-
-See `docs/world-class-protocol.md` for the measurable architecture.
+Schema-valid `adaptive-plan.json`, `retrieval-plan.json`, `benchmark-report.json`,
+and exact source/content-addressed cache facts may narrow context, never scope
+or authority. Explicit caller settings win; recheck current source. Read
+`docs/world-class-protocol.md` only when these integration artifacts are supplied.
 
 ## 5. Optional security context
 
@@ -280,7 +264,9 @@ Security workflow intent alone never grants Fixer authority.
 Canonical role instructions live under `skills/`; compatibility files under
 `prompts/` are generated copies and are not an independent source of truth.
 
-Load only the role needed for the current phase:
+For local-sequential execution, read only the current role. Delegated execution
+uses `payload-guard.cjs render`; the renderer loads role text from disk without
+passing it through the orchestrator. Do not read role skills to prepare dispatches.
 
 | Phase | Canonical instructions |
 |---|---|
@@ -413,29 +399,10 @@ recommend `--loop` when full queued coverage is desired.
 
 ## 12. Plan and fix only with authority
 
-If there are confirmed bugs and `PLAN_ONLY_MODE=true` or `FIX_MODE=true`, build
-canonical remediation strategy/plan artifacts. Classify findings before
-creating executable Fixer work.
-
-Only Referee-confirmed, confidence-eligible, `safe-autofix` entries in the
-validated canary/rollout plan may enter immutable Fixer scope. Entries marked
-`manual-review`, `larger-refactor`, `architectural-remediation`, conflicting,
-or report-only remain non-writable regardless of severity.
-
-Canonical remediation files include:
-
-- `.bug-hunter/fix-strategy.json`
-- `.bug-hunter/fix-plan.json`
-- `.bug-hunter/fixer-scope.json`
-- `.bug-hunter/fix-report.json`
-
-For actual mutation, read `modes/fix-pipeline.md` and `skills/fixer/SKILL.md`.
-Preserve Git/worktree/lock/canary/circuit-breaker/rollback safeguards. Requested
-worktree isolation must not silently fall back to direct edits. Commit only
-when `AUTO_COMMIT=true`, and only approved paths.
-
-If `DRY_RUN_MODE=true`, stop before edits/lock/commits and report planned output
-as a preview, not an applied fix.
+Confirmed bugs with `PLAN_ONLY_MODE=true` or `FIX_MODE=true` route to
+`modes/fix-pipeline.md`. Only eligible `safe-autofix` entries in validated
+`fixer-scope.json` are writable. `DRY_RUN_MODE=true` stops before edits, locks,
+or commits; planning alone never grants mutation authority.
 
 ## Canonical artifacts
 
@@ -458,26 +425,6 @@ Important schema-backed artifacts under `.bug-hunter/`:
 | `fixer-scope.json` | immutable mutation boundary |
 | `fix-report.json` | remediation/verification/rollback result |
 | `benchmark-report.json` | precision/recall/calibration/stability/cost/latency metrics |
-
-## Quality and benchmarking
-
-For source development, the full repository gate is:
-
-```bash
-pnpm quality:world-class
-```
-
-The bundled benchmark fixture validates the measurement/gating contract. It is
-not independent proof of universal superiority. External claims require unseen
-repositories, blinded labels, repeated runs, disclosed model/runtime versions,
-and comparable baselines. See `docs/world-class-protocol.md`.
-
-## Self-test
-
-From a **source checkout**, the development fixture can be scanned in read-only
-mode and scored with `evals/evaluate-fixture.cjs`. The npm runtime may exclude
-development fixture answers. Use the benchmark gate for deterministic protocol
-regression rather than copying a historical test-count claim into this skill.
 
 ## Failure policy
 

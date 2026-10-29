@@ -108,6 +108,26 @@ When submitting role changes:
   into every assignment;
 - preserve immutable scope and Referee-only fix authorization.
 
+## Quality and benchmarking
+
+For source development, the full repository gate is:
+
+```bash
+pnpm quality:world-class
+```
+
+The bundled benchmark fixture validates the measurement/gating contract. It is
+not independent proof of universal superiority. External claims require unseen
+repositories, blinded labels, repeated runs, disclosed model/runtime versions,
+and comparable baselines. See `docs/world-class-protocol.md`.
+
+## Self-test
+
+From a **source checkout**, the development fixture can be scanned in read-only
+mode and scored with `evals/evaluate-fixture.cjs`. The npm runtime may exclude
+development fixture answers. Use the benchmark gate for deterministic protocol
+regression rather than copying a historical test-count claim into this skill.
+
 ## Benchmark and protocol changes
 
 The bundled benchmark is calibration/regression data, not an external ranking.

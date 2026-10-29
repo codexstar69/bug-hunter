@@ -204,7 +204,7 @@ test('doctor verifies the installed runtime and ignores user-owned files', () =>
   }
 });
 
-test('doctor fails closed for missing and outdated install manifests', () => {
+test('doctor rejects outdated manifests and warns for complete unmanaged installs', () => {
   fs.mkdirSync(TEST_ROOT, { recursive: true });
   const sandboxRoot = path.join(
     TEST_ROOT,
@@ -229,8 +229,8 @@ test('doctor fails closed for missing and outdated install manifests', () => {
 
     fs.rmSync(manifestPath);
     const missingResult = runDoctor({ sourceRoot, targetRoot });
-    assert.equal(missingResult.status, 1);
-    assert.match(missingResult.stderr, /Install manifest is missing/);
+    assert.equal(missingResult.status, 0, missingResult.stderr);
+    assert.match(missingResult.stdout, /unmanaged install v1\.0\.0/);
   } finally {
     fs.rmSync(sandboxRoot, { recursive: true, force: true });
   }

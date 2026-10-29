@@ -3,6 +3,8 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const { isDeadLocalPid, reclaimDeadLinkLock } = require('./link-lock.cjs');
 
 const DEFAULT_MAX_ENTRIES = 10000;
 const DEFAULT_MAX_BYTES = 128 * 1024 * 1024;
@@ -67,20 +69,23 @@ function isOutsideRoot(root, candidate) {
   return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
 }
 
-function entryPath(cacheRoot, key) {
+function entryPath(cacheRoot, key, create = true) {
   if (!/^[a-f0-9]{64}$/.test(String(key))) throw new Error('cache key must be a SHA-256 hex digest');
-  const root = canonicalCacheRoot(cacheRoot);
+  const resolved = path.resolve(cacheRoot);
+  if (!create && !safeStat(resolved)) return path.join(resolved, key.slice(0, 2), `${key}.json`);
+  const root = create ? canonicalCacheRoot(resolved) : fs.realpathSync(resolved);
   const directory = path.join(root, key.slice(0, 2));
-  if (fs.existsSync(directory) && fs.lstatSync(directory).isSymbolicLink()) {
+  if (safeStat(directory)?.isSymbolicLink()) {
     throw new Error('cache shard must not be a symbolic link');
   }
-  fs.mkdirSync(directory, { recursive: true });
+  if (create) fs.mkdirSync(directory, { recursive: true });
+  if (!create && !safeStat(directory)) return path.join(directory, `${key}.json`);
   const canonicalDirectory = fs.realpathSync(directory);
   if (isOutsideRoot(root, canonicalDirectory)) {
     throw new Error('cache shard escaped cache root');
   }
   const target = path.join(canonicalDirectory, `${key}.json`);
-  if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) {
+  if (safeStat(target)?.isSymbolicLink()) {
     throw new Error('cache entry must not be a symbolic link');
   }
   if (isOutsideRoot(root, target)) {
@@ -101,14 +106,60 @@ function writeAtomic(filePath, value) {
   }
 }
 
+function safeStat(filePath) {
+  try { return fs.lstatSync(filePath); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+function controlPath(root, name) {
+  const target = path.join(root, name);
+  if (safeStat(target)?.isSymbolicLink()) throw new Error('cache metadata must not be a symbolic link');
+  return target;
+}
+
+// Serialize capacity accounting across CLI processes. Hard-link installation
+// publishes a complete owner record, so an interrupted owner can be reclaimed.
+function withMaintenance(cacheRoot, operation) {
+  const root = canonicalCacheRoot(cacheRoot);
+  const lock = controlPath(root, '.capacity-lock');
+  const token = crypto.randomUUID();
+  const candidate = path.join(root, `.capacity-lock.${token}.tmp`);
+  fs.writeFileSync(candidate, JSON.stringify({ pid: process.pid, host: os.hostname(), token }), { flag: 'wx' });
+  const deadline = Date.now() + 30000;
+  try {
+    while (true) {
+      try { fs.linkSync(candidate, lock); break; }
+      catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        controlPath(root, '.capacity-lock');
+        let owner;
+        try { owner = readJson(lock); }
+        catch (readError) { if (readError.code === 'ENOENT') continue; throw readError; }
+        if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error('cache maintenance lock is malformed');
+        // A PID is only meaningful on its own host; a remote owner is waited out.
+        const local = !owner.host || owner.host === os.hostname();
+        if (local && isDeadLocalPid(owner.pid) && reclaimDeadLinkLock(lock, owner) !== 'busy') continue;
+        if (Date.now() >= deadline) throw new Error('cache maintenance lock is busy');
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+    }
+    try { return operation(root); }
+    finally { fs.unlinkSync(lock); }
+  } finally { fs.unlinkSync(candidate); }
+}
+
 function listEntries(cacheRoot) {
   const root = canonicalCacheRoot(cacheRoot);
   const entries = [];
   for (const directory of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!directory.isDirectory() || !/^[a-f0-9]{2}$/.test(directory.name)) continue;
+    if (!/^[a-f0-9]{2}$/.test(directory.name)) continue;
+    if (directory.isSymbolicLink()) throw new Error('cache shard must not be a symbolic link');
+    if (!directory.isDirectory()) continue;
     const directoryPath = path.join(root, directory.name);
     for (const file of fs.readdirSync(directoryPath, { withFileTypes: true })) {
-      if (!file.isFile() || !/^[a-f0-9]{64}\.json$/.test(file.name)) continue;
+      if (!/^[a-f0-9]{64}\.json$/.test(file.name)) continue;
+      if (file.isSymbolicLink()) throw new Error('cache entry must not be a symbolic link');
+      if (!file.isFile()) continue;
       const filePath = path.join(directoryPath, file.name);
       const stat = fs.statSync(filePath);
       entries.push({ filePath, size: stat.size, mtimeMs: stat.mtimeMs });
@@ -117,98 +168,159 @@ function listEntries(cacheRoot) {
   return entries;
 }
 
-function getEntry(cacheRoot, key, now = Date.now()) {
-  const filePath = entryPath(cacheRoot, key);
-  if (!fs.existsSync(filePath)) return { hit: false, key, value: null, metadata: null };
-  const record = readJson(filePath);
-  if (!record || record.schemaVersion !== 1 || record.key !== key) {
-    throw new Error(`cache entry is malformed: ${filePath}`);
-  }
-  const expiresAtMs = Date.parse(record.expiresAt);
-  if (Number.isFinite(expiresAtMs) && expiresAtMs <= now) {
-    fs.unlinkSync(filePath);
-    return { hit: false, key, value: null, metadata: { expired: true } };
-  }
-  record.lastAccessedAt = new Date(now).toISOString();
-  record.hits = Number(record.hits || 0) + 1;
-  writeAtomic(filePath, record);
+function readRecord(filePath, key) {
+  let record;
+  try { record = readJson(filePath); }
+  catch (error) { if (error instanceof SyntaxError || error.code === 'ENOENT') return null; throw error; }
+  if (!record || record.schemaVersion !== 1 || record.key !== key || !Number.isFinite(Date.parse(record.expiresAt)) || !Object.hasOwn(record, 'value')) return null;
+  return record;
+}
+
+function limitsFor(options) {
   return {
-    hit: true,
-    key,
-    value: record.value,
-    metadata: {
-      createdAt: record.createdAt,
-      expiresAt: record.expiresAt,
-      lastAccessedAt: record.lastAccessedAt,
-      hits: record.hits,
-      descriptor: record.descriptor
+    maxEntries: positiveInteger(options.maxEntries, DEFAULT_MAX_ENTRIES, 'maxEntries'),
+    maxBytes: positiveInteger(options.maxBytes, DEFAULT_MAX_BYTES, 'maxBytes'),
+    maxAgeDays: positiveInteger(options.maxAgeDays, DEFAULT_MAX_AGE_DAYS, 'maxAgeDays')
+  };
+}
+
+function readCapacity(root) {
+  const target = controlPath(root, '.capacity.json');
+  let data;
+  try { data = readJson(target); }
+  catch (error) { if (error instanceof SyntaxError || error.code === 'ENOENT') return null; throw error; }
+  if (!data || data.schemaVersion !== 1 || data.dirty || ![data.entries, data.bytes, data.putsSincePrune].every((value) => Number.isSafeInteger(value) && value >= 0)) return null;
+  return data;
+}
+
+function saveCapacity(root, data) {
+  writeAtomic(controlPath(root, '.capacity.json'), { schemaVersion: 1, ...data });
+}
+
+function sweepStaleLockTemps(root, now) {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!/^\.capacity-lock\.[a-f0-9-]+\.tmp$/.test(entry.name) || !entry.isFile()) continue;
+    const temporary = path.join(root, entry.name);
+    let owner;
+    try { owner = readJson(temporary); }
+    catch (error) {
+      if (error.code === 'ENOENT') continue;
+      if (!(error instanceof SyntaxError)) throw error;
+      if (now - fs.statSync(temporary).mtimeMs > 30000) fs.unlinkSync(temporary);
+      continue;
     }
+    if (owner.host && owner.host !== os.hostname()) continue;
+    if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) continue;
+    try { process.kill(owner.pid, 0); }
+    catch (error) {
+      if (error.code === 'ESRCH') fs.unlinkSync(temporary);
+      else if (error.code !== 'EPERM') throw error;
+    }
+  }
+}
+
+function pruneUnlocked(root, limits, now, headroom = false) {
+  sweepStaleLockTemps(root, now);
+  const cutoff = now - limits.maxAgeDays * 86400000;
+  const entries = listEntries(root);
+  const retained = [];
+  const removedEntries = [];
+  let totalBytes = 0;
+  for (const entry of entries) {
+    const key = path.basename(entry.filePath, '.json');
+    const record = readRecord(entry.filePath, key);
+    if (!record || Date.parse(record.expiresAt) <= now || entry.mtimeMs < cutoff) {
+      fs.unlinkSync(entry.filePath);
+      removedEntries.push({ filePath: entry.filePath, reason: 'expired-or-malformed' });
+    } else {
+      retained.push(entry);
+      totalBytes += entry.size;
+    }
+  }
+  // Fixed recency buckets keep maintenance linear, favoring older entries
+  // without an O(n log n) sort on each periodic/capacity sweep.
+  const oldest = retained.reduce((min, entry) => Math.min(min, entry.mtimeMs), Infinity);
+  const newest = retained.reduce((max, entry) => Math.max(max, entry.mtimeMs), -Infinity);
+  const buckets = Array.from({ length: 64 }, () => []);
+  for (const entry of retained) {
+    const bucket = newest > oldest ? Math.floor((entry.mtimeMs - oldest) / (newest - oldest) * 63) : 0;
+    buckets[bucket].push(entry);
+  }
+  const evictionOrder = buckets.flat();
+  const entryLimit = headroom ? Math.max(1, Math.floor(limits.maxEntries * 0.8)) : limits.maxEntries;
+  const byteLimit = headroom ? Math.floor(limits.maxBytes * 0.8) : limits.maxBytes;
+  let offset = 0;
+  while (retained.length - offset > entryLimit || totalBytes > byteLimit) {
+    const entry = evictionOrder[offset++];
+    if (!entry) break;
+    fs.unlinkSync(entry.filePath);
+    totalBytes -= entry.size;
+    removedEntries.push({ filePath: entry.filePath, reason: 'capacity' });
+  }
+  const remainingEntries = retained.length - offset;
+  saveCapacity(root, { entries: remainingEntries, bytes: totalBytes, putsSincePrune: 0 });
+  return { ok: true, removed: removedEntries.length, removedEntries, remainingEntries, remainingBytes: totalBytes, limits };
+}
+
+function getEntry(cacheRoot, key, now = Date.now()) {
+  const filePath = entryPath(cacheRoot, key, false);
+  const record = readRecord(filePath, key);
+  if (!record || Date.parse(record.expiresAt) <= now) {
+    return { hit: false, key, value: null, metadata: record ? { expired: true } : null };
+  }
+  // Reads are immutable and lock-free. Prune owns expiry deletion and capacity
+  // accounting; access telemetry must not turn a cache hit into a write lease.
+  return {
+    hit: true, key, value: record.value,
+    metadata: { createdAt: record.createdAt, expiresAt: record.expiresAt, lastAccessedAt: record.lastAccessedAt, hits: record.hits, descriptor: record.descriptor }
   };
 }
 
 function pruneCache(cacheRoot, options = {}, now = Date.now()) {
-  const maxEntries = positiveInteger(options.maxEntries, DEFAULT_MAX_ENTRIES, 'maxEntries');
-  const maxBytes = positiveInteger(options.maxBytes, DEFAULT_MAX_BYTES, 'maxBytes');
-  const maxAgeDays = positiveInteger(options.maxAgeDays, DEFAULT_MAX_AGE_DAYS, 'maxAgeDays');
-  const cutoff = now - (maxAgeDays * 24 * 60 * 60 * 1000);
-  let entries = listEntries(cacheRoot);
-  const removed = [];
-  for (const entry of entries) {
-    let expired = entry.mtimeMs < cutoff;
-    if (!expired) {
-      try {
-        const record = readJson(entry.filePath);
-        const expiresAt = Date.parse(record.expiresAt);
-        expired = Number.isFinite(expiresAt) && expiresAt <= now;
-      } catch {
-        expired = true;
-      }
-    }
-    if (expired) {
-      fs.unlinkSync(entry.filePath);
-      removed.push({ filePath: entry.filePath, reason: 'expired-or-malformed' });
-    }
-  }
-  entries = listEntries(cacheRoot).sort((a, b) => a.mtimeMs - b.mtimeMs);
-  let totalBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
-  while (entries.length > maxEntries || totalBytes > maxBytes) {
-    const entry = entries.shift();
-    if (!entry) break;
-    fs.unlinkSync(entry.filePath);
-    totalBytes -= entry.size;
-    removed.push({ filePath: entry.filePath, reason: 'capacity' });
-  }
-  return {
-    ok: true,
-    removed: removed.length,
-    removedEntries: removed,
-    remainingEntries: entries.length,
-    remainingBytes: Math.max(0, totalBytes),
-    limits: { maxEntries, maxBytes, maxAgeDays }
-  };
+  const limits = limitsFor(options);
+  return withMaintenance(cacheRoot, (root) => {
+    // A crash during deletion leaves accounting explicitly untrusted.
+    saveCapacity(root, { dirty: true });
+    return pruneUnlocked(root, limits, now);
+  });
 }
 
 function putEntry(cacheRoot, descriptor, value, options = {}, now = Date.now()) {
-  if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) {
-    throw new Error('cache descriptor must be a JSON object');
-  }
+  if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) throw new Error('cache descriptor must be a JSON object');
   const key = hashDescriptor(descriptor);
-  const maxAgeDays = positiveInteger(options.maxAgeDays, DEFAULT_MAX_AGE_DAYS, 'maxAgeDays');
-  const filePath = entryPath(cacheRoot, key);
-  const existing = fs.existsSync(filePath) ? readJson(filePath) : null;
-  const record = {
-    schemaVersion: 1,
-    key,
-    descriptor: stableValue(descriptor),
-    value,
-    createdAt: existing && existing.createdAt || new Date(now).toISOString(),
-    lastAccessedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + (maxAgeDays * 24 * 60 * 60 * 1000)).toISOString(),
-    hits: existing ? Number(existing.hits || 0) : 0
-  };
-  writeAtomic(filePath, record);
-  const prune = pruneCache(cacheRoot, options, now);
-  return { ok: true, key, filePath, prune };
+  const limits = limitsFor(options);
+  return withMaintenance(cacheRoot, (root) => {
+    const filePath = entryPath(root, key);
+    let capacity = readCapacity(root);
+    if (!capacity) {
+      pruneUnlocked(root, limits, now);
+      capacity = readCapacity(root);
+    }
+    const existing = readRecord(filePath, key);
+    const previousSize = safeStat(filePath)?.size || 0;
+    const record = {
+      schemaVersion: 1, key, descriptor: stableValue(descriptor), value,
+      createdAt: existing && existing.createdAt || new Date(now).toISOString(),
+      lastAccessedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + limits.maxAgeDays * 86400000).toISOString(),
+      hits: existing ? Number(existing.hits || 0) : 0
+    };
+    // Persist intent first: interrupted entry/metadata writes force one rebuild.
+    saveCapacity(root, { ...capacity, dirty: true });
+    writeAtomic(filePath, record);
+    capacity.entries += previousSize ? 0 : 1;
+    capacity.bytes += fs.statSync(filePath).size - previousSize;
+    capacity.putsSincePrune += 1;
+    let prune;
+    // Batch eviction creates headroom, preventing a full sweep on each put at capacity.
+    if (capacity.entries > limits.maxEntries || capacity.bytes > limits.maxBytes || capacity.putsSincePrune >= Math.max(16, Math.floor(limits.maxEntries / 4))) {
+      prune = pruneUnlocked(root, limits, now, capacity.entries > limits.maxEntries || capacity.bytes > limits.maxBytes);
+    } else {
+      saveCapacity(root, capacity);
+      prune = { ok: true, removed: 0, removedEntries: [], remainingEntries: capacity.entries, remainingBytes: capacity.bytes, limits };
+    }
+    return { ok: true, key, filePath, prune };
+  });
 }
 
 function cacheStats(cacheRoot) {

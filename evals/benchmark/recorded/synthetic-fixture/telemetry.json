@@ -1,0 +1,6 @@
+{
+  "inputTokens": 10000,
+  "outputTokens": 2000,
+  "durationMs": 50000,
+  "costUsd": 0.15
+}
