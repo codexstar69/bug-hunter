@@ -241,6 +241,28 @@ test('verifier passes when an exited leader leaves a short-lived closed-pipe des
   assertReport(report);
 });
 
+test('verifier keeps waiting when a draining group answers EPERM (macOS zombie members)', {
+  skip: process.platform === 'win32', timeout: 10000
+}, async (t) => {
+  const repoRoot = sandbox(t);
+  const realKill = process.kill;
+  let epermProbes = 0;
+  process.kill = function kill(pid, signal) {
+    if (pid < 0 && signal === 0 && epermProbes < 3) {
+      epermProbes += 1;
+      throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+    }
+    return realKill.call(process, pid, signal);
+  };
+  t.after(() => { process.kill = realKill; });
+  const report = await runPlan({ repoRoot, totalBudgetMs: 5000,
+    plan: plan(check({ timeoutMs: 3000, command: [process.execPath, '-e', 'process.exit(0)'] })) });
+  assert.equal(epermProbes, 3);
+  assert.equal(report.checks[0].status, 'PASS');
+  assert.equal(report.checks[0].errorCode, null);
+  assertReport(report);
+});
+
 test('verifier timeout does not retain a successful pre-timeout leader exit code', {
   skip: process.platform === 'win32', timeout: 10000
 }, async (t) => {

@@ -382,6 +382,9 @@ function executeCheck(check, maxOutputBytes, deadlineMs) {
         process.kill(-child.pid, 0);
         return true;
       } catch (error) {
+        // macOS answers EPERM while the group's last members are exiting zombies
+        // awaiting reaping: still alive. The check deadline bounds the wait.
+        if (error.code === 'EPERM') return true;
         if (error.code !== 'ESRCH') spawnError = error;
         return false;
       }

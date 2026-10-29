@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pnpm verify:package` now reads the `npm pack --json` output of npm 12, which is an object keyed by package name
   instead of an array. The 3.2.0 publish run stopped at this step, so 3.2.0 never reached npm; 3.2.1 carries the
   same changes.
+- The hybrid verifier no longer reports a passing check as `ERROR` on macOS when the check leaves a short-lived
+  descendant. macOS answers `EPERM` to a process-group probe while the group's last members are exiting; the verifier
+  now keeps waiting for the group to drain, bounded by the check deadline.
 
 ## [3.2.0] - 2026-10-29
 
