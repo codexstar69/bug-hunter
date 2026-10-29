@@ -9,6 +9,10 @@ const { DEFAULT_KILL_GRACE_MS, runCommandOnce } = require('./process-runner.cjs'
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TOTAL_BUDGET_MS = 600000;
+// A check left less than this cannot spawn and settle (executeCheck reserves its
+// settle grace from the same window); report it as skipped for budget, not as a
+// guaranteed TIMEOUT. Matches the 100 ms timer-dispatch drift the wall contract allows.
+const MIN_CHECK_WINDOW_MS = 100;
 const SAFE_ENV_KEYS = Object.freeze([
   'PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'CI', 'SYSTEMROOT', 'COMSPEC', 'PATHEXT',
   'LANG', 'LC_ALL', 'TERM', 'NODE_OPTIONS'
@@ -522,7 +526,7 @@ async function runPlan({ repoRoot, plan, totalBudgetMs = DEFAULT_TOTAL_BUDGET_MS
   const results = [];
   for (const check of validation.normalizedChecks) {
     const elapsed = Date.now() - startedAt;
-    if (elapsed >= totalBudgetMs) {
+    if (totalBudgetMs - elapsed < MIN_CHECK_WINDOW_MS) {
       results.push({
         id: check.id,
         kind: check.kind,

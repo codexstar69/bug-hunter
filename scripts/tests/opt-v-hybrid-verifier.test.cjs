@@ -241,6 +241,35 @@ test('verifier passes when an exited leader leaves a short-lived closed-pipe des
   assertReport(report);
 });
 
+test('a check left less than the minimum run window is skipped for budget, not timed out', {
+  skip: process.platform === 'win32', timeout: 10000
+}, async (t) => {
+  const repoRoot = sandbox(t);
+  const marker = path.join(repoRoot, 'running');
+  const totalBudgetMs = 1000;
+  // Only Date is mocked: the first check's settle lands 2 ms before the plan
+  // deadline, as when libuv's cached loop time trails the wall clock under load.
+  t.mock.timers.enable({ apis: ['Date'], now: 1000000 });
+  const advance = setInterval(() => {
+    if (!fs.existsSync(marker)) return;
+    clearInterval(advance);
+    t.mock.timers.tick(totalBudgetMs - 2);
+  }, 5);
+  t.after(() => clearInterval(advance));
+  const report = await runPlan({ repoRoot, totalBudgetMs,
+    plan: plan(
+      check({ id: 'first', timeoutMs: 5000, command: [process.execPath, '-e', `
+        require('node:fs').writeFileSync(${JSON.stringify(marker)}, '');
+        setTimeout(() => process.exit(0), 200);
+      `] }),
+      check({ id: 'second' })
+    ) });
+  assert.equal(report.checks[0].status, 'PASS');
+  assert.equal(report.checks[1].status, 'SKIPPED_BUDGET');
+  assert.equal(report.ok, false);
+  assertReport(report);
+});
+
 test('verifier keeps waiting when a draining group answers EPERM (macOS zombie members)', {
   skip: process.platform === 'win32', timeout: 10000
 }, async (t) => {

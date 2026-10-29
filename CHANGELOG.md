@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The hybrid verifier no longer reports a passing check as `ERROR` on macOS when the check leaves a short-lived
   descendant. macOS answers `EPERM` to a process-group probe while the group's last members are exiting; the verifier
   now keeps waiting for the group to drain, bounded by the check deadline.
+- A verification check left less than 100 ms of the plan budget is reported as `SKIPPED_BUDGET` instead of starting
+  and ending as a guaranteed `TIMEOUT`. On a loaded host the previous check could settle a few milliseconds before the
+  plan deadline, so the next check started with almost no time.
 
 ## [3.2.0] - 2026-10-29
 
