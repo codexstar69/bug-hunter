@@ -1,6 +1,6 @@
 {
   "name": "@codexstar/bug-hunter",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "Measurable adversarial AI bug hunter with precision-first review, adaptive evidence retrieval, hybrid verification, and explicitly authorized fixing.",
   "license": "MIT",
   "main": "bin/bug-hunter",

@@ -15,6 +15,17 @@ const FORBIDDEN_PREFIXES = [
   'test-fixture/'
 ];
 
+// npm <= 11 prints `[inventory]`; npm 12 prints `{ "<package name>": inventory }`.
+function packInventory(parsed) {
+  const entries = Array.isArray(parsed)
+    ? parsed
+    : (parsed && typeof parsed === 'object' ? Object.values(parsed) : []);
+  if (entries.length !== 1 || !entries[0] || !Array.isArray(entries[0].files)) {
+    throw new Error('npm pack did not return a file inventory');
+  }
+  return entries[0];
+}
+
 function main() {
   const projectRoot = path.resolve(__dirname, '..');
   const result = childProcess.spawnSync(
@@ -33,10 +44,7 @@ function main() {
   if (result.status !== 0) {
     throw new Error((result.stderr || result.stdout || 'npm pack inventory failed').trim());
   }
-  const [inventory] = JSON.parse(result.stdout);
-  if (!inventory || !Array.isArray(inventory.files)) {
-    throw new Error('npm pack did not return a file inventory');
-  }
+  const inventory = packInventory(JSON.parse(result.stdout));
   const forbidden = inventory.files.map((entry) => {
     return entry.path;
   }).filter((filePath) => {
@@ -73,10 +81,14 @@ function main() {
   }
 }
 
-try {
-  main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exit(1);
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  }
 }
+
+module.exports = { packInventory };
